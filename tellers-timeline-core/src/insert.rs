@@ -1,9 +1,8 @@
 use crate::{Item, Seconds, Track};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OverridePolicy {
+pub enum OverlapPolicy {
     Override,
-    Naive,
     Keep,
     Push,
 }
@@ -39,7 +38,7 @@ impl Track {
         &mut self,
         start_time: Seconds,
         item: Item,
-        overlap_policy: OverridePolicy,
+        overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
     ) {
         let duration = item.duration();
@@ -47,17 +46,17 @@ impl Track {
         let effective_start = self.compute_effective_start(start_time, containing_index, insert_policy);
 
         match overlap_policy {
-            OverridePolicy::Naive | OverridePolicy::Keep => {
+            OverlapPolicy::Keep => {
                 self.do_boundary_insert(effective_start, containing_index, insert_policy, item);
             }
-            OverridePolicy::Override => {
+            OverlapPolicy::Override => {
                 if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
                     self.do_override_split_and_insert(effective_start, duration, item);
                 } else {
                     self.do_override_insert(effective_start, duration, item);
                 }
             }
-            OverridePolicy::Push => {
+            OverlapPolicy::Push => {
                 // Push semantics are equivalent to placing the item at that time in a sequential model
                 // because subsequent items will naturally be shifted later by the inserted duration.
                 if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
@@ -170,7 +169,7 @@ impl Track {
                     continue;
                 }
                 match existing {
-                    Item::Gap(g) => {
+                    Item::Gap(_) => {
                         if offset > 0.0 { new_items.push(make_gap(offset)); }
                         new_items.push(item.clone());
                         let right_dur = (seg_dur - offset).max(0.0);
@@ -225,7 +224,7 @@ impl Track {
                 continue;
             }
             match existing {
-                Item::Gap(g) => {
+                Item::Gap(_) => {
                     let left_dur = (start - seg_start).max(0.0);
                     if left_dur > 0.0 { new_items.push(make_gap(left_dur)); }
                     let right_dur = (seg_end - end).max(0.0);
@@ -320,72 +319,7 @@ impl Track {
         self.items = new_items;
     }
 
-    fn do_push_insert(&mut self, split_time: Seconds, shift_by: Seconds, item: Item) {
-        let original_len = self.items.len();
-        let mut new_items: Vec<Item> = Vec::with_capacity(original_len + 2);
-        let mut pos: Seconds = 0.0;
-        let mut inserted = false;
-        for existing in self.items.drain(..) {
-            let ex_dur = existing.duration().max(0.0);
-            let ex_start = pos;
-            let ex_end = pos + ex_dur;
-            if ex_end <= split_time {
-                new_items.push(existing);
-            } else if ex_start >= split_time {
-                if !inserted {
-                    new_items.push(item.clone());
-                    new_items.push(make_gap(shift_by.max(0.0)));
-                    inserted = true;
-                }
-                new_items.push(existing);
-            } else {
-                // Overlaps split point: split item
-                match existing {
-                    Item::Gap(_) => {
-                        let left_dur = (split_time - ex_start).max(0.0);
-                        if left_dur > 0.0 { new_items.push(make_gap(left_dur)); }
-                        if !inserted {
-                            new_items.push(item.clone());
-                            new_items.push(make_gap(shift_by.max(0.0)));
-                            inserted = true;
-                        }
-                        let right_dur = (ex_end - split_time).max(0.0);
-                        if right_dur > 0.0 { new_items.push(make_gap(right_dur)); }
-                    }
-                    Item::Clip(c) => {
-                        let left_dur = (split_time - ex_start).max(0.0);
-                        if left_dur > 0.0 {
-                            let mut left = c.clone();
-                            left.duration = left_dur;
-                            new_items.push(Item::Clip(left));
-                        }
-                        if !inserted {
-                            new_items.push(item.clone());
-                            new_items.push(make_gap(shift_by.max(0.0)));
-                            inserted = true;
-                        }
-                        let right_dur = (ex_end - split_time).max(0.0);
-                        if right_dur > 0.0 {
-                            let mut right = c.clone();
-                            right.duration = right_dur;
-                            right.source.media_start = c.source.media_start + left_dur;
-                            new_items.push(Item::Clip(right));
-                        }
-                    }
-                }
-            }
-            pos = ex_end;
-        }
-        // If inserting after end
-        if !inserted {
-            let track_end: Seconds = new_items.iter().map(|it| it.duration().max(0.0)).sum();
-            if split_time > track_end + 1e-9 {
-                new_items.push(make_gap((split_time - track_end).max(0.0)));
-            }
-            new_items.push(item);
-        }
-        self.items = new_items;
-    }
+    // fn do_push_insert(&mut self, split_time: Seconds, shift_by: Seconds, item: Item) { /* unused */ }
 
     // Override + SplitAndInsert: split containing item, remove middle region globally, insert item
     fn do_override_split_and_insert(&mut self, start: Seconds, duration: Seconds, item: Item) {

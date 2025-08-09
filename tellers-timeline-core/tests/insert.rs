@@ -1,4 +1,4 @@
-use tellers_timeline_core::{make_gap, Clip, InsertPolicy, Item, MediaSource, OverridePolicy, Track};
+use tellers_timeline_core::{make_gap, Clip, InsertPolicy, Item, MediaSource, Track, OverlapPolicy};
 
 fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
     Item::Clip(Clip {
@@ -22,7 +22,7 @@ fn naive_respects_position_inside_gap_without_split() {
     track.append(make_gap(10.0));
 
     let clip = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(3.0, clip, OverridePolicy::Naive, InsertPolicy::SplitAndInsert);
+    track.insert_at_time_with(3.0, clip, OverlapPolicy::Keep, InsertPolicy::SplitAndInsert);
 
     // Naive respects effective position (SplitAndInsert -> keep requested), but does not split
     assert_eq!(track.items.len(), 2);
@@ -42,7 +42,7 @@ fn naive_respects_position_inside_clip_without_split() {
     track.append(make_clip("c1", 10.0, 0.0));
 
     let clip = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(3.0, clip, OverridePolicy::Naive, InsertPolicy::SplitAndInsert);
+    track.insert_at_time_with(3.0, clip, OverlapPolicy::Keep, InsertPolicy::SplitAndInsert);
 
     // Naive respects effective position but does not split
     assert_eq!(track.items.len(), 2);
@@ -63,7 +63,7 @@ fn override_split_and_insert_removes_overlaps() {
 
     // Insert inside c1 at 3.0 for 4.0 seconds. With Override+Split, we split c1, insert, and remove overlaps in [3,7)
     let ins = make_clip("ins", 4.0, 0.0);
-    track.insert_at_time_with(3.0, ins, OverridePolicy::Override, InsertPolicy::SplitAndInsert);
+    track.insert_at_time_with(3.0, ins, OverlapPolicy::Override, InsertPolicy::SplitAndInsert);
 
     // Expect: c1_left (0..3), ins (3..7), c1_right trimmed to start at 7.0 with remaining (10-7)=3.0, then c2 intact.
     assert_eq!(track.items.len(), 4);
@@ -89,7 +89,7 @@ fn push_split_and_insert_shifts_after_end() {
 
     // Insert inside c1 at 4.0 for 2.0 seconds. With Push+Split, split c1 and insert; items starting at >= end (6.0) shift by 2.0
     let ins = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(4.0, ins, OverridePolicy::Push, InsertPolicy::SplitAndInsert);
+    track.insert_at_time_with(4.0, ins, OverlapPolicy::Push, InsertPolicy::SplitAndInsert);
 
     // Expect: c1_left (0..4), ins (4..6), c1_right (6..10) unchanged timing, then a gap of 2.0 to shift c2 to 12..17
     assert_eq!(track.items.len(), 5);
@@ -115,7 +115,7 @@ fn naive_trailing_gap_when_inserting_after_end() {
     track.append(make_clip("c1", 5.0, 0.0));
 
     let ins = make_clip("ins", 1.0, 0.0);
-    track.insert_at_time_with(10.0, ins, OverridePolicy::Naive, InsertPolicy::InsertBeforeOrAfter);
+    track.insert_at_time_with(10.0, ins, OverlapPolicy::Keep, InsertPolicy::InsertBeforeOrAfter);
 
     assert_eq!(track.items.len(), 3);
     match (&track.items[0], &track.items[1], &track.items[2]) {
@@ -136,7 +136,7 @@ fn keep_trailing_gap_when_inserting_after_end() {
     track.append(make_clip("c1", 2.0, 0.0));
 
     let ins = make_clip("ins", 1.0, 0.0);
-    track.insert_at_time_with(5.0, ins, OverridePolicy::Keep, InsertPolicy::InsertBeforeOrAfter);
+    track.insert_at_time_with(5.0, ins, OverlapPolicy::Keep, InsertPolicy::InsertBeforeOrAfter);
 
     assert_eq!(track.items.len(), 3);
     match (&track.items[0], &track.items[1], &track.items[2]) {
@@ -158,7 +158,7 @@ fn override_trims_or_places_on_boundary() {
     track.append(make_clip("c2", 5.0, 0.0));
 
     let ins = make_clip("ins", 4.0, 0.0);
-    track.insert_at_time_with(3.0, ins, OverridePolicy::Override, InsertPolicy::InsertBeforeOrAfter);
+    track.insert_at_time_with(3.0, ins, OverlapPolicy::Override, InsertPolicy::InsertBeforeOrAfter);
 
     assert_eq!(track.items.len(), 3);
     match (&track.items[0], &track.items[1], &track.items[2]) {
@@ -181,7 +181,7 @@ fn push_splits_or_shifts_on_boundary() {
     track.append(make_clip("c2", 5.0, 0.0));
 
     let ins = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(3.0, ins, OverridePolicy::Push, InsertPolicy::InsertBeforeOrAfter);
+    track.insert_at_time_with(3.0, ins, OverlapPolicy::Push, InsertPolicy::InsertBeforeOrAfter);
 
     assert_eq!(track.items.len(), 3);
     match (&track.items[0], &track.items[1], &track.items[2]) {
