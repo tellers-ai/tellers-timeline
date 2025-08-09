@@ -185,7 +185,7 @@ fn push_splits_or_shifts_on_boundary() {
 
     assert_eq!(track.items.len(), 3);
     match (&track.items[0], &track.items[1], &track.items[2]) {
-        (Item::Clip(c1), Item::Clip(ins), Item::Clip(c2)) => {
+        (Item::Clip(c1), Item::Clip(ins), Item::Clip(_c2)) => {
             // Insertion point falls on boundary (end of c1 at 5.0), so c1 isn't split
             assert!((c1.duration - 5.0).abs() < 1e-9);
             assert!((ins.duration - 2.0).abs() < 1e-9);
