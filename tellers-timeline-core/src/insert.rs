@@ -38,7 +38,7 @@ impl Track {
     pub fn insert_at_time_with(
         &mut self,
         start_time: Seconds,
-        mut item: Item,
+        item: Item,
         overlap_policy: OverridePolicy,
         insert_policy: InsertPolicy,
     ) {
@@ -46,15 +46,9 @@ impl Track {
         let containing_index = self.find_containing_index(start_time);
         let effective_start = self.compute_effective_start(start_time, containing_index, insert_policy);
 
-        item.set_start(effective_start);
-        item.set_duration(duration);
-
         match overlap_policy {
             OverridePolicy::Naive | OverridePolicy::Keep => {
-                // Do not split; but place at effective_start computed from insert policy
-                self.add_trailing_gap_if_needed(effective_start);
-                self.items.push(item);
-                self.sort_children_by_start();
+                self.do_boundary_insert(effective_start, containing_index, insert_policy, item);
             }
             OverridePolicy::Override => {
                 if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
@@ -64,19 +58,27 @@ impl Track {
                 }
             }
             OverridePolicy::Push => {
+                // Push semantics are equivalent to placing the item at that time in a sequential model
+                // because subsequent items will naturally be shifted later by the inserted duration.
                 if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
                     self.do_push_split_and_insert(effective_start, duration, item);
                 } else {
-                    self.do_push_insert(effective_start, duration, item);
+                    self.do_place_insert(effective_start, item);
                 }
             }
         }
     }
 
     fn find_containing_index(&self, time: Seconds) -> Option<usize> {
-        self.items
-            .iter()
-            .position(|it| it.start() < time && (it.start() + it.duration().max(0.0)) > time)
+        let mut pos: Seconds = 0.0;
+        for (i, it) in self.items.iter().enumerate() {
+            let end = pos + it.duration().max(0.0);
+            if time > pos && time < end {
+                return Some(i);
+            }
+            pos = end;
+        }
+        None
     }
 
     fn compute_effective_start(
@@ -87,9 +89,8 @@ impl Track {
     ) -> Seconds {
         let mut effective_start = requested_start;
         if let Some(idx) = containing_index {
-            let ex = &self.items[idx];
-            let ex_start = ex.start();
-            let ex_end = ex.start() + ex.duration().max(0.0);
+            let ex_start = self.start_time_of_item(idx);
+            let ex_end = ex_start + self.items[idx].duration().max(0.0);
             match insert_policy {
                 InsertPolicy::InsertBefore => effective_start = ex_start,
                 InsertPolicy::InsertAfter => effective_start = ex_end,
@@ -108,165 +109,264 @@ impl Track {
     }
 
     fn add_trailing_gap_if_needed(&mut self, insert_start: Seconds) {
-        if self.items.is_empty() {
-            return;
-        }
-        let track_end = self
-            .items
-            .iter()
-            .map(|it| it.start() + it.duration().max(0.0))
-            .fold(f64::NEG_INFINITY, f64::max);
+        let track_end = self.total_duration();
         if insert_start > track_end + 1e-9 {
             let gap_dur = (insert_start - track_end).max(0.0);
-            self.items.push(make_gap(track_end, gap_dur));
+            self.items.push(make_gap(gap_dur));
         }
     }
 
-    // Split the item containing [start, end) into left/right pieces and replace it in-place.
-    // Returns (original_end_bound, original_clip_start_if_clip) on success.
-    fn split_containing_item(&mut self, start: Seconds, end: Seconds) -> Option<(Seconds, Option<Seconds>)> {
-        let idx = self.find_containing_index(start)?;
-        let ins_start = start;
-        let ins_end = end;
-        let mut new_items: Vec<Item> = Vec::with_capacity(self.items.len() + 2);
-        let original_end_bound: Seconds;
-        let mut original_clip_start: Option<Seconds> = None;
-        match &self.items[idx] {
-            Item::Gap(g) => {
-                let gap_start = g.start;
-                let gap_end = g.start + g.duration.max(0.0);
-                if !(ins_start >= gap_start && ins_end <= gap_end) {
-                    return None;
+    // Insert item at a boundary without splitting the containing element.
+    fn do_boundary_insert(
+        &mut self,
+        requested_start: Seconds,
+        containing_index: Option<usize>,
+        insert_policy: InsertPolicy,
+        item: Item,
+    ) {
+        if let Some(idx) = containing_index {
+            // Choose before/after boundary
+            let ex_start = self.start_time_of_item(idx);
+            let ex_end = ex_start + self.items[idx].duration().max(0.0);
+            let insert_after = match insert_policy {
+                InsertPolicy::InsertBefore => false,
+                InsertPolicy::InsertAfter => true,
+                InsertPolicy::InsertBeforeOrAfter => {
+                    let dist_to_start = (requested_start - ex_start).abs();
+                    let dist_to_end = (ex_end - requested_start).abs();
+                    dist_to_end < dist_to_start
                 }
-                original_end_bound = gap_end;
-                for (i, existing) in self.items.drain(..).enumerate() {
-                    if i != idx {
-                        new_items.push(existing);
-                        continue;
-                    }
-                    let left_dur = (ins_start - gap_start).max(0.0);
-                    if left_dur > 0.0 { new_items.push(make_gap(gap_start, left_dur)); }
-                    // middle is removed; inserted item will be added by caller
-                    let right_dur = (gap_end - ins_end).max(0.0);
-                    if right_dur > 0.0 { new_items.push(make_gap(ins_end, right_dur)); }
-                }
+                InsertPolicy::SplitAndInsert => true,
+            };
+            let insert_idx = if insert_after { idx + 1 } else { idx };
+            self.items.insert(insert_idx.min(self.items.len()), item);
+            return;
+        }
+        // Not contained: insert at an existing boundary, or after end
+        let mut acc: Seconds = 0.0;
+        for (i, it) in self.items.iter().enumerate() {
+            if (requested_start - acc).abs() < 1e-9 {
+                self.items.insert(i, item);
+                return;
             }
-            Item::Clip(c) => {
-                let clip_start = c.start;
-                let clip_end = c.start + c.duration.max(0.0);
-                if !(ins_start >= clip_start && ins_end <= clip_end) {
-                    return None;
+            acc += it.duration().max(0.0);
+        }
+        // After end
+        self.add_trailing_gap_if_needed(requested_start);
+        self.items.push(item);
+    }
+
+    // Place: split containing element (gap or clip) at `start` and insert `item` between left/right.
+    fn do_place_insert(&mut self, start: Seconds, item: Item) {
+        // Find if inside an item
+        if let Some(idx) = self.find_containing_index(start) {
+            let seg_start = self.start_time_of_item(idx);
+            let seg_dur = self.items[idx].duration().max(0.0);
+            let offset = (start - seg_start).max(0.0);
+            let mut new_items: Vec<Item> = Vec::with_capacity(self.items.len() + 2);
+            for (i, existing) in self.items.drain(..).enumerate() {
+                if i != idx {
+                    new_items.push(existing);
+                    continue;
                 }
-                original_end_bound = clip_end;
-                original_clip_start = Some(clip_start);
-                for (i, existing) in self.items.drain(..).enumerate() {
-                    if i != idx {
-                        new_items.push(existing);
-                        continue;
+                match existing {
+                    Item::Gap(g) => {
+                        if offset > 0.0 { new_items.push(make_gap(offset)); }
+                        new_items.push(item.clone());
+                        let right_dur = (seg_dur - offset).max(0.0);
+                        if right_dur > 0.0 { new_items.push(make_gap(right_dur)); }
                     }
-                    let left_dur = (ins_start - clip_start).max(0.0);
-                    if left_dur > 0.0 {
-                        if let Item::Clip(orig) = &existing {
-                            let mut left = orig.clone();
-                            left.duration = left_dur;
+                    Item::Clip(c) => {
+                        if offset > 0.0 {
+                            let mut left = c.clone();
+                            left.duration = offset;
                             new_items.push(Item::Clip(left));
                         }
-                    }
-                    let right_dur = (clip_end - ins_end).max(0.0);
-                    if right_dur > 0.0 {
-                        if let Item::Clip(orig) = &existing {
-                            let mut right = orig.clone();
-                            right.start = ins_end;
+                        new_items.push(item.clone());
+                        let right_dur = (seg_dur - offset).max(0.0);
+                        if right_dur > 0.0 {
+                            let mut right = c.clone();
                             right.duration = right_dur;
-                            // Do not adjust media_start here; callers will adjust as needed
+                            right.source.media_start = c.source.media_start + offset;
                             new_items.push(Item::Clip(right));
                         }
                     }
                 }
             }
+            self.items = new_items;
+            return;
         }
-        new_items.sort_by(|a, b| a.start().partial_cmp(&b.start()).unwrap());
+        // Not inside an item: insert at boundary or after end
+        let mut acc: Seconds = 0.0;
+        for (i, it) in self.items.iter().enumerate() {
+            if (start - acc).abs() < 1e-9 { self.items.insert(i, item.clone()); return; }
+            acc += it.duration().max(0.0);
+        }
+        // After end
+        self.add_trailing_gap_if_needed(start);
+        self.items.push(item);
+    }
+
+    // Split the item containing [start, end) into left/right pieces and replace it in-place.
+    // Returns (original_end_bound, original_item_start_if_clip) on success.
+    fn split_containing_item(&mut self, start: Seconds, end: Seconds) -> Option<(Seconds, Option<Seconds>)> {
+        let idx = self.find_containing_index(start)?;
+        let seg_start = self.start_time_of_item(idx);
+        let seg_dur = self.items[idx].duration().max(0.0);
+        let seg_end = seg_start + seg_dur;
+        if !(start >= seg_start && end <= seg_end) {
+            return None;
+        }
+        let mut new_items: Vec<Item> = Vec::with_capacity(self.items.len() + 2);
+        let mut original_clip_start: Option<Seconds> = None;
+        for (i, existing) in self.items.drain(..).enumerate() {
+            if i != idx {
+                new_items.push(existing);
+                continue;
+            }
+            match existing {
+                Item::Gap(g) => {
+                    let left_dur = (start - seg_start).max(0.0);
+                    if left_dur > 0.0 { new_items.push(make_gap(left_dur)); }
+                    let right_dur = (seg_end - end).max(0.0);
+                    if right_dur > 0.0 { new_items.push(make_gap(right_dur)); }
+                }
+                Item::Clip(c) => {
+                    original_clip_start = Some(seg_start);
+                    let left_dur = (start - seg_start).max(0.0);
+                    if left_dur > 0.0 {
+                        let mut left = c.clone();
+                        left.duration = left_dur;
+                        new_items.push(Item::Clip(left));
+                    }
+                    let right_dur = (seg_end - end).max(0.0);
+                    if right_dur > 0.0 {
+                        let mut right = c.clone();
+                        right.duration = right_dur;
+                        // Right piece begins at `end` relative to original clip start
+                        right.source.media_start = c.source.media_start + (end - seg_start).max(0.0);
+                        new_items.push(Item::Clip(right));
+                    }
+                }
+            }
+        }
         self.items = new_items;
-        Some((original_end_bound, original_clip_start))
+        Some((seg_end, original_clip_start))
     }
 
     fn do_override_insert(&mut self, new_start: Seconds, duration: Seconds, item: Item) {
         let new_end = new_start + duration.max(0.0);
         let original_len = self.items.len();
         let mut new_items: Vec<Item> = Vec::with_capacity(original_len + 2);
+        let mut pos: Seconds = 0.0;
         for existing in self.items.drain(..) {
-            let ex_start = existing.start();
-            let ex_end = existing.start() + existing.duration().max(0.0);
+            let ex_dur = existing.duration().max(0.0);
+            let ex_start = pos;
+            let ex_end = pos + ex_dur;
             if ex_end <= new_start {
+                pos = ex_end;
                 new_items.push(existing);
                 continue;
             }
             if ex_start >= new_end {
+                // Insert before this item if not inserted yet
+                pos = ex_end;
                 new_items.push(existing);
                 continue;
             }
-            if ex_start < new_start && ex_end > new_start {
-                let mut left = existing.clone();
-                left.set_duration((new_start - ex_start).max(0.0));
-                new_items.push(left);
+            // Overlap: keep left and/or right parts
+            if ex_start < new_start {
+                let left_dur = (new_start - ex_start).max(0.0);
+                if left_dur > 0.0 {
+                    match &existing {
+                        Item::Gap(_) => new_items.push(make_gap(left_dur)),
+                        Item::Clip(c) => {
+                            let mut left = c.clone();
+                            left.duration = left_dur;
+                            new_items.push(Item::Clip(left));
+                        }
+                    }
+                }
             }
-            if ex_end > new_end && ex_start < new_end {
-                let mut right = existing;
-                right.set_start(new_end);
-                right.set_duration((ex_end - new_end).max(0.0));
-                new_items.push(right);
+            if ex_end > new_end {
+                let right_dur = (ex_end - new_end).max(0.0);
+                if right_dur > 0.0 {
+                    match existing {
+                        Item::Gap(_) => new_items.push(make_gap(right_dur)),
+                        Item::Clip(mut c) => {
+                            // Right piece's media starts at offset new_end - ex_start
+                            c.source.media_start = c.source.media_start + (new_end - ex_start).max(0.0);
+                            c.duration = right_dur;
+                            new_items.push(Item::Clip(c));
+                        }
+                    }
+                }
             }
+            pos = ex_end;
         }
-        if original_len > 0 {
-            let track_end = new_items
-                .iter()
-                .map(|it| it.start() + it.duration().max(0.0))
-                .fold(f64::NEG_INFINITY, f64::max);
-            if new_start > track_end + 1e-9 {
-                let gap_dur = (new_start - track_end).max(0.0);
-                new_items.push(make_gap(track_end, gap_dur));
-            }
+        // Add trailing gap if inserting beyond end
+        let current_end: Seconds = new_items.iter().map(|it| it.duration().max(0.0)).sum();
+        if new_start > current_end + 1e-9 {
+            new_items.push(make_gap((new_start - current_end).max(0.0)));
         }
-        new_items.push(item);
-        new_items.sort_by(|a, b| a.start().partial_cmp(&b.start()).unwrap());
+        // Insert the new item at the correct index
+        let mut acc: Seconds = 0.0;
+        let mut insert_idx = new_items.len();
+        for (i, it) in new_items.iter().enumerate() {
+            if new_start <= acc + 1e-9 { insert_idx = i; break; }
+            acc += it.duration().max(0.0);
+        }
+        if insert_idx >= new_items.len() { new_items.push(item); } else { new_items.insert(insert_idx, item); }
         self.items = new_items;
     }
 
     fn do_push_insert(&mut self, split_time: Seconds, shift_by: Seconds, item: Item) {
         let original_len = self.items.len();
         let mut new_items: Vec<Item> = Vec::with_capacity(original_len + 2);
+        let mut pos: Seconds = 0.0;
+        let mut inserted = false;
         for existing in self.items.drain(..) {
-            let ex_start = existing.start();
-            let ex_end = existing.start() + existing.duration().max(0.0);
+            let ex_dur = existing.duration().max(0.0);
+            let ex_start = pos;
+            let ex_end = pos + ex_dur;
             if ex_end <= split_time {
                 new_items.push(existing);
             } else if ex_start >= split_time {
-                let mut shifted = existing.clone();
-                shifted.set_start(ex_start + shift_by);
-                new_items.push(shifted);
+                if !inserted {
+                    new_items.push(item.clone());
+                    new_items.push(make_gap(shift_by.max(0.0)));
+                    inserted = true;
+                }
+                new_items.push(existing);
             } else {
+                // Overlaps split point: split item
                 match existing {
-                    Item::Gap(g) => {
-                        let left_dur = (split_time - g.start).max(0.0);
-                        if left_dur > 0.0 {
-                            new_items.push(make_gap(g.start, left_dur));
+                    Item::Gap(_) => {
+                        let left_dur = (split_time - ex_start).max(0.0);
+                        if left_dur > 0.0 { new_items.push(make_gap(left_dur)); }
+                        if !inserted {
+                            new_items.push(item.clone());
+                            new_items.push(make_gap(shift_by.max(0.0)));
+                            inserted = true;
                         }
-                        let right_dur = (g.start + g.duration.max(0.0) - split_time).max(0.0);
-                        if right_dur > 0.0 {
-                            new_items.push(make_gap(split_time + shift_by, right_dur));
-                        }
+                        let right_dur = (ex_end - split_time).max(0.0);
+                        if right_dur > 0.0 { new_items.push(make_gap(right_dur)); }
                     }
                     Item::Clip(c) => {
-                        let left_dur = (split_time - c.start).max(0.0);
+                        let left_dur = (split_time - ex_start).max(0.0);
                         if left_dur > 0.0 {
                             let mut left = c.clone();
                             left.duration = left_dur;
                             new_items.push(Item::Clip(left));
                         }
-                        let right_dur = (c.start + c.duration.max(0.0) - split_time).max(0.0);
+                        if !inserted {
+                            new_items.push(item.clone());
+                            new_items.push(make_gap(shift_by.max(0.0)));
+                            inserted = true;
+                        }
+                        let right_dur = (ex_end - split_time).max(0.0);
                         if right_dur > 0.0 {
                             let mut right = c.clone();
-                            right.start = split_time + shift_by;
                             right.duration = right_dur;
                             right.source.media_start = c.source.media_start + left_dur;
                             new_items.push(Item::Clip(right));
@@ -274,47 +374,32 @@ impl Track {
                     }
                 }
             }
+            pos = ex_end;
         }
-        if original_len > 0 {
-            let track_end = new_items
-                .iter()
-                .map(|it| it.start() + it.duration().max(0.0))
-                .fold(f64::NEG_INFINITY, f64::max);
+        // If inserting after end
+        if !inserted {
+            let track_end: Seconds = new_items.iter().map(|it| it.duration().max(0.0)).sum();
             if split_time > track_end + 1e-9 {
-                let gap_dur = (split_time - track_end).max(0.0);
-                new_items.push(make_gap(track_end, gap_dur));
+                new_items.push(make_gap((split_time - track_end).max(0.0)));
             }
+            new_items.push(item);
         }
-        new_items.push(item);
-        new_items.sort_by(|a, b| a.start().partial_cmp(&b.start()).unwrap());
         self.items = new_items;
     }
 
     // Override + SplitAndInsert: split containing item, remove middle region globally, insert item
     fn do_override_split_and_insert(&mut self, start: Seconds, duration: Seconds, item: Item) {
         let end = start + duration.max(0.0);
-        if let Some((_original_end, original_clip_start)) = self.split_containing_item(start, end) {
-            // Remove any items overlapping [start, end)
-            self.items.retain(|it| {
-                let s = it.start();
-                let e = it.start() + it.duration().max(0.0);
-                e <= start || s >= end
-            });
-            // If the right piece is a clip starting at `end`, adjust its media_start by consumed = end - clip_start
-            if let Some(clip_start) = original_clip_start {
-                let consumed = (end - clip_start).max(0.0);
-                for it in &mut self.items {
-                    if let Item::Clip(c) = it {
-                        if (c.start - end).abs() < 1e-9 {
-                            c.source.media_start += consumed;
-                            break;
-                        }
-                    }
-                }
+        if let Some((_original_end, _original_clip_start)) = self.split_containing_item(start, end) {
+            // Insert the new item at the boundary `start`
+            let mut acc: Seconds = 0.0;
+            let mut insert_idx = self.items.len();
+            for (i, it) in self.items.iter().enumerate() {
+                if (start - acc).abs() < 1e-9 { insert_idx = i; break; }
+                acc += it.duration().max(0.0);
             }
-            // Insert the new item
-            self.items.push(item);
-            self.sort_children_by_start();
+            if insert_idx > self.items.len() { insert_idx = self.items.len(); }
+            self.items.insert(insert_idx, item);
             return;
         }
         // Fallback: same as override insert
@@ -324,37 +409,43 @@ impl Track {
     // Push + SplitAndInsert: split the containing item and insert; shift subsequent items to the right by duration
     fn do_push_split_and_insert(&mut self, start: Seconds, duration: Seconds, item: Item) {
         let end = start + duration.max(0.0);
-        if let Some((original_end_bound, original_clip_start)) = self.split_containing_item(start, end) {
-            // Insert the new item between left and right pieces
-            self.items.push(item);
-            // If the right piece is a clip starting at `end`, adjust its media_start by left_dur = start - clip_start
-            if let Some(clip_start) = original_clip_start {
-                let left_dur = (start - clip_start).max(0.0);
-                for it in &mut self.items {
-                    if let Item::Clip(c) = it {
-                        if (c.start - end).abs() < 1e-9 {
-                            c.source.media_start += left_dur;
-                            break;
-                        }
-                    }
-                }
+        if let Some((original_end_bound, _original_clip_start)) = self.split_containing_item(start, end) {
+            // Insert the new item at boundary `start`
+            let mut acc: Seconds = 0.0;
+            let mut insert_idx = self.items.len();
+            for (i, it) in self.items.iter().enumerate() {
+                if (start - acc).abs() < 1e-9 { insert_idx = i; break; }
+                acc += it.duration().max(0.0);
             }
-            // Shift items whose start was at/after the original containing end bound
-            for it in &mut self.items {
-                let s = it.start();
-                if s >= original_end_bound {
-                    it.set_start(s + duration.max(0.0));
-                }
+            if insert_idx > self.items.len() { insert_idx = self.items.len(); }
+            self.items.insert(insert_idx, item);
+            // Shift subsequent items at/after original end bound by inserting a gap there
+            let mut acc2: Seconds = 0.0;
+            let mut gap_idx = self.items.len();
+            for (i, it) in self.items.iter().enumerate() {
+                if acc2 >= original_end_bound - 1e-9 { gap_idx = i; break; }
+                acc2 += it.duration().max(0.0);
             }
-            self.sort_children_by_start();
+            if gap_idx > self.items.len() { gap_idx = self.items.len(); }
+            self.items.insert(gap_idx, make_gap(duration.max(0.0)));
+            #[cfg(test)]
+            {
+                eprintln!(
+                    "after push split: {:?}",
+                    self.items
+                        .iter()
+                        .map(|it| match it { Item::Gap(g) => format!("gap({})", g.duration), Item::Clip(c) => format!("clip({})", c.duration) })
+                        .collect::<Vec<_>>()
+                );
+            }
             return;
         }
-        // Fallback to push insert if not inside an item
-        self.do_push_insert(start, duration, item);
+        // Fallback: same as place insert if not inside an item
+        self.do_place_insert(start, item);
     }
 }
 
 /// Helper to create a gap item
-pub fn make_gap(start: Seconds, duration: Seconds) -> Item {
-    Item::Gap(crate::types::Gap { otio_schema: "Gap.1".to_string(), start, duration, metadata: serde_json::Value::Object(serde_json::Map::new()) })
+pub fn make_gap(duration: Seconds) -> Item {
+    Item::Gap(crate::types::Gap { otio_schema: "Gap.1".to_string(), duration, metadata: serde_json::Value::Object(serde_json::Map::new()) })
 }

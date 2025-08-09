@@ -48,22 +48,10 @@ pub enum Item {
 }
 
 impl Item {
-    pub fn start(&self) -> Seconds {
-        match self {
-            Item::Clip(c) => c.start,
-            Item::Gap(g) => g.start,
-        }
-    }
     pub fn duration(&self) -> Seconds {
         match self {
             Item::Clip(c) => c.duration,
             Item::Gap(g) => g.duration,
-        }
-    }
-    pub fn set_start(&mut self, start: Seconds) {
-        match self {
-            Item::Clip(c) => c.start = start,
-            Item::Gap(g) => g.start = start,
         }
     }
     pub fn set_duration(&mut self, dur: Seconds) {
@@ -80,7 +68,6 @@ pub struct Clip {
     pub otio_schema: String,
     #[serde(default)]
     pub name: Option<String>,
-    pub start: Seconds,
     pub duration: Seconds,
     pub source: MediaSource,
     #[serde(default)]
@@ -91,7 +78,6 @@ pub struct Clip {
 pub struct Gap {
     #[serde(rename = "OTIO_SCHEMA", default = "default_gap_schema")]
     pub otio_schema: String,
-    pub start: Seconds,
     pub duration: Seconds,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -121,5 +107,20 @@ impl Default for Timeline {
 impl Default for Track {
     fn default() -> Self {
         Self { otio_schema: default_track_schema(), kind: TrackKind::Video, items: vec![], metadata: serde_json::Value::Null }
+    }
+}
+
+impl Track {
+    pub fn start_time_of_item(&self, index: usize) -> Seconds {
+        let mut acc: Seconds = 0.0;
+        for (i, it) in self.items.iter().enumerate() {
+            if i >= index { break; }
+            acc += it.duration().max(0.0);
+        }
+        acc
+    }
+
+    pub fn total_duration(&self) -> Seconds {
+        self.items.iter().map(|it| it.duration().max(0.0)).sum()
     }
 }

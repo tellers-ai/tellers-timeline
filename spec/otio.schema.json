@@ -37,7 +37,6 @@
           "required": [
             "duration",
             "source",
-            "start",
             "type"
           ],
           "properties": {
@@ -66,10 +65,6 @@
             "source": {
               "$ref": "#/definitions/MediaSource"
             },
-            "start": {
-              "type": "number",
-              "format": "double"
-            },
             "type": {
               "type": "string",
               "enum": [
@@ -82,7 +77,6 @@
           "type": "object",
           "required": [
             "duration",
-            "start",
             "type"
           ],
           "properties": {
@@ -100,10 +94,6 @@
             },
             "metadata": {
               "default": null
-            },
-            "start": {
-              "type": "number",
-              "format": "double"
             },
             "type": {
               "type": "string",

@@ -10,7 +10,6 @@
           "type": "clip",
           "OTIO_SCHEMA": "Clip.2",
           "name": "V1",
-          "start": 0.0,
           "duration": 3.0,
           "source": {
             "OTIO_SCHEMA": "ExternalReference.1",
@@ -31,7 +30,6 @@
         {
           "type": "gap",
           "OTIO_SCHEMA": "Gap.1",
-          "start": 0.0,
           "duration": 1.0,
           "metadata": {"id": "00000000-0000-0000-0000-000000000112"}
         },
@@ -39,7 +37,6 @@
           "type": "clip",
           "OTIO_SCHEMA": "Clip.2",
           "name": "A1",
-          "start": 1.0,
           "duration": 2.0,
           "source": {
             "OTIO_SCHEMA": "ExternalReference.1",
