@@ -30,7 +30,7 @@ impl PyTimeline {
 }
 
 #[pymodule]
-fn tellers_timeline(_py: Python, m: &PyModule) -> PyResult<()> {
+fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyTimeline>()?;
     Ok(())
 }

@@ -135,35 +135,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
-name = "otio-flutter-native"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tellers-timeline-core",
-]
-
-[[package]]
-name = "otio-python"
-version = "0.1.0"
-dependencies = [
- "pyo3",
- "serde_json",
- "tellers-timeline-core",
- "uuid",
-]
-
-[[package]]
-name = "otio-wasm"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tellers-timeline-core",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-test",
-]
-
-[[package]]
 name = "parking_lot"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -424,12 +395,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "tellers-timeline-flutter-native"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tellers-timeline-core",
+]
+
+[[package]]
+name = "tellers-timeline-python"
+version = "0.1.0"
+dependencies = [
+ "pyo3",
+ "serde_json",
+ "tellers-timeline-core",
+ "uuid",
+]
+
+[[package]]
 name = "tellers-timeline-schema"
 version = "0.1.0"
 dependencies = [
  "schemars",
  "serde_json",
  "tellers-timeline-core",
+]
+
+[[package]]
+name = "tellers-timeline-wasm"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "serde_json",
+ "tellers-timeline-core",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-test",
 ]
 
 [[package]]

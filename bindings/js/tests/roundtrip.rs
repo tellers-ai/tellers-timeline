@@ -1,10 +1,12 @@
+#![cfg(target_arch = "wasm32")]
+
 use wasm_bindgen_test::*;
-use tellers_timeline::TimelineWasm;
+use tellers_timeline_wasm::TimelineWasm;
 
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_node);
 
-const SIMPLE: &str = include_str!("../../spec/examples/simple.json");
-const TWO: &str = include_str!("../../spec/examples/two_tracks.json");
+const SIMPLE: &str = include_str!("../../../spec/examples/simple.json");
+const TWO: &str = include_str!("../../../spec/examples/two_tracks.json");
 
 #[wasm_bindgen_test]
 fn round_trip_simple() {

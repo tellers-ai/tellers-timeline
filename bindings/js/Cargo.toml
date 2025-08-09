@@ -1,5 +1,5 @@
 [package]
-name = "otio-wasm"
+name = "tellers-timeline-wasm"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,5 +12,8 @@ tellers-timeline-core = { path = "../../tellers-timeline-core" }
 serde_json = { workspace = true }
 uuid = { version = "1.10", features = ["serde", "v4", "js"] }
 
-[dev-dependencies]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"

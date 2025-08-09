@@ -1,10 +1,10 @@
 [package]
-name = "otio-flutter-native"
+name = "tellers-timeline-flutter-native"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "otio_flutter_native"
+name = "tellers_timeline_flutter_native"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

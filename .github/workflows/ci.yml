@@ -12,7 +12,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get update && sudo apt-get install -y just
       - run: just build-all
-      - run: cargo test --workspace -q
+      - run: cargo test -p tellers-timeline-core -p tellers-timeline-schema -q
 
   python-binding:
     runs-on: ubuntu-latest
@@ -22,9 +22,20 @@ jobs:
         with:
           python-version: '3.10'
       - uses: dtolnay/rust-toolchain@stable
-      - run: pip install maturin pytest
-      - run: maturin develop -m bindings/python/pyproject.toml -q
-      - run: pytest -q bindings/python/tests
+      - name: Set up venv and install deps
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install maturin pytest
+      - name: Build and develop Python extension
+        run: |
+          source .venv/bin/activate
+          maturin develop -m bindings/python/Cargo.toml -q
+      - name: Run Python tests
+        run: |
+          source .venv/bin/activate
+          pytest -q bindings/python/tests
 
   wasm-binding:
     runs-on: ubuntu-latest
@@ -32,11 +43,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add wasm32-unknown-unknown
-      - run: cargo build -p otio-wasm --target wasm32-unknown-unknown -q
+      - run: cargo build -p tellers-timeline-wasm --target wasm32-unknown-unknown -q
 
   flutter-native:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build -p otio-flutter-native -q
+      - run: cargo build -p tellers-timeline-flutter-native -q

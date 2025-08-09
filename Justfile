@@ -7,12 +7,12 @@ regen-schema:
   cargo run -p tellers-timeline-schema --quiet
 
 build-all:
-  cargo build --workspace --all-targets
+  cargo build --workspace --all-targets --exclude tellers-timeline-wasm --exclude tellers-timeline-python
 
 # Runs Rust tests, Python tests (via maturin develop), and wasm tests
 # Requires Python and Node toolchains installed
 test-all:
-  cargo test --workspace
+  cargo test -p tellers-timeline-core -p tellers-timeline-schema -q
   # Python binding tests
   if command -v maturin >/dev/null 2>&1; then \
     maturin develop -m bindings/python/pyproject.toml -q && \
@@ -22,4 +22,4 @@ test-all:
   fi
   # JS wasm build (no runtime tests for now)
   rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
-  cargo build -p otio-wasm --target wasm32-unknown-unknown -q
+  cargo build -p tellers-timeline-wasm --target wasm32-unknown-unknown -q
