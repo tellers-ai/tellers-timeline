@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y just
+      - run: just build-all
+      - run: cargo test --workspace -q
+
+  python-binding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pip install maturin pytest
+      - run: maturin develop -m bindings/python/pyproject.toml -q
+      - run: pytest -q bindings/python/tests
+
+  wasm-binding:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo build -p otio-wasm --target wasm32-unknown-unknown -q
+
+  flutter-native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build -p otio-flutter-native -q

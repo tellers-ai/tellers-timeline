@@ -1,0 +1,208 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Timeline",
+  "type": "object",
+  "properties": {
+    "id": {
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "metadata": {
+      "default": null
+    },
+    "name": {
+      "default": null,
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tracks": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Track"
+      }
+    }
+  },
+  "definitions": {
+    "Item": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "duration",
+            "source",
+            "start",
+            "type"
+          ],
+          "properties": {
+            "duration": {
+              "type": "number",
+              "format": "double"
+            },
+            "id": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "metadata": {
+              "default": null
+            },
+            "name": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "$ref": "#/definitions/MediaSource"
+            },
+            "start": {
+              "type": "number",
+              "format": "double"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "clip"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "duration",
+            "start",
+            "type"
+          ],
+          "properties": {
+            "duration": {
+              "type": "number",
+              "format": "double"
+            },
+            "id": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "metadata": {
+              "default": null
+            },
+            "start": {
+              "type": "number",
+              "format": "double"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "gap"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "MediaSource": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "media_duration": {
+          "description": "Optional media duration if known",
+          "default": null,
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "media_start": {
+          "description": "Offset into the media in seconds",
+          "default": 0.0,
+          "type": "number",
+          "format": "double"
+        },
+        "metadata": {
+          "default": null
+        },
+        "url": {
+          "type": "string"
+        }
+      }
+    },
+    "Track": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "items": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Item"
+          }
+        },
+        "kind": {
+          "$ref": "#/definitions/TrackKind"
+        },
+        "metadata": {
+          "default": null
+        }
+      }
+    },
+    "TrackKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "video",
+            "audio"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "other"
+          ],
+          "properties": {
+            "other": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

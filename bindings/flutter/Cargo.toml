@@ -1,0 +1,14 @@
+[package]
+name = "otio-flutter-native"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "otio_flutter_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tellers-timeline-core = { path = "../../tellers-timeline-core" }
+serde_json = { workspace = true }
+
+# Dart package intended name: tellers_timeline (Dart requires underscores)

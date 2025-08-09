@@ -1,0 +1,40 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "Simple",
+  "tracks": [
+    {
+      "OTIO_SCHEMA": "Track.1",
+      "kind": "video",
+      "items": [
+        {
+          "type": "gap",
+          "OTIO_SCHEMA": "Gap.1",
+          "start": 0.0,
+          "duration": 1.0,
+          "metadata": {
+            "id": "00000000-0000-0000-0000-000000000100"
+          }
+        },
+        {
+          "type": "clip",
+          "OTIO_SCHEMA": "Clip.2",
+          "name": "A",
+          "start": 1.0,
+          "duration": 2.5,
+          "source": {
+            "OTIO_SCHEMA": "ExternalReference.1",
+            "url": "file:///media/A.mov",
+            "media_start": 0.0,
+            "media_duration": 2.5,
+            "metadata": {}
+          },
+          "metadata": {
+            "id": "00000000-0000-0000-0000-000000000101"
+          }
+        }
+      ],
+      "metadata": {}
+    }
+  ],
+  "metadata": {}
+}

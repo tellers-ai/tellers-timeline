@@ -1,0 +1,58 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "Two Tracks",
+  "tracks": [
+    {
+      "OTIO_SCHEMA": "Track.1",
+      "kind": "video",
+      "items": [
+        {
+          "type": "clip",
+          "OTIO_SCHEMA": "Clip.2",
+          "name": "V1",
+          "start": 0.0,
+          "duration": 3.0,
+          "source": {
+            "OTIO_SCHEMA": "ExternalReference.1",
+            "url": "file:///media/V1.mov",
+            "media_start": 0.0,
+            "media_duration": 3.0,
+            "metadata": {}
+          },
+          "metadata": {"id": "00000000-0000-0000-0000-000000000111"}
+        }
+      ],
+      "metadata": {}
+    },
+    {
+      "OTIO_SCHEMA": "Track.1",
+      "kind": "audio",
+      "items": [
+        {
+          "type": "gap",
+          "OTIO_SCHEMA": "Gap.1",
+          "start": 0.0,
+          "duration": 1.0,
+          "metadata": {"id": "00000000-0000-0000-0000-000000000112"}
+        },
+        {
+          "type": "clip",
+          "OTIO_SCHEMA": "Clip.2",
+          "name": "A1",
+          "start": 1.0,
+          "duration": 2.0,
+          "source": {
+            "OTIO_SCHEMA": "ExternalReference.1",
+            "url": "file:///media/A1.wav",
+            "media_start": 0.0,
+            "media_duration": 2.0,
+            "metadata": {}
+          },
+          "metadata": {"id": "00000000-0000-0000-0000-000000000113"}
+        }
+      ],
+      "metadata": {}
+    }
+  ],
+  "metadata": {}
+}

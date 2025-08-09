@@ -1,0 +1,11 @@
+[package]
+name = "tellers-timeline-schema"
+version = "0.1.0"
+edition = "2021"
+authors = ["tellers-oss"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+schemars = { workspace = true }
+tellers-timeline-core = { path = "../tellers-timeline-core" }
+serde_json = { workspace = true }

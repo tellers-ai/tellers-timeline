@@ -1,0 +1,14 @@
+[package]
+name = "otio-python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "tellers_timeline"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { workspace = true }
+tellers-timeline-core = { path = "../../tellers-timeline-core" }
+serde_json = { workspace = true }
+uuid = { workspace = true }
