@@ -3,9 +3,6 @@ members = [
     "tellers-timeline-core",
     "tellers-timeline-schema",
     "bindings/python",
-    "bindings/js",
-    "bindings/flutter",
-    "bindings/flutter_bridge",
 ]
 resolver = "2"
 
