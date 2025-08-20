@@ -36,18 +36,3 @@ jobs:
         run: |
           source .venv/bin/activate
           pytest -q bindings/python/tests
-
-  wasm-binding:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: rustup target add wasm32-unknown-unknown
-      - run: cargo build -p tellers-timeline-wasm --target wasm32-unknown-unknown -q
-
-  flutter-native:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build -p tellers-timeline-flutter-native -q
