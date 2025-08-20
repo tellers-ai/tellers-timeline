@@ -12,3 +12,6 @@ pyo3 = { workspace = true }
 tellers-timeline-core = { path = "../../tellers-timeline-core" }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+
+[build-dependencies]
+pyo3-build-config = "0.21"
