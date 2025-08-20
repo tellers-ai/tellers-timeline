@@ -2,15 +2,6 @@ from __future__ import annotations
 
 from typing import Literal, Optional, Union
 
-__all__ = [
-    "Timeline",
-    "Track",
-    "Item",
-    "Clip",
-    "Gap",
-    "MediaSource",
-]
-
 TrackKind = Literal["video", "audio", "other"]
 OverlapPolicy = Literal["override", "keep", "push"]
 InsertPolicy = Literal[
@@ -94,5 +85,3 @@ class Timeline:
     def set_name(self, value: Optional[str]) -> None: ...
     def tracks(self) -> list[Track]: ...
     def add_track(self, track: Track) -> None: ...
-
-
