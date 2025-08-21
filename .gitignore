@@ -10,6 +10,10 @@
 **/dist/
 **/*.egg-info/
 
+# Python extension module artifacts
+bindings/python/python/tellers_timeline/*.so
+bindings/python/python/tellers_timeline/*.pyd
+
 # wasm-pack
 pkg/
 

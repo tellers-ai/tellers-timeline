@@ -3,11 +3,21 @@ use serde::{Deserialize, Serialize};
 
 pub type Seconds = f64;
 
-fn default_timeline_schema() -> String { "Timeline.1".to_string() }
-fn default_track_schema() -> String { "Track.1".to_string() }
-fn default_clip_schema() -> String { "Clip.2".to_string() }
-fn default_gap_schema() -> String { "Gap.1".to_string() }
-fn default_external_ref_schema() -> String { "ExternalReference.1".to_string() }
+fn default_timeline_schema() -> String {
+    "Timeline.1".to_string()
+}
+fn default_track_schema() -> String {
+    "Track.1".to_string()
+}
+fn default_clip_schema() -> String {
+    "Clip.2".to_string()
+}
+fn default_gap_schema() -> String {
+    "Gap.1".to_string()
+}
+fn default_external_ref_schema() -> String {
+    "ExternalReference.1".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Timeline {
@@ -37,7 +47,7 @@ pub struct Track {
 pub enum TrackKind {
     Video,
     Audio,
-    Other(String),
+    Other,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -100,13 +110,23 @@ pub struct MediaSource {
 
 impl Default for Timeline {
     fn default() -> Self {
-        Self { otio_schema: default_timeline_schema(), name: None, tracks: vec![], metadata: serde_json::Value::Null }
+        Self {
+            otio_schema: default_timeline_schema(),
+            name: None,
+            tracks: vec![],
+            metadata: serde_json::Value::Null,
+        }
     }
 }
 
 impl Default for Track {
     fn default() -> Self {
-        Self { otio_schema: default_track_schema(), kind: TrackKind::Video, items: vec![], metadata: serde_json::Value::Null }
+        Self {
+            otio_schema: default_track_schema(),
+            kind: TrackKind::Video,
+            items: vec![],
+            metadata: serde_json::Value::Null,
+        }
     }
 }
 
@@ -114,7 +134,9 @@ impl Track {
     pub fn start_time_of_item(&self, index: usize) -> Seconds {
         let mut acc: Seconds = 0.0;
         for (i, it) in self.items.iter().enumerate() {
-            if i >= index { break; }
+            if i >= index {
+                break;
+            }
             acc += it.duration().max(0.0);
         }
         acc
