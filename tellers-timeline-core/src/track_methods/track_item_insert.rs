@@ -79,7 +79,6 @@ impl Track {
             }
         }
 
-        // Finally insert the item
         self.items.insert(insert_index, item);
         self.sanitize();
     }

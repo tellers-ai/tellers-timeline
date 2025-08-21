@@ -28,7 +28,7 @@ fn delete_clip_by_index_no_gap() {
     track.append(Item::Clip(c1.clone()));
     track.append(c2.clone());
 
-    let deleted = track.delete_clip_by_index(0, false);
+    let deleted = track.delete_clip(0, false);
     assert!(deleted);
     assert_eq!(track.items.len(), 1);
     match &track.items[0] {
@@ -44,7 +44,7 @@ fn delete_clip_by_index_with_gap_and_merge() {
     track.append(Item::Gap(tellers_timeline_core::Gap::make_gap(2.0)));
     track.append(make_clip("c2", 3.0, 0.0));
 
-    let deleted = track.delete_clip_by_index(0, true);
+    let deleted = track.delete_clip(0, true);
     assert!(deleted);
     // Expect leading gap of 5.0 merged with following 2.0 -> 7.0, then c2
     assert_eq!(track.items.len(), 2);
@@ -71,7 +71,7 @@ fn delete_clip_via_getter_with_gap() {
     track.append(make_clip("c2", 6.0, 0.0));
 
     let (idx, _it) = track.get_item_by_id(id).expect("id should exist");
-    let deleted = track.delete_clip_by_index(idx, true);
+    let deleted = track.delete_clip(idx, true);
     assert!(deleted);
     // Expect gap(4.0) then c2, and no adjacent gaps to merge
     assert_eq!(track.items.len(), 2);

@@ -4,7 +4,7 @@ impl Track {
     /// Delete the clip at a given index. If `replace_with_gap` is true, insert a gap of the
     /// same duration at that position and merge adjacent gaps.
     /// Returns whether a deletion occurred.
-    pub fn delete_clip_by_index(&mut self, index: usize, replace_with_gap: bool) -> bool {
+    pub fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> bool {
         if index >= self.items.len() {
             return false;
         }
