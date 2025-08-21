@@ -1,4 +1,4 @@
-use crate::{Item, Seconds, Track};
+use crate::{Seconds, Track};
 
 impl Track {
     /// Set the new duration and start time of the item at `index`.
@@ -7,9 +7,9 @@ impl Track {
     pub fn resize_item(
         &mut self,
         item_index: usize,
-        new_start_time: Seconds,
-        new_duration: Seconds,
-        clamp_to_media: bool,
+        _new_start_time: Seconds,
+        _new_duration: Seconds,
+        _clamp_to_media: bool,
     ) -> bool {
         if item_index >= self.items.len() {
             return false;

@@ -50,9 +50,10 @@ impl Track {
             return;
         }
 
-        // If the insertion start falls within an item at insert_index, split at start
+        // If the insertion start falls strictly inside an item at insert_index, split at start
         if let Some(containing_idx) = self.get_item_at_time(insert_start) {
-            if containing_idx <= insert_index {
+            let containing_start = self.start_time_of_item(containing_idx);
+            if insert_start > containing_start + EPS && containing_idx <= insert_index {
                 self.split_at_time(insert_start);
                 // After split, the right piece is at containing_idx + 1; our insertion point is after the left piece
                 if insert_index <= containing_idx {
@@ -68,14 +69,14 @@ impl Track {
             self.split_at_time(insert_end);
         }
 
-        // Remove any items that start before insert_end and at/after insert_start
-        let cur_index = insert_index;
-        while cur_index < self.items.len() {
-            let cur_start = self.start_time_of_item(cur_index);
-            if cur_start < insert_end - EPS {
-                self.items.remove(cur_index);
-            } else {
-                break;
+        // After splitting at start and end, remove the exact range of items fully inside [insert_start, insert_end).
+        let end_index = self
+            .get_item_at_time(insert_end)
+            .unwrap_or_else(|| self.items.len());
+        if end_index > insert_index {
+            let remove_count = end_index - insert_index;
+            for _ in 0..remove_count {
+                self.items.remove(insert_index);
             }
         }
 
