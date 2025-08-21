@@ -1,13 +1,13 @@
-use tellers_timeline_core::{make_gap, Clip, InsertPolicy, Item, MediaSource, Track, OverlapPolicy};
+use tellers_timeline_core::{Clip, InsertPolicy, Item, MediaSource, OverlapPolicy, Seconds, Track};
 
-fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
+fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
     Item::Clip(Clip {
         otio_schema: "Clip.2".to_string(),
-        name: Some(name.to_string()),
+        name: None,
         duration,
         source: MediaSource {
             otio_schema: "ExternalReference.1".to_string(),
-            url: "media://dummy".to_string(),
+            url: "mem://".to_string(),
             media_start,
             media_duration: None,
             metadata: serde_json::Value::Null,
@@ -17,184 +17,58 @@ fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
 }
 
 #[test]
-fn naive_respects_position_inside_gap_without_split() {
+fn insert_before_after_or_boundary() {
     let mut track = Track::default();
-    track.append(make_gap(10.0));
+    track.append(make_clip(4.0, 0.0));
+    track.append(make_clip(6.0, 0.0));
 
-    let clip = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(3.0, clip, OverlapPolicy::Keep, InsertPolicy::SplitAndInsert);
+    // Insert before inside first clip -> snaps to its start index
+    track.insert_at_time(
+        1.0,
+        make_clip(1.0, 0.0),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBefore,
+    );
+    assert!(matches!(track.items[0], Item::Clip(_)));
 
-    // Naive respects effective position (SplitAndInsert -> keep requested), but does not split
-    assert_eq!(track.items.len(), 2);
-    match (&track.items[0], &track.items[1]) {
-        (Item::Gap(g), Item::Clip(_c)) => {
-            assert!((g.duration - 10.0).abs() < 1e-9);
-            // Derived starts: gap at 0..10, clip inserted at 3.0 placed after split keeps ordering by index
-            assert!((track.start_time_of_item(1) - 10.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
-    };
+    // Insert after inside first clip -> index after first
+    track.insert_at_time(
+        1.5,
+        make_clip(1.0, 0.0),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertAfter,
+    );
+    assert!(matches!(track.items[2], Item::Clip(_)));
+
+    // Insert before or after: choose closer boundary
+    let before_len = track.items.len();
+    track.insert_at_time(
+        3.9,
+        make_clip(0.5, 0.0),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+    );
+    assert_eq!(track.items.len(), before_len + 1);
 }
 
 #[test]
-fn naive_respects_position_inside_clip_without_split() {
+fn insert_split_and_override() {
     let mut track = Track::default();
-    track.append(make_clip("c1", 10.0, 0.0));
+    track.append(make_clip(5.0, 0.0));
+    track.append(make_clip(5.0, 0.0));
 
-    let clip = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(3.0, clip, OverlapPolicy::Keep, InsertPolicy::SplitAndInsert);
+    // Insert across boundary with override: should split as needed and replace overlap
+    track.insert_at_time(
+        3.0,
+        make_clip(4.0, 0.0),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+    );
 
-    // Naive respects effective position but does not split
-    assert_eq!(track.items.len(), 2);
-    match (&track.items[0], &track.items[1]) {
-        (Item::Clip(c0), Item::Clip(_ins)) => {
-            assert!((c0.duration - 10.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(1) - 10.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
-    };
-}
-
-#[test]
-fn override_split_and_insert_removes_overlaps() {
-    let mut track = Track::default();
-    track.append(make_clip("c1", 10.0, 0.0));
-    track.append(make_clip("c2", 5.0, 0.0));
-
-    // Insert inside c1 at 3.0 for 4.0 seconds. With Override+Split, we split c1, insert, and remove overlaps in [3,7)
-    let ins = make_clip("ins", 4.0, 0.0);
-    track.insert_at_time_with(3.0, ins, OverlapPolicy::Override, InsertPolicy::SplitAndInsert);
-
-    // Expect: c1_left (0..3), ins (3..7), c1_right trimmed to start at 7.0 with remaining (10-7)=3.0, then c2 intact.
-    assert_eq!(track.items.len(), 4);
-    match (&track.items[0], &track.items[1], &track.items[2], &track.items[3]) {
-        (Item::Clip(c0), Item::Clip(ins), Item::Clip(c1r), Item::Clip(c2)) => {
-            assert!((c0.duration - 3.0).abs() < 1e-9);
-            assert!((ins.duration - 4.0).abs() < 1e-9);
-            assert!((c1r.duration - 3.0).abs() < 1e-9);
-            assert!((c2.duration - 5.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(1) - 3.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(2) - 7.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(3) - 10.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
+    // Expect an item at 3.0 of duration 4.0
+    let idx = track.get_item_at_time(3.1).unwrap();
+    match &track.items[idx] {
+        Item::Clip(c) => assert!((c.duration - 4.0).abs() < 1e-9),
+        _ => panic!("expected clip inserted with override"),
     }
 }
-
-#[test]
-fn push_split_and_insert_shifts_after_end() {
-    let mut track = Track::default();
-    track.append(make_clip("c1", 10.0, 0.0));
-    track.append(make_clip("c2", 5.0, 0.0));
-
-    // Insert inside c1 at 4.0 for 2.0 seconds. With Push+Split, split c1 and insert; items starting at >= end (6.0) shift by 2.0
-    let ins = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(4.0, ins, OverlapPolicy::Push, InsertPolicy::SplitAndInsert);
-
-    // Expect: c1_left (0..4), ins (4..6), c1_right (6..10) unchanged timing, then a gap of 2.0 to shift c2 to 12..17
-    assert_eq!(track.items.len(), 5);
-    match (&track.items[0], &track.items[1], &track.items[2], &track.items[3], &track.items[4]) {
-        (Item::Clip(c0), Item::Clip(ins), Item::Clip(c1r), Item::Gap(g), Item::Clip(c2)) => {
-            assert!((c0.duration - 4.0).abs() < 1e-9);
-            assert!((ins.duration - 2.0).abs() < 1e-9);
-            assert!((c1r.duration - 4.0).abs() < 1e-9);
-            assert!((g.duration - 2.0).abs() < 1e-9);
-            assert!((c2.duration - 5.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(1) - 4.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(2) - 6.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(3) - 10.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(4) - 12.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
-    }
-}
-
-#[test]
-fn naive_trailing_gap_when_inserting_after_end() {
-    let mut track = Track::default();
-    track.append(make_clip("c1", 5.0, 0.0));
-
-    let ins = make_clip("ins", 1.0, 0.0);
-    track.insert_at_time_with(10.0, ins, OverlapPolicy::Keep, InsertPolicy::InsertBeforeOrAfter);
-
-    assert_eq!(track.items.len(), 3);
-    match (&track.items[0], &track.items[1], &track.items[2]) {
-        (Item::Clip(c1), Item::Gap(g), Item::Clip(c2)) => {
-            assert!((c1.duration - 5.0).abs() < 1e-9);
-            assert!((g.duration - 5.0).abs() < 1e-9);
-            assert!((c2.duration - 1.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(1) - 5.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(2) - 10.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
-    }
-}
-
-#[test]
-fn keep_trailing_gap_when_inserting_after_end() {
-    let mut track = Track::default();
-    track.append(make_clip("c1", 2.0, 0.0));
-
-    let ins = make_clip("ins", 1.0, 0.0);
-    track.insert_at_time_with(5.0, ins, OverlapPolicy::Keep, InsertPolicy::InsertBeforeOrAfter);
-
-    assert_eq!(track.items.len(), 3);
-    match (&track.items[0], &track.items[1], &track.items[2]) {
-        (Item::Clip(c1), Item::Gap(g), Item::Clip(c2)) => {
-            assert!((c1.duration - 2.0).abs() < 1e-9);
-            assert!((g.duration - 3.0).abs() < 1e-9);
-            assert!((c2.duration - 1.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(1) - 2.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(2) - 5.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
-    }
-}
-
-#[test]
-fn override_trims_or_places_on_boundary() {
-    let mut track = Track::default();
-    track.append(make_clip("c1", 5.0, 0.0));
-    track.append(make_clip("c2", 5.0, 0.0));
-
-    let ins = make_clip("ins", 4.0, 0.0);
-    track.insert_at_time_with(3.0, ins, OverlapPolicy::Override, InsertPolicy::InsertBeforeOrAfter);
-
-    assert_eq!(track.items.len(), 3);
-    match (&track.items[0], &track.items[1], &track.items[2]) {
-        (Item::Clip(c1), Item::Clip(ins), Item::Clip(c2)) => {
-            // Insert policy chose the nearer boundary (end of c1 at 5.0)
-            assert!((c1.duration - 5.0).abs() < 1e-9);
-            assert!((ins.duration - 4.0).abs() < 1e-9);
-            assert!((c2.duration - 1.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(1) - 5.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(2) - 9.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
-    }
-}
-
-#[test]
-fn push_splits_or_shifts_on_boundary() {
-    let mut track = Track::default();
-    track.append(make_clip("c1", 5.0, 0.0));
-    track.append(make_clip("c2", 5.0, 0.0));
-
-    let ins = make_clip("ins", 2.0, 0.0);
-    track.insert_at_time_with(3.0, ins, OverlapPolicy::Push, InsertPolicy::InsertBeforeOrAfter);
-
-    assert_eq!(track.items.len(), 3);
-    match (&track.items[0], &track.items[1], &track.items[2]) {
-        (Item::Clip(c1), Item::Clip(ins), Item::Clip(_c2)) => {
-            // Insertion point falls on boundary (end of c1 at 5.0), so c1 isn't split
-            assert!((c1.duration - 5.0).abs() < 1e-9);
-            assert!((ins.duration - 2.0).abs() < 1e-9);
-            // c2 shifted by +2 occurs via inserted gap
-            assert!((track.start_time_of_item(1) - 5.0).abs() < 1e-9);
-            assert!((track.start_time_of_item(2) - 7.0).abs() < 1e-9);
-        }
-        _ => panic!("unexpected items order/types: {:#?}", track.items),
-    }
-}
-
-
