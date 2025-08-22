@@ -93,6 +93,16 @@ pub struct Gap {
     pub metadata: serde_json::Value,
 }
 
+impl Gap {
+    pub fn make_gap(duration: Seconds) -> Self {
+        Gap {
+            otio_schema: default_gap_schema(),
+            duration,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct MediaSource {
     #[serde(rename = "OTIO_SCHEMA", default = "default_external_ref_schema")]

@@ -1,26 +1,9 @@
-use crate::{Item, Timeline, Track};
-
-impl Timeline {
-    pub fn sanitize(&mut self) {
-        for track in &mut self.tracks {
-            track.sanitize();
-        }
-    }
-}
+use crate::{Item, Track};
 
 impl Track {
     pub fn sanitize(&mut self) {
-        self.clamp_negative_durations();
         self.remove_zero_length_items();
         self.merge_adjacent_gaps();
-    }
-
-    pub fn clamp_negative_durations(&mut self) {
-        for it in &mut self.items {
-            if it.duration() < 0.0 {
-                it.set_duration(0.0);
-            }
-        }
     }
 
     pub fn remove_zero_length_items(&mut self) {

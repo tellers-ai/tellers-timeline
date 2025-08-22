@@ -1,10 +1,11 @@
 use pyo3::prelude::*;
 // use pyo3::types::PyList;
 use pyo3::types::PyAny;
-use tellers_timeline_core::insert::{InsertPolicy, OverlapPolicy};
+use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
     validate_timeline, Clip, Gap, Item, MediaSource, Timeline, Track, TrackKind,
 };
+use uuid::Uuid;
 
 #[pyclass(name = "MediaSource")]
 #[derive(Clone)]
@@ -166,7 +167,6 @@ fn track_kind_from_str(s: &str) -> TrackKind {
 fn overlap_policy_from_str(s: &str) -> OverlapPolicy {
     match s.to_ascii_lowercase().as_str() {
         "override" => OverlapPolicy::Override,
-        "keep" => OverlapPolicy::Keep,
         "push" => OverlapPolicy::Push,
         _ => OverlapPolicy::Override,
     }
@@ -220,6 +220,9 @@ impl PyTrack {
     fn clear_items(&mut self) {
         self.inner.items.clear();
     }
+    fn sanitize(&mut self) {
+        self.inner.sanitize();
+    }
     fn append(&mut self, item: &Bound<PyAny>) -> PyResult<()> {
         if let Some(inner_item) = extract_item(item) {
             self.inner.append(inner_item);
@@ -230,9 +233,15 @@ impl PyTrack {
             ))
         }
     }
-    fn insert_at_index(&mut self, index: usize, item: &Bound<PyAny>) -> PyResult<()> {
+    fn insert_at_index(
+        &mut self,
+        index: usize,
+        item: &Bound<PyAny>,
+        overlap_policy: &str,
+    ) -> PyResult<()> {
         if let Some(inner_item) = extract_item(item) {
-            self.inner.insert_at_index(index, inner_item);
+            let op = overlap_policy_from_str(overlap_policy);
+            self.inner.insert_at_index(index, inner_item, op);
             Ok(())
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
@@ -240,7 +249,7 @@ impl PyTrack {
             ))
         }
     }
-    fn insert_at_time_with(
+    fn insert_at_time(
         &mut self,
         start_time: f64,
         item: &Bound<PyAny>,
@@ -250,14 +259,38 @@ impl PyTrack {
         if let Some(inner_item) = extract_item(item) {
             let op = overlap_policy_from_str(overlap_policy);
             let ip = insert_policy_from_str(insert_policy);
-            self.inner
-                .insert_at_time_with(start_time, inner_item, op, ip);
+            self.inner.insert_at_time(start_time, inner_item, op, ip);
             Ok(())
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                "insert_at_time_with expects an Item, Clip, or Gap",
+                "insert_at_time expects an Item, Clip, or Gap",
             ))
         }
+    }
+    fn split_at_time(&mut self, time: f64) {
+        self.inner.split_at_time(time);
+    }
+    fn get_item_at_time(&self, time: f64) -> Option<usize> {
+        self.inner.get_item_at_time(time)
+    }
+    fn get_item_by_id(&self, py: Python<'_>, id: &str) -> Option<(usize, Py<PyItem>)> {
+        let uuid = Uuid::parse_str(id).ok()?;
+        self.inner.get_item_by_id(uuid).map(|(i, _it)| {
+            let item = self.inner.items[i].clone();
+            (i, Py::new(py, PyItem { inner: item }).unwrap())
+        })
+    }
+    fn replace_item(&mut self, index: usize, item: &Bound<PyAny>) -> PyResult<bool> {
+        if let Some(inner_item) = extract_item(item) {
+            Ok(self.inner.replace_item_by_index(index, inner_item))
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "replace_item_by_index expects an Item, Clip, or Gap",
+            ))
+        }
+    }
+    fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> bool {
+        self.inner.delete_clip(index, replace_with_gap)
     }
     fn total_duration(&self) -> f64 {
         self.inner.total_duration()
@@ -294,7 +327,7 @@ impl PyTrack {
         let item = Item::Clip(clip);
         let op = overlap_policy_from_str(overlap_policy);
         let ip = insert_policy_from_str(insert_policy);
-        self.inner.insert_at_time_with(start_time, item, op, ip);
+        self.inner.insert_at_time(start_time, item, op, ip);
     }
 }
 
