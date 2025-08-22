@@ -11,7 +11,7 @@ pub enum ValidationError {
 pub fn validate_timeline(tl: &Timeline) -> Vec<ValidationError> {
     let mut errors = Vec::new();
 
-    for track in &tl.tracks {
+    for track in &tl.tracks.children {
         for item in &track.items {
             if item.duration() < 0.0 {
                 errors.push(ValidationError::NegativeDuration);

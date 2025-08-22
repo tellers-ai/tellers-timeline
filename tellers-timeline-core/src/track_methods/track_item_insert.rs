@@ -132,6 +132,12 @@ impl Track {
     fn get_insertion_index(&self, t: Seconds, policy: InsertPolicy) -> usize {
         let i = self.get_item_at_time(t).unwrap_or(self.items.len());
 
+        // If t is at or beyond the end of the track, insert at the end for all policies.
+        // This avoids out-of-bounds indexing when i == self.items.len().
+        if i == self.items.len() {
+            return self.items.len();
+        }
+
         match policy {
             InsertPolicy::InsertBefore => i,
             InsertPolicy::InsertAfter => i + 1,

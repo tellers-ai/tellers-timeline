@@ -22,11 +22,7 @@
       ]
     },
     "tracks": {
-      "default": [],
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/Track"
-      }
+      "$ref": "#/definitions/Stack"
     }
   },
   "definitions": {
@@ -169,6 +165,17 @@
         "metadata": {
           "default": null
         }
+      }
+    },
+    "Stack": {
+      "type": "object",
+      "properties": {
+        "children": {
+          "default": [],
+          "type": "array",
+          "items": { "$ref": "#/definitions/Track" }
+        },
+        "metadata": { "default": null }
       }
     },
     "TrackKind": {

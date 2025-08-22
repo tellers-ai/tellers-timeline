@@ -1,4 +1,4 @@
-use crate::{Seconds, Track};
+use crate::{Item, Seconds, Track};
 
 impl Track {
     /// Set the new duration and start time of the item at `index`.
@@ -7,15 +7,20 @@ impl Track {
     pub fn resize_item(
         &mut self,
         item_index: usize,
-        _new_start_time: Seconds,
-        _new_duration: Seconds,
-        _clamp_to_media: bool,
+        new_start_time: Seconds,
+        new_duration: Seconds,
+        clamp_to_media: bool,
     ) -> bool {
         if item_index >= self.items.len() {
             return false;
         }
-        // if
-        // self.items[item_index].set_duration(new_duration);
+
+        // if clamp_to_media {
+        //     let item = &mut self.items[item_index];
+        //     if let Item::Clip(clip) = item {
+        //         clip.set_media_duration(new_duration.min(clip.media_duration()));
+        //     }
+        // }
 
         self.sanitize();
 
