@@ -9,6 +9,9 @@ fn default_timeline_schema() -> String {
 fn default_track_schema() -> String {
     "Track.1".to_string()
 }
+fn default_stack_schema() -> String {
+    "Stack.1".to_string()
+}
 fn default_clip_schema() -> String {
     "Clip.2".to_string()
 }
@@ -26,7 +29,7 @@ pub struct Timeline {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
-    pub tracks: Vec<Track>,
+    pub tracks: Stack,
     #[serde(default)]
     pub metadata: serde_json::Value,
 }
@@ -40,6 +43,26 @@ pub struct Track {
     pub items: Vec<Item>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Stack {
+    #[serde(rename = "OTIO_SCHEMA", default = "default_stack_schema")]
+    pub otio_schema: String,
+    #[serde(default)]
+    pub children: Vec<Track>,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+impl Default for Stack {
+    fn default() -> Self {
+        Self {
+            otio_schema: default_stack_schema(),
+            children: vec![],
+            metadata: serde_json::Value::Null,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -123,7 +146,7 @@ impl Default for Timeline {
         Self {
             otio_schema: default_timeline_schema(),
             name: None,
-            tracks: vec![],
+            tracks: Stack::default(),
             metadata: serde_json::Value::Null,
         }
     }

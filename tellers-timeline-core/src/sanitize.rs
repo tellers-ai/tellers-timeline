@@ -2,7 +2,7 @@ use crate::{Item, Timeline, Track};
 
 impl Timeline {
     pub fn sanitize(&mut self) {
-        for track in &mut self.tracks {
+        for track in &mut self.tracks.children {
             track.sanitize();
         }
     }
@@ -41,5 +41,13 @@ impl Track {
             }
         }
         self.items = merged;
+    }
+}
+
+impl crate::Stack {
+    pub fn sanitize(&mut self) {
+        for t in &mut self.children {
+            t.sanitize();
+        }
     }
 }

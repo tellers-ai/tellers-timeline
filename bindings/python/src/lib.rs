@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyAny;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Gap, Item, MediaSource, Timeline, Track, TrackKind,
+    validate_timeline, Clip, Gap, Item, MediaSource, Stack, Timeline, Track, TrackKind,
 };
 use uuid::Uuid;
 
@@ -331,6 +331,39 @@ impl PyTrack {
     }
 }
 
+#[pyclass(name = "Stack")]
+#[derive(Clone)]
+struct PyStack {
+    inner: Stack,
+}
+
+#[pymethods]
+impl PyStack {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: Stack::default(),
+        }
+    }
+    fn children(&self, py: Python<'_>) -> Vec<Py<PyTrack>> {
+        self.inner
+            .children
+            .iter()
+            .cloned()
+            .map(|t| Py::new(py, PyTrack { inner: t }).unwrap())
+            .collect()
+    }
+    fn clear_children(&mut self) {
+        self.inner.children.clear();
+    }
+    fn add_track(&mut self, track: PyTrack) {
+        self.inner.children.push(track.inner);
+    }
+    fn sanitize(&mut self) {
+        self.inner.sanitize();
+    }
+}
+
 fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
     if let Ok(py_item) = item.extract::<PyRef<PyItem>>() {
         return Some(py_item.inner.clone());
@@ -391,13 +424,33 @@ impl PyTimeline {
     fn tracks(&self, py: Python<'_>) -> Vec<Py<PyTrack>> {
         self.inner
             .tracks
+            .children
             .iter()
             .cloned()
             .map(|t| Py::new(py, PyTrack { inner: t }).unwrap())
             .collect()
     }
     fn add_track(&mut self, track: PyTrack) {
-        self.inner.tracks.push(track.inner);
+        self.inner.tracks.children.push(track.inner);
+    }
+    fn set_tracks(&mut self, tracks: Vec<PyTrack>) {
+        self.inner.tracks = Stack {
+            otio_schema: "Stack.1".to_string(),
+            children: tracks.into_iter().map(|t| t.inner).collect(),
+            metadata: serde_json::Value::Null,
+        };
+    }
+    fn get_stack(&self, py: Python<'_>) -> Py<PyStack> {
+        Py::new(
+            py,
+            PyStack {
+                inner: self.inner.tracks.clone(),
+            },
+        )
+        .unwrap()
+    }
+    fn set_stack(&mut self, stack: PyStack) {
+        self.inner.tracks = stack.inner;
     }
 }
 
@@ -408,6 +461,7 @@ fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyGap>()?;
     m.add_class::<PyItem>()?;
     m.add_class::<PyTrack>()?;
+    m.add_class::<PyStack>()?;
     m.add_class::<PyTimeline>()?;
     Ok(())
 }
