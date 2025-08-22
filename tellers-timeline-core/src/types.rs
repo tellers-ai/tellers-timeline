@@ -179,3 +179,14 @@ impl Track {
         self.items.iter().map(|it| it.duration().max(0.0)).sum()
     }
 }
+
+impl Stack {
+    pub fn get_track_by_id(&self, id: uuid::Uuid) -> Option<(usize, &Track)> {
+        for (i, tr) in self.children.iter().enumerate() {
+            if crate::metadata::IdMetadataExt::get_id(tr).as_ref() == Some(&id) {
+                return Some((i, tr));
+            }
+        }
+        None
+    }
+}
