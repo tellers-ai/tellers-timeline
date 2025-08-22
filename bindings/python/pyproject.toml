@@ -6,11 +6,9 @@ build-backend = "maturin"
 name = "tellers-timeline"
 version = "0.1.0"
 requires-python = ">=3.8"
-classifiers = [
-    "Programming Language :: Python",
-    "Programming Language :: Rust",
-]
+classifiers = ["Programming Language :: Python", "Programming Language :: Rust"]
 
 [tool.maturin]
+include = ["python/**/*.pyi", "python/**/py.typed"]
 features = ["pyo3/extension-module"]
 python-source = "python"
