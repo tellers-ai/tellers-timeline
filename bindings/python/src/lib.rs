@@ -385,6 +385,108 @@ impl PyStack {
     fn sanitize(&mut self) {
         self.inner.sanitize();
     }
+    fn get_track_by_id(&self, py: Python<'_>, id: &str) -> Option<(usize, Py<PyTrack>)> {
+        let uuid = Uuid::parse_str(id).ok()?;
+        self.inner.get_track_by_id(uuid).map(|(i, _t)| {
+            let tr = self.inner.children[i].clone();
+            (i, Py::new(py, PyTrack { inner: tr }).unwrap())
+        })
+    }
+    fn get_item(&self, py: Python<'_>, id: &str) -> Option<(usize, usize, Py<PyItem>)> {
+        let uuid = Uuid::parse_str(id).ok()?;
+        self.inner.get_item(uuid).map(|(ti, ii, _it)| {
+            let item = self.inner.children[ti].items[ii].clone();
+            (ti, ii, Py::new(py, PyItem { inner: item }).unwrap())
+        })
+    }
+    fn delete_item(
+        &mut self,
+        py: Python<'_>,
+        id: &str,
+        replace_with_gap: bool,
+    ) -> Option<(usize, Py<PyItem>)> {
+        let uuid = Uuid::parse_str(id).ok()?;
+        self.inner
+            .delete_item(uuid, replace_with_gap)
+            .map(|(ti, it)| (ti, Py::new(py, PyItem { inner: it }).unwrap()))
+    }
+    fn insert_item_at_time(
+        &mut self,
+        dest_track_index: usize,
+        dest_time: f64,
+        item: &Bound<PyAny>,
+        overlap_policy: &str,
+        insert_policy: &str,
+    ) -> PyResult<bool> {
+        if let Some(inner_item) = extract_item(item) {
+            let op = overlap_policy_from_str(overlap_policy);
+            let ip = insert_policy_from_str(insert_policy);
+            Ok(self
+                .inner
+                .insert_item_at_time(dest_track_index, dest_time, inner_item, op, ip))
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "insert_item_at_time expects an Item, Clip, or Gap",
+            ))
+        }
+    }
+    fn insert_item_at_index(
+        &mut self,
+        dest_track_id: &str,
+        dest_index: usize,
+        item: &Bound<PyAny>,
+        overlap_policy: &str,
+    ) -> PyResult<bool> {
+        if let Some(inner_item) = extract_item(item) {
+            let tr = Uuid::parse_str(dest_track_id)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+            let op = overlap_policy_from_str(overlap_policy);
+            Ok(self
+                .inner
+                .insert_item_at_index(tr, dest_index, inner_item, op))
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "insert_item_at_index expects an Item, Clip, or Gap",
+            ))
+        }
+    }
+    fn move_item_at_time(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_time: f64,
+        replace_with_gap: bool,
+        overlap_policy: &str,
+        insert_policy: &str,
+    ) -> PyResult<bool> {
+        let it = Uuid::parse_str(item_id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let tr = Uuid::parse_str(dest_track_id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let op = overlap_policy_from_str(overlap_policy);
+        let ip = insert_policy_from_str(insert_policy);
+        Ok(self
+            .inner
+            .move_item_at_time(it, tr, dest_time, replace_with_gap, ip, op))
+    }
+    fn move_item_at_index(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_index: usize,
+        replace_with_gap: bool,
+        overlap_policy: &str,
+    ) -> PyResult<bool> {
+        let it = Uuid::parse_str(item_id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let tr = Uuid::parse_str(dest_track_id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let op = overlap_policy_from_str(overlap_policy);
+
+        Ok(self
+            .inner
+            .move_item_at_index(it, tr, dest_index, replace_with_gap, op))
+    }
 }
 
 fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
@@ -455,6 +557,21 @@ impl PyTimeline {
     }
     fn set_stack(&mut self, stack: PyStack) {
         self.inner.tracks = stack.inner;
+    }
+    fn move_item(&mut self, item_id: &str, dest_track_id: &str, dest_time: f64) -> PyResult<bool> {
+        // Backwards-compat convenience wrapper: default policies
+        let it = Uuid::parse_str(item_id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let tr = Uuid::parse_str(dest_track_id)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(self.inner.tracks.move_item_at_time(
+            it,
+            tr,
+            dest_time,
+            false,
+            InsertPolicy::InsertBeforeOrAfter,
+            OverlapPolicy::Override,
+        ))
     }
 }
 

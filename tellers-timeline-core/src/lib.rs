@@ -1,5 +1,6 @@
 pub mod metadata;
 pub mod sanitize;
+pub mod stack_methods;
 pub mod track_methods;
 pub mod types;
 pub mod validate;

@@ -98,6 +98,44 @@ class Stack:
     def add_track(self, track: Track) -> None: ...
     def set_tracks(self, tracks: list[Track]) -> None: ...
     def sanitize(self) -> None: ...
+    def get_track_by_id(self, id: str) -> Optional[tuple[int, Track]]: ...
+    def get_item(self, id: str) -> Optional[tuple[int, int, Item]]: ...
+    def delete_item(
+        self, id: str, replace_with_gap: bool
+    ) -> Optional[tuple[int, Item]]: ...
+    def insert_item_at_time(
+        self,
+        dest_track_index: int,
+        dest_time: float,
+        item: Union[Item, Clip, Gap],
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) -> bool: ...
+    def insert_item_at_index(
+        self,
+        dest_track_id: str,
+        dest_index: int,
+        item: Union[Item, Clip, Gap],
+        overlap_policy: OverlapPolicy,
+    ) -> bool: ...
+    def move_item_at_time(
+        self,
+        item_id: str,
+        dest_track_id: str,
+        dest_time: float,
+        replace_with_gap: bool,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) -> bool: ...
+    def move_item_at_index(
+        self,
+        item_id: str,
+        dest_track_id: str,
+        dest_index: int,
+        replace_with_gap: bool,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) -> bool: ...
 
 class Timeline:
     def __init__(self) -> None: ...
@@ -110,3 +148,4 @@ class Timeline:
     def set_name(self, value: Optional[str]) -> None: ...
     def get_stack(self) -> Stack: ...
     def set_stack(self, stack: Stack) -> None: ...
+    def move_item(self, item_id: str, dest_track_id: str, dest_time: float) -> bool: ...
