@@ -292,6 +292,18 @@ impl PyTrack {
     fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> bool {
         self.inner.delete_clip(index, replace_with_gap)
     }
+    fn resize_item(
+        &mut self,
+        index: usize,
+        new_start_time: f64,
+        new_duration: f64,
+        overlap_policy: &str,
+        clamp_to_media: bool,
+    ) -> bool {
+        let op = overlap_policy_from_str(overlap_policy);
+        self.inner
+            .resize_item(index, new_start_time, new_duration, op, clamp_to_media)
+    }
     fn total_duration(&self) -> f64 {
         self.inner.total_duration()
     }
