@@ -1,9 +1,8 @@
 use crate::{InsertPolicy, Item, OverlapPolicy, Seconds, Stack};
-use uuid::Uuid;
 
 impl Stack {
     /// Find an item by id across all tracks. Returns (track_index, item_index, &Item).
-    pub fn get_item(&self, item_id: Uuid) -> Option<(usize, usize, &Item)> {
+    pub fn get_item(&self, item_id: &str) -> Option<(usize, usize, &Item)> {
         for (ti, track) in self.children.iter().enumerate() {
             if let Some((ii, item)) = track.get_item_by_id(item_id) {
                 return Some((ti, ii, item));
@@ -15,7 +14,7 @@ impl Stack {
     /// Delete an item by id across all tracks. If replace_with_gap is true and the
     /// removed item has a positive duration, a gap of equal duration is inserted.
     /// Returns (track_index, removed_item) on success.
-    pub fn delete_item(&mut self, item_id: Uuid, replace_with_gap: bool) -> Option<(usize, Item)> {
+    pub fn delete_item(&mut self, item_id: &str, replace_with_gap: bool) -> Option<(usize, Item)> {
         for ti in 0..self.children.len() {
             if let Some((ii, _)) = self.children[ti].get_item_by_id(item_id) {
                 let removed = self.children[ti].items[ii].clone();
@@ -57,7 +56,7 @@ impl Stack {
     /// Returns true if the destination track is found and insertion occurred.
     pub fn insert_item_at_index(
         &mut self,
-        dest_track_id: Uuid,
+        dest_track_id: &str,
         dest_index: usize,
         item: Item,
         overlap_policy: OverlapPolicy,
@@ -78,8 +77,8 @@ impl Stack {
     /// Returns true if item was successfully moved.
     pub fn move_item_at_time(
         &mut self,
-        item_id: Uuid,
-        dest_track_id: Uuid,
+        item_id: &str,
+        dest_track_id: &str,
         dest_time: Seconds,
         replace_with_gap: bool,
         insert_policy: InsertPolicy,
@@ -112,8 +111,8 @@ impl Stack {
     /// Returns true if item was successfully moved.
     pub fn move_item_at_index(
         &mut self,
-        item_id: Uuid,
-        dest_track_id: Uuid,
+        item_id: &str,
+        dest_track_id: &str,
         dest_index: usize,
         replace_with_gap: bool,
         overlap_policy: OverlapPolicy,

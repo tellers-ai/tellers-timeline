@@ -16,7 +16,7 @@ repository = "https://github.com/tellers-ai/tellers-timeline"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 schemars = { version = "0.8", features = ["uuid1"] }
-uuid = { version = "1.10", features = ["serde", "v4"] }
 thiserror = "1.0"
 wasm-bindgen = { version = "0.2" }
 pyo3 = { version = "0.21", features = ["extension-module", "abi3-py38"] }
+rand = "0.8"

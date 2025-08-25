@@ -1,5 +1,4 @@
 use tellers_timeline_core::{Clip, IdMetadataExt, Item, MediaSource, Track};
-use uuid::Uuid;
 
 fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
     Item::Clip(Clip {
@@ -65,12 +64,12 @@ fn delete_clip_via_getter_with_gap() {
         Item::Clip(c) => c,
         _ => unreachable!(),
     };
-    let id = Uuid::new_v4();
-    c1.set_id(Some(id));
+    let id = "id-c1".to_string();
+    c1.set_id(Some(id.clone()));
     track.append(Item::Clip(c1));
     track.append(make_clip("c2", 6.0, 0.0));
 
-    let (idx, _it) = track.get_item_by_id(id).expect("id should exist");
+    let (idx, _it) = track.get_item_by_id(&id).expect("id should exist");
     let deleted = track.delete_clip(idx, true);
     assert!(deleted);
     // Expect gap(4.0) then c2, and no adjacent gaps to merge
