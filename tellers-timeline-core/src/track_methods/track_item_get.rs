@@ -3,9 +3,9 @@ use crate::{Item, Seconds, Track};
 impl Track {
     /// Find an item by id stored in its metadata under key `id`.
     /// Returns the index and a non-mut reference to the item Some((index, item)).
-    pub fn get_item_by_id(&self, id: uuid::Uuid) -> Option<(usize, &Item)> {
+    pub fn get_item_by_id(&self, id: &str) -> Option<(usize, &Item)> {
         for (i, it) in self.items.iter().enumerate() {
-            if crate::metadata::IdMetadataExt::get_id(it).as_ref() == Some(&id) {
+            if crate::metadata::IdMetadataExt::get_id(it).as_deref() == Some(id) {
                 return Some((i, it));
             }
         }

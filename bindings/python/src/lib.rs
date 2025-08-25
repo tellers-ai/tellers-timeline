@@ -2,10 +2,10 @@ use pyo3::prelude::*;
 // use pyo3::types::PyList;
 use pyo3::types::PyAny;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
+use tellers_timeline_core::IdMetadataExt;
 use tellers_timeline_core::{
     validate_timeline, Clip, Gap, Item, MediaSource, Stack, Timeline, Track, TrackKind,
 };
-use uuid::Uuid;
 
 #[pyclass(name = "MediaSource")]
 #[derive(Clone)]
@@ -56,17 +56,10 @@ struct PyClip {
 #[pymethods]
 impl PyClip {
     #[new]
-    #[pyo3(signature = (duration, source, name=None))]
-    fn new(duration: f64, source: PyMediaSource, name: Option<String>) -> Self {
-        Self {
-            inner: Clip {
-                otio_schema: "Clip.2".to_string(),
-                name,
-                duration,
-                source: source.inner,
-                metadata: serde_json::Value::Null,
-            },
-        }
+    #[pyo3(signature = (duration, source, name=None, id=None))]
+    fn new(duration: f64, source: PyMediaSource, name: Option<String>, id: Option<String>) -> Self {
+        let inner = Clip::new(duration, source.inner, name, id);
+        Self { inner }
     }
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
@@ -88,6 +81,12 @@ impl PyClip {
     fn set_source(&mut self, source: PyMediaSource) {
         self.inner.source = source.inner;
     }
+    fn get_id(&self) -> Option<String> {
+        self.inner.get_id()
+    }
+    fn set_id(&mut self, id: Option<&str>) {
+        self.inner.set_id(id.map(|s| s.to_string()));
+    }
 }
 
 #[pyclass(name = "Gap")]
@@ -99,20 +98,22 @@ struct PyGap {
 #[pymethods]
 impl PyGap {
     #[new]
-    fn new(duration: f64) -> Self {
-        Self {
-            inner: Gap {
-                otio_schema: "Gap.1".to_string(),
-                duration,
-                metadata: serde_json::Value::Null,
-            },
-        }
+    #[pyo3(signature = (duration, id=None))]
+    fn new(duration: f64, id: Option<String>) -> Self {
+        let inner = Gap::new(duration, id);
+        Self { inner }
     }
     fn get_duration(&self) -> f64 {
         self.inner.duration
     }
     fn set_duration(&mut self, v: f64) {
         self.inner.duration = v;
+    }
+    fn get_id(&self) -> Option<String> {
+        self.inner.get_id()
+    }
+    fn set_id(&mut self, id: Option<&str>) {
+        self.inner.set_id(id.map(|s| s.to_string()));
     }
 }
 
@@ -147,6 +148,12 @@ impl PyItem {
     }
     fn set_duration(&mut self, dur: f64) {
         self.inner.set_duration(dur);
+    }
+    fn get_id(&self) -> Option<String> {
+        self.inner.get_id()
+    }
+    fn set_id(&mut self, id: Option<&str>) {
+        self.inner.set_id(id.map(|s| s.to_string()));
     }
 }
 
@@ -184,18 +191,13 @@ fn insert_policy_from_str(s: &str) -> InsertPolicy {
 #[pymethods]
 impl PyTrack {
     #[new]
-    fn new(kind: Option<String>) -> Self {
+    #[pyo3(signature = (kind=None, id=None))]
+    fn new(kind: Option<String>, id: Option<String>) -> Self {
         let k = kind
             .map(|s| track_kind_from_str(&s))
             .unwrap_or(TrackKind::Video);
-        Self {
-            inner: Track {
-                otio_schema: "Track.1".to_string(),
-                kind: k,
-                items: vec![],
-                metadata: serde_json::Value::Null,
-            },
-        }
+        let inner = Track::new(k, id);
+        Self { inner }
     }
     #[getter]
     fn kind(&self) -> String {
@@ -270,12 +272,17 @@ impl PyTrack {
     fn split_at_time(&mut self, time: f64) {
         self.inner.split_at_time(time);
     }
+    fn get_id(&self) -> Option<String> {
+        self.inner.get_id()
+    }
+    fn set_id(&mut self, id: Option<&str>) {
+        self.inner.set_id(id.map(|s| s.to_string()));
+    }
     fn get_item_at_time(&self, time: f64) -> Option<usize> {
         self.inner.get_item_at_time(time)
     }
     fn get_item_by_id(&self, py: Python<'_>, id: &str) -> Option<(usize, Py<PyItem>)> {
-        let uuid = Uuid::parse_str(id).ok()?;
-        self.inner.get_item_by_id(uuid).map(|(i, _it)| {
+        self.inner.get_item_by_id(id).map(|(i, _it)| {
             let item = self.inner.items[i].clone();
             (i, Py::new(py, PyItem { inner: item }).unwrap())
         })
@@ -329,13 +336,7 @@ impl PyTrack {
             media_duration,
             metadata: serde_json::Value::Null,
         };
-        let clip = Clip {
-            otio_schema: "Clip.2".to_string(),
-            name,
-            duration,
-            source: ms,
-            metadata: serde_json::Value::Null,
-        };
+        let clip = Clip::new(duration, ms, name, None);
         let item = Item::Clip(clip);
         let op = overlap_policy_from_str(overlap_policy);
         let ip = insert_policy_from_str(insert_policy);
@@ -386,15 +387,13 @@ impl PyStack {
         self.inner.sanitize();
     }
     fn get_track_by_id(&self, py: Python<'_>, id: &str) -> Option<(usize, Py<PyTrack>)> {
-        let uuid = Uuid::parse_str(id).ok()?;
-        self.inner.get_track_by_id(uuid).map(|(i, _t)| {
+        self.inner.get_track_by_id(id).map(|(i, _t)| {
             let tr = self.inner.children[i].clone();
             (i, Py::new(py, PyTrack { inner: tr }).unwrap())
         })
     }
     fn get_item(&self, py: Python<'_>, id: &str) -> Option<(usize, usize, Py<PyItem>)> {
-        let uuid = Uuid::parse_str(id).ok()?;
-        self.inner.get_item(uuid).map(|(ti, ii, _it)| {
+        self.inner.get_item(id).map(|(ti, ii, _it)| {
             let item = self.inner.children[ti].items[ii].clone();
             (ti, ii, Py::new(py, PyItem { inner: item }).unwrap())
         })
@@ -405,9 +404,8 @@ impl PyStack {
         id: &str,
         replace_with_gap: bool,
     ) -> Option<(usize, Py<PyItem>)> {
-        let uuid = Uuid::parse_str(id).ok()?;
         self.inner
-            .delete_item(uuid, replace_with_gap)
+            .delete_item(id, replace_with_gap)
             .map(|(ti, it)| (ti, Py::new(py, PyItem { inner: it }).unwrap()))
     }
     fn insert_item_at_time(
@@ -438,12 +436,10 @@ impl PyStack {
         overlap_policy: &str,
     ) -> PyResult<bool> {
         if let Some(inner_item) = extract_item(item) {
-            let tr = Uuid::parse_str(dest_track_id)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
             let op = overlap_policy_from_str(overlap_policy);
             Ok(self
                 .inner
-                .insert_item_at_index(tr, dest_index, inner_item, op))
+                .insert_item_at_index(dest_track_id, dest_index, inner_item, op))
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
                 "insert_item_at_index expects an Item, Clip, or Gap",
@@ -459,15 +455,16 @@ impl PyStack {
         overlap_policy: &str,
         insert_policy: &str,
     ) -> PyResult<bool> {
-        let it = Uuid::parse_str(item_id)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        let tr = Uuid::parse_str(dest_track_id)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         let op = overlap_policy_from_str(overlap_policy);
         let ip = insert_policy_from_str(insert_policy);
-        Ok(self
-            .inner
-            .move_item_at_time(it, tr, dest_time, replace_with_gap, ip, op))
+        Ok(self.inner.move_item_at_time(
+            item_id,
+            dest_track_id,
+            dest_time,
+            replace_with_gap,
+            ip,
+            op,
+        ))
     }
     fn move_item_at_index(
         &mut self,
@@ -477,15 +474,10 @@ impl PyStack {
         replace_with_gap: bool,
         overlap_policy: &str,
     ) -> PyResult<bool> {
-        let it = Uuid::parse_str(item_id)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        let tr = Uuid::parse_str(dest_track_id)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         let op = overlap_policy_from_str(overlap_policy);
-
         Ok(self
             .inner
-            .move_item_at_index(it, tr, dest_index, replace_with_gap, op))
+            .move_item_at_index(item_id, dest_track_id, dest_index, replace_with_gap, op))
     }
 }
 
@@ -560,13 +552,9 @@ impl PyTimeline {
     }
     fn move_item(&mut self, item_id: &str, dest_track_id: &str, dest_time: f64) -> PyResult<bool> {
         // Backwards-compat convenience wrapper: default policies
-        let it = Uuid::parse_str(item_id)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        let tr = Uuid::parse_str(dest_track_id)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         Ok(self.inner.tracks.move_item_at_time(
-            it,
-            tr,
+            item_id,
+            dest_track_id,
             dest_time,
             false,
             InsertPolicy::InsertBeforeOrAfter,

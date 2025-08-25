@@ -22,6 +22,13 @@ fn default_external_ref_schema() -> String {
     "ExternalReference.1".to_string()
 }
 
+fn gen_hex_id_12() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 6];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Timeline {
     #[serde(rename = "OTIO_SCHEMA", default = "default_timeline_schema")]
@@ -107,6 +114,25 @@ pub struct Clip {
     pub metadata: serde_json::Value,
 }
 
+impl Clip {
+    pub fn new(
+        duration: Seconds,
+        source: MediaSource,
+        name: Option<String>,
+        id: Option<String>,
+    ) -> Self {
+        let mut c = Clip {
+            otio_schema: default_clip_schema(),
+            name,
+            duration,
+            source,
+            metadata: serde_json::Value::Null,
+        };
+        crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
+        c
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Gap {
     #[serde(rename = "OTIO_SCHEMA", default = "default_gap_schema")]
@@ -117,12 +143,17 @@ pub struct Gap {
 }
 
 impl Gap {
-    pub fn make_gap(duration: Seconds) -> Self {
-        Gap {
+    pub fn new(duration: Seconds, id: Option<String>) -> Self {
+        let mut g = Gap {
             otio_schema: default_gap_schema(),
             duration,
             metadata: serde_json::Value::Object(serde_json::Map::new()),
-        }
+        };
+        crate::metadata::IdMetadataExt::set_id(&mut g, Some(id.unwrap_or_else(gen_hex_id_12)));
+        g
+    }
+    pub fn make_gap(duration: Seconds) -> Self {
+        Self::new(duration, None)
     }
 }
 
@@ -154,16 +185,21 @@ impl Default for Timeline {
 
 impl Default for Track {
     fn default() -> Self {
-        Self {
-            otio_schema: default_track_schema(),
-            kind: TrackKind::Video,
-            items: vec![],
-            metadata: serde_json::Value::Null,
-        }
+        Self::new(TrackKind::Video, None)
     }
 }
 
 impl Track {
+    pub fn new(kind: TrackKind, id: Option<String>) -> Self {
+        let mut t = Track {
+            otio_schema: default_track_schema(),
+            kind,
+            items: vec![],
+            metadata: serde_json::Value::Null,
+        };
+        crate::metadata::IdMetadataExt::set_id(&mut t, Some(id.unwrap_or_else(gen_hex_id_12)));
+        t
+    }
     pub fn start_time_of_item(&self, index: usize) -> Seconds {
         let mut acc: Seconds = 0.0;
         for (i, it) in self.items.iter().enumerate() {
@@ -181,9 +217,9 @@ impl Track {
 }
 
 impl Stack {
-    pub fn get_track_by_id(&self, id: uuid::Uuid) -> Option<(usize, &Track)> {
+    pub fn get_track_by_id(&self, id: &str) -> Option<(usize, &Track)> {
         for (i, tr) in self.children.iter().enumerate() {
-            if crate::metadata::IdMetadataExt::get_id(tr).as_ref() == Some(&id) {
+            if crate::metadata::IdMetadataExt::get_id(tr).as_deref() == Some(id) {
                 return Some((i, tr));
             }
         }
