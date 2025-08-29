@@ -9,7 +9,6 @@
         "kind": "video",
         "children": [
           {
-            "type": "clip",
             "OTIO_SCHEMA": "Clip.2",
             "name": "V1",
             "source_range": {
@@ -48,15 +47,25 @@
         "kind": "audio",
         "children": [
           {
-            "type": "gap",
             "OTIO_SCHEMA": "Gap.1",
-            "duration": 1.0,
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 1.0
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0.0
+              }
+            },
             "metadata": {
               "id": "00000000-0000-0000-0000-000000000112"
             }
           },
           {
-            "type": "clip",
             "OTIO_SCHEMA": "Clip.2",
             "name": "A1",
             "source_range": {
