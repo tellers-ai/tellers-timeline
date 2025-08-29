@@ -1,0 +1,800 @@
+{
+    "OTIO_SCHEMA": "Timeline.1",
+    "name": "Generated Video Timeline",
+    "metadata":
+    {
+        "tellers_aspect_ratio": "16_9",
+        "Resolve_OTIO": null,
+        "tellers_timed_words":
+        [
+            {
+                "text": "Need",
+                "start": 0,
+                "end": 0.3799999952316284
+            },
+            {
+                "text": "calm",
+                "start": 0.3799999952316284,
+                "end": 0.6399999856948853
+            },
+            {
+                "text": "in",
+                "start": 0.6399999856948853,
+                "end": 0.7799999713897705
+            },
+            {
+                "text": "20",
+                "start": 0.7799999713897705,
+                "end": 1.100000023841858
+            },
+            {
+                "text": "seconds?",
+                "start": 1.100000023841858,
+                "end": 1.5
+            },
+            {
+                "text": "Try",
+                "start": 1.9800000190734863,
+                "end": 2.119999885559082
+            },
+            {
+                "text": "box",
+                "start": 2.119999885559082,
+                "end": 2.4200000762939453
+            },
+            {
+                "text": "breathing.",
+                "start": 2.4200000762939453,
+                "end": 2.740000009536743
+            },
+            {
+                "text": "Inhale",
+                "start": 3.4000000953674316,
+                "end": 3.5200001001358032
+            },
+            {
+                "text": "for",
+                "start": 3.5200001001358032,
+                "end": 3.640000104904175
+            },
+            {
+                "text": "four.",
+                "start": 3.640000104904175,
+                "end": 3.880000114440918
+            },
+            {
+                "text": "Hold",
+                "start": 4.239999771118164,
+                "end": 4.260000228881836
+            },
+            {
+                "text": "for",
+                "start": 4.260000228881836,
+                "end": 4.480000019073486
+            },
+            {
+                "text": "four.",
+                "start": 4.480000019073486,
+                "end": 4.880000114440918
+            },
+            {
+                "text": "Exhale",
+                "start": 5.179999828338623,
+                "end": 5.340000152587891
+            },
+            {
+                "text": "for",
+                "start": 5.340000152587891,
+                "end": 5.639999866485596
+            },
+            {
+                "text": "four.",
+                "start": 5.639999866485596,
+                "end": 5.880000114440918
+            },
+            {
+                "text": "Hold",
+                "start": 6.179999828338623,
+                "end": 6.299999952316284
+            },
+            {
+                "text": "for",
+                "start": 6.299999952316284,
+                "end": 6.420000076293945
+            },
+            {
+                "text": "four.",
+                "start": 6.420000076293945,
+                "end": 6.679999828338623
+            },
+            {
+                "text": "Let\\u2019s",
+                "start": 6.960000038146973,
+                "end": 7.039999961853027
+            },
+            {
+                "text": "do",
+                "start": 7.039999961853027,
+                "end": 7.139999866485596
+            },
+            {
+                "text": "one",
+                "start": 7.139999866485596,
+                "end": 7.320000171661377
+            },
+            {
+                "text": "round",
+                "start": 7.320000171661377,
+                "end": 7.480000019073486
+            },
+            {
+                "text": "together:",
+                "start": 7.480000019073486,
+                "end": 7.840000152587891
+            },
+            {
+                "text": "Inhale\\u20262\\u20263\\u20264.",
+                "start": 8.479999542236328,
+                "end": 8.669999599456787
+            },
+            {
+                "text": "two",
+                "start": 20.669999599456787,
+                "end": 20.859999656677246
+            },
+            {
+                "text": "more",
+                "start": 20.859999656677246,
+                "end": 21.0600004196167
+            },
+            {
+                "text": "your",
+                "start": 21.0600004196167,
+                "end": 21.380000114440918
+            },
+            {
+                "text": "to",
+                "start": 21.960000038146973,
+                "end": 22.539999961853027
+            },
+            {
+                "text": "reset",
+                "start": 22.539999961853027,
+                "end": 22.960000038146973
+            },
+            {
+                "text": "your",
+                "start": 22.960000038146973,
+                "end": 23.239999771118164
+            },
+            {
+                "text": "focus.",
+                "start": 28.65999984741211,
+                "end": 29.020000457763672
+            }
+        ],
+        "tellers_subtitles": null,
+        "tellers_subtitles_enabled": null
+    },
+    "tracks":
+    {
+        "name": "tracks",
+        "metadata":
+        {},
+        "source_range": null,
+        "markers":
+        [],
+        "effects":
+        [],
+        "children":
+        [
+            {
+                "kind": "Video",
+                "name": "V1_Foreground",
+                "metadata":
+                {},
+                "source_range": null,
+                "markers":
+                [],
+                "effects":
+                [],
+                "children":
+                [],
+                "enabled": true,
+                "OTIO_SCHEMA": "Track.1"
+            },
+            {
+                "kind": "Video",
+                "name": "V2_Background",
+                "metadata":
+                {},
+                "source_range": null,
+                "markers":
+                [],
+                "effects":
+                [],
+                "children":
+                [
+                    {
+                        "name": "Scene_0_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "aQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 2.740000009536743
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 1.1299999952316284
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    },
+                    {
+                        "name": "Scene_1_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "bQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 3.93999981880188
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 0.5300000905990601
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    },
+                    {
+                        "name": "Scene_2_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "cQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 1.1600003242492676
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 1.9199998378753662
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    },
+                    {
+                        "name": "Scene_3_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "dQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 1
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 2
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    },
+                    {
+                        "name": "Scene_4_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "eQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 4
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 0.5
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    },
+                    {
+                        "name": "Scene_6_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "gQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 1.8754199795947089
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 0.5
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    },
+                    {
+                        "name": "Scene_7_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "hQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 0.9774310441880099
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 0
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    },
+                    {
+                        "name": "Scene_5_B_Roll_Background_0_0",
+                        "metadata":
+                        {
+                            "tellers_id": "fQ2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 2.8935406698564594
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 0.5
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 5.099
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/ZyvsyUJSp6ZYVh6K2k9hqyJG4W83/068af2e5-4b04-77f5-8000-44e407dd3243?response-content-disposition=attachment%3B%20filename%3D%22068af2e5-4b04-77f5-8000-44e407dd3243%22&AWSAccessKeyId=1234567890&Signature=y7UcOddDTrPITcE0A5InCLzABwk%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "068af2e5-4b04-77f5-8000-44e407dd3243",
+                                    "keyframe_id": "068af2e5-e15e-7a9a-8000-6251d4944882",
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    }
+                ],
+                "enabled": true,
+                "OTIO_SCHEMA": "Track.1"
+            },
+            {
+                "kind": "Audio",
+                "name": "A1",
+                "metadata":
+                {},
+                "source_range": null,
+                "markers":
+                [],
+                "effects":
+                [],
+                "children":
+                [
+                    {
+                        "name": "Scene_7_Voiceover",
+                        "metadata":
+                        {
+                            "tellers_id": "iR2n"
+                        },
+                        "markers":
+                        [],
+                        "effects":
+                        [],
+                        "source_range":
+                        {
+                            "duration":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 17.256009070294784
+                            },
+                            "start_time":
+                            {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1,
+                                "value": 0
+                            },
+                            "OTIO_SCHEMA": "TimeRange.1"
+                        },
+                        "media_references":
+                        {
+                            "DEFAULT_MEDIA":
+                            {
+                                "available_range":
+                                {
+                                    "duration":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 17.256
+                                    },
+                                    "start_time":
+                                    {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 1,
+                                        "value": 0
+                                    },
+                                    "OTIO_SCHEMA": "TimeRange.1"
+                                },
+                                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/7a8f4946-8277-4650-bae9-55a5d0a0ac00.mp3?response-content-disposition=attachment%3B%20filename%3D%227a8f4946-8277-4650-bae9-55a5d0a0ac00.mp3%22&AWSAccessKeyId=1234567890&Signature=336%2BrdX1XlruDnlXolp0bH70o7o%3D&Expires=1756485790",
+                                "name": "",
+                                "metadata":
+                                {
+                                    "media_id": "8ff6c965-ea45-4949-833e-6f983f4a05b4",
+                                    "keyframe_id": null,
+                                    "Resolve_OTIO": null
+                                },
+                                "available_image_bounds": null,
+                                "OTIO_SCHEMA": "ExternalReference.1"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA",
+                        "enabled": true,
+                        "OTIO_SCHEMA": "Clip.2"
+                    }
+                ],
+                "enabled": true,
+                "OTIO_SCHEMA": "Track.1"
+            }
+        ],
+        "enabled": true,
+        "OTIO_SCHEMA": "Stack.1"
+    }
+}
