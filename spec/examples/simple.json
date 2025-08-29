@@ -7,7 +7,7 @@
       {
         "OTIO_SCHEMA": "Track.1",
         "kind": "video",
-        "items": [
+        "children": [
           {
             "type": "gap",
             "OTIO_SCHEMA": "Gap.1",

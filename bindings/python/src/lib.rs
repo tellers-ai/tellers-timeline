@@ -45,6 +45,16 @@ impl PyMediaSource {
     fn set_media_duration(&mut self, v: Option<f64>) {
         self.inner.media_duration = v;
     }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
+    }
 }
 
 #[pyclass(name = "Clip")]
@@ -87,6 +97,16 @@ impl PyClip {
     fn set_id(&mut self, id: Option<&str>) {
         self.inner.set_id(id.map(|s| s.to_string()));
     }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
+    }
 }
 
 #[pyclass(name = "Gap")]
@@ -97,6 +117,12 @@ struct PyGap {
 
 #[pymethods]
 impl PyGap {
+    fn get_name(&self) -> Option<String> {
+        self.inner.name.clone()
+    }
+    fn set_name(&mut self, name: Option<String>) {
+        self.inner.name = name;
+    }
     #[new]
     #[pyo3(signature = (duration, id=None))]
     fn new(duration: f64, id: Option<String>) -> Self {
@@ -114,6 +140,16 @@ impl PyGap {
     }
     fn set_id(&mut self, id: Option<&str>) {
         self.inner.set_id(id.map(|s| s.to_string()));
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
 }
 
@@ -190,6 +226,12 @@ fn insert_policy_from_str(s: &str) -> InsertPolicy {
 
 #[pymethods]
 impl PyTrack {
+    fn get_name(&self) -> Option<String> {
+        self.inner.name.clone()
+    }
+    fn set_name(&mut self, name: Option<String>) {
+        self.inner.name = name;
+    }
     #[new]
     #[pyo3(signature = (kind=None, id=None))]
     fn new(kind: Option<String>, id: Option<String>) -> Self {
@@ -317,6 +359,16 @@ impl PyTrack {
     fn start_time_of_item(&self, index: usize) -> f64 {
         self.inner.start_time_of_item(index)
     }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
+    }
     #[pyo3(signature = (start_time, duration, url, overlap_policy, insert_policy, name=None, media_start=None, media_duration=None))]
     fn insert_clip(
         &mut self,
@@ -358,6 +410,12 @@ impl PyStack {
             inner: Stack::default(),
         }
     }
+    fn get_name(&self) -> Option<String> {
+        self.inner.name.clone()
+    }
+    fn set_name(&mut self, name: Option<String>) {
+        self.inner.name = name;
+    }
     fn tracks(&self, py: Python<'_>) -> Vec<Py<PyTrack>> {
         self.inner
             .children
@@ -385,6 +443,16 @@ impl PyStack {
     }
     fn sanitize(&mut self) {
         self.inner.sanitize();
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
     fn get_track_by_id(&self, py: Python<'_>, id: &str) -> Option<(usize, Py<PyTrack>)> {
         self.inner.get_track_by_id(id).map(|(i, _t)| {
@@ -549,6 +617,16 @@ impl PyTimeline {
     }
     fn set_stack(&mut self, stack: PyStack) {
         self.inner.tracks = stack.inner;
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
     fn move_item(&mut self, item_id: &str, dest_track_id: &str, dest_time: f64) -> PyResult<bool> {
         // Backwards-compat convenience wrapper: default policies

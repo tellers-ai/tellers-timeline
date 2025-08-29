@@ -54,6 +54,7 @@ impl Track {
 
                 let left_gap = crate::types::Gap {
                     otio_schema: gap.otio_schema.clone(),
+                    name: gap.name.clone(),
                     duration: left_duration,
                     metadata: gap.metadata.clone(),
                 };

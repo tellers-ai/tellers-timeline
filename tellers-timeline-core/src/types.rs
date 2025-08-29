@@ -48,6 +48,8 @@ pub struct Track {
     #[serde(deserialize_with = "deserialize_track_kind_case_insensitive")]
     pub kind: TrackKind,
     #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "children", default)]
     pub items: Vec<Item>,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -58,6 +60,8 @@ pub struct Stack {
     #[serde(rename = "OTIO_SCHEMA", default = "default_stack_schema")]
     pub otio_schema: String,
     #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
     pub children: Vec<Track>,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -67,6 +71,7 @@ impl Default for Stack {
     fn default() -> Self {
         Self {
             otio_schema: default_stack_schema(),
+            name: None,
             children: vec![],
             metadata: serde_json::Value::Null,
         }
@@ -96,7 +101,7 @@ where
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum Item {
     Clip(Clip),
     Gap(Gap),
@@ -152,6 +157,8 @@ impl Clip {
 pub struct Gap {
     #[serde(rename = "OTIO_SCHEMA", default = "default_gap_schema")]
     pub otio_schema: String,
+    #[serde(default)]
+    pub name: Option<String>,
     pub duration: Seconds,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -161,6 +168,7 @@ impl Gap {
     pub fn new(duration: Seconds, id: Option<String>) -> Self {
         let mut g = Gap {
             otio_schema: default_gap_schema(),
+            name: None,
             duration,
             metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
@@ -209,6 +217,7 @@ impl Track {
         let mut t = Track {
             otio_schema: default_track_schema(),
             kind,
+            name: None,
             items: vec![],
             metadata: serde_json::Value::Null,
         };

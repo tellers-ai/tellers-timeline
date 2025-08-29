@@ -3,13 +3,9 @@
   "title": "Timeline",
   "type": "object",
   "properties": {
-    "id": {
-      "default": null,
-      "type": [
-        "string",
-        "null"
-      ],
-      "format": "uuid"
+    "OTIO_SCHEMA": {
+      "default": "Timeline.1",
+      "type": "string"
     },
     "metadata": {
       "default": null
@@ -22,7 +18,17 @@
       ]
     },
     "tracks": {
-      "$ref": "#/definitions/Stack"
+      "default": {
+        "OTIO_SCHEMA": "Stack.1",
+        "children": [],
+        "metadata": null,
+        "name": null
+      },
+      "allOf": [
+        {
+          "$ref": "#/definitions/Stack"
+        }
+      ]
     }
   },
   "definitions": {
@@ -36,17 +42,13 @@
             "type"
           ],
           "properties": {
+            "OTIO_SCHEMA": {
+              "default": "Clip.2",
+              "type": "string"
+            },
             "duration": {
               "type": "number",
               "format": "double"
-            },
-            "id": {
-              "default": null,
-              "type": [
-                "string",
-                "null"
-              ],
-              "format": "uuid"
             },
             "metadata": {
               "default": null
@@ -76,20 +78,23 @@
             "type"
           ],
           "properties": {
+            "OTIO_SCHEMA": {
+              "default": "Gap.1",
+              "type": "string"
+            },
             "duration": {
               "type": "number",
               "format": "double"
             },
-            "id": {
+            "metadata": {
+              "default": null
+            },
+            "name": {
               "default": null,
               "type": [
                 "string",
                 "null"
-              ],
-              "format": "uuid"
-            },
-            "metadata": {
-              "default": null
+              ]
             },
             "type": {
               "type": "string",
@@ -107,13 +112,9 @@
         "url"
       ],
       "properties": {
-        "id": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uuid"
+        "OTIO_SCHEMA": {
+          "default": "ExternalReference.1",
+          "type": "string"
         },
         "media_duration": {
           "description": "Optional media duration if known",
@@ -138,21 +139,43 @@
         }
       }
     },
+    "Stack": {
+      "type": "object",
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "Stack.1",
+          "type": "string"
+        },
+        "children": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Track"
+          }
+        },
+        "metadata": {
+          "default": null
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "Track": {
       "type": "object",
       "required": [
         "kind"
       ],
       "properties": {
-        "id": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ],
-          "format": "uuid"
+        "OTIO_SCHEMA": {
+          "default": "Track.1",
+          "type": "string"
         },
-        "items": {
+        "children": {
           "default": [],
           "type": "array",
           "items": {
@@ -164,41 +187,22 @@
         },
         "metadata": {
           "default": null
-        }
-      }
-    },
-    "Stack": {
-      "type": "object",
-      "properties": {
-        "children": {
-          "default": [],
-          "type": "array",
-          "items": { "$ref": "#/definitions/Track" }
         },
-        "metadata": { "default": null }
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       }
     },
     "TrackKind": {
-      "oneOf": [
-        {
-          "type": "string",
-          "enum": [
-            "video",
-            "audio"
-          ]
-        },
-        {
-          "type": "object",
-          "required": [
-            "other"
-          ],
-          "properties": {
-            "other": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false
-        }
+      "type": "string",
+      "enum": [
+        "video",
+        "audio",
+        "other"
       ]
     }
   }
