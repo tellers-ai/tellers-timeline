@@ -35,7 +35,7 @@ impl Track {
         for item in self.items.drain(..) {
             match (merged.last_mut(), &item) {
                 (Some(Item::Gap(prev)), Item::Gap(next)) => {
-                    prev.duration += next.duration;
+                    prev.source_range.duration.value += next.source_range.duration.value;
                 }
                 _ => merged.push(item),
             }

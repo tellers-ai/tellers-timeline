@@ -4,13 +4,14 @@ use pyo3::types::PyAny;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::IdMetadataExt;
 use tellers_timeline_core::{
-    validate_timeline, Clip, Gap, Item, MediaSource, Stack, Timeline, Track, TrackKind,
+    validate_timeline, Clip, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    Track, TrackKind,
 };
 
 #[pyclass(name = "MediaSource")]
 #[derive(Clone)]
 struct PyMediaSource {
-    inner: MediaSource,
+    inner: MediaReference,
 }
 
 #[pymethods]
@@ -18,32 +19,21 @@ impl PyMediaSource {
     #[new]
     fn new(url: String) -> Self {
         Self {
-            inner: MediaSource {
+            inner: MediaReference {
                 otio_schema: "ExternalReference.1".to_string(),
-                url,
-                media_start: 0.0,
-                media_duration: None,
+                target_url: url,
+                available_range: None,
+                name: None,
+                available_image_bounds: None,
                 metadata: serde_json::Value::Null,
             },
         }
     }
     fn get_url(&self) -> String {
-        self.inner.url.clone()
+        self.inner.target_url.clone()
     }
     fn set_url(&mut self, url: String) {
-        self.inner.url = url;
-    }
-    fn get_media_start(&self) -> f64 {
-        self.inner.media_start
-    }
-    fn set_media_start(&mut self, v: f64) {
-        self.inner.media_start = v;
-    }
-    fn get_media_duration(&self) -> Option<f64> {
-        self.inner.media_duration
-    }
-    fn set_media_duration(&mut self, v: Option<f64>) {
-        self.inner.media_duration = v;
+        self.inner.target_url = url;
     }
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)
@@ -68,7 +58,21 @@ impl PyClip {
     #[new]
     #[pyo3(signature = (duration, source, name=None, id=None))]
     fn new(duration: f64, source: PyMediaSource, name: Option<String>, id: Option<String>) -> Self {
-        let inner = Clip::new(duration, source.inner, name, id);
+        let rt = RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: duration,
+        };
+        let sr = TimeRange {
+            otio_schema: "TimeRange.1".to_string(),
+            duration: rt,
+            start_time: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: 0.0,
+            },
+        };
+        let inner = Clip::new_single(sr, "DEFAULT_MEDIA".to_string(), source.inner, name, id);
         Self { inner }
     }
     fn get_name(&self) -> Option<String> {
@@ -78,18 +82,33 @@ impl PyClip {
         self.inner.name = name;
     }
     fn get_duration(&self) -> f64 {
-        self.inner.duration
+        self.inner.source_range.duration.value
     }
     fn set_duration(&mut self, v: f64) {
-        self.inner.duration = v;
+        self.inner.source_range.duration.value = v;
     }
-    fn get_source(&self) -> PyMediaSource {
-        PyMediaSource {
-            inner: self.inner.source.clone(),
-        }
+    fn get_source(&self) -> Option<PyMediaSource> {
+        let key = self
+            .inner
+            .active_media_reference_key
+            .as_deref()
+            .unwrap_or("DEFAULT_MEDIA");
+        self.inner
+            .media_references
+            .get(key)
+            .cloned()
+            .map(|inner| PyMediaSource { inner })
     }
     fn set_source(&mut self, source: PyMediaSource) {
-        self.inner.source = source.inner;
+        let key = self
+            .inner
+            .active_media_reference_key
+            .clone()
+            .unwrap_or_else(|| "DEFAULT_MEDIA".to_string());
+        self.inner
+            .media_references
+            .insert(key.clone(), source.inner);
+        self.inner.active_media_reference_key = Some(key);
     }
     fn get_id(&self) -> Option<String> {
         self.inner.get_id()
@@ -130,10 +149,10 @@ impl PyGap {
         Self { inner }
     }
     fn get_duration(&self) -> f64 {
-        self.inner.duration
+        self.inner.source_range.duration.value
     }
     fn set_duration(&mut self, v: f64) {
-        self.inner.duration = v;
+        self.inner.source_range.duration.value = v;
     }
     fn get_id(&self) -> Option<String> {
         self.inner.get_id()
@@ -381,14 +400,40 @@ impl PyTrack {
         media_start: Option<f64>,
         media_duration: Option<f64>,
     ) {
-        let ms = MediaSource {
+        let ms = MediaReference {
             otio_schema: "ExternalReference.1".to_string(),
-            url,
-            media_start: media_start.unwrap_or(0.0),
-            media_duration,
+            target_url: url,
+            available_range: media_duration.map(|md| TimeRange {
+                otio_schema: "TimeRange.1".to_string(),
+                duration: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: md,
+                },
+                start_time: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: media_start.unwrap_or(0.0),
+                },
+            }),
+            name: None,
+            available_image_bounds: None,
             metadata: serde_json::Value::Null,
         };
-        let clip = Clip::new(duration, ms, name, None);
+        let sr = TimeRange {
+            otio_schema: "TimeRange.1".to_string(),
+            duration: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: duration,
+            },
+            start_time: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: 0.0,
+            },
+        };
+        let clip = Clip::new_single(sr, "DEFAULT_MEDIA".to_string(), ms, name, None);
         let item = Item::Clip(clip);
         let op = overlap_policy_from_str(overlap_policy);
         let ip = insert_policy_from_str(insert_policy);

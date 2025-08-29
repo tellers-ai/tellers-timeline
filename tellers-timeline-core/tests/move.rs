@@ -1,18 +1,30 @@
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
+use std::collections::HashMap;
 use tellers_timeline_core::*;
 
 fn make_clip_with_id(duration: Seconds, id: &str) -> Item {
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference {
+            otio_schema: "ExternalReference.1".to_string(),
+            target_url: "mem://".to_string(),
+            available_range: Some(TimeRange {
+                otio_schema: "TimeRange.1".to_string(),
+                duration: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: duration },
+                start_time: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: 0.0 },
+            }),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
     let mut it = Item::Clip(Clip {
         otio_schema: "Clip.2".to_string(),
         name: Some("c".to_string()),
-        duration,
-        source: MediaSource {
-            otio_schema: "ExternalReference.1".to_string(),
-            url: "mem://".to_string(),
-            media_start: 0.0,
-            media_duration: None,
-            metadata: serde_json::Value::Null,
-        },
+        source_range: TimeRange { otio_schema: "TimeRange.1".to_string(), duration: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: duration }, start_time: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: 0.0 } },
+        media_references: refs,
+        active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
     });
     it.set_id(Some(id.to_string()));

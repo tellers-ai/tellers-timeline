@@ -1,17 +1,40 @@
-use tellers_timeline_core::{Clip, IdMetadataExt, Item, MediaSource, Track};
+use std::collections::HashMap;
+use tellers_timeline_core::{
+    Clip, IdMetadataExt, Item, MediaReference, RationalTime, TimeRange, Track,
+};
 
 fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
+    let sr = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: duration,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: media_start,
+        },
+    };
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference {
+            otio_schema: "ExternalReference.1".to_string(),
+            target_url: "media://dummy".to_string(),
+            available_range: None,
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
     Item::Clip(Clip {
         otio_schema: "Clip.2".to_string(),
         name: Some(name.to_string()),
-        duration,
-        source: MediaSource {
-            otio_schema: "ExternalReference.1".to_string(),
-            url: "media://dummy".to_string(),
-            media_start,
-            media_duration: None,
-            metadata: serde_json::Value::Null,
-        },
+        source_range: sr,
+        media_references: refs,
+        active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
     })
 }
@@ -31,7 +54,7 @@ fn delete_clip_by_index_no_gap() {
     assert!(deleted);
     assert_eq!(track.items.len(), 1);
     match &track.items[0] {
-        Item::Clip(c) => assert!((c.duration - 3.0).abs() < 1e-9),
+        Item::Clip(c) => assert!((c.source_range.duration.value - 3.0).abs() < 1e-9),
         _ => panic!("expected clip"),
     }
 }
@@ -49,8 +72,8 @@ fn delete_clip_by_index_with_gap_and_merge() {
     assert_eq!(track.items.len(), 2);
     match (&track.items[0], &track.items[1]) {
         (Item::Gap(g), Item::Clip(c2)) => {
-            assert!((g.duration - 7.0).abs() < 1e-9);
-            assert!((c2.duration - 3.0).abs() < 1e-9);
+            assert!((g.source_range.duration.value - 7.0).abs() < 1e-9);
+            assert!((c2.source_range.duration.value - 3.0).abs() < 1e-9);
         }
         _ => panic!("unexpected items: {:#?}", track.items),
     }
@@ -76,8 +99,8 @@ fn delete_clip_via_getter_with_gap() {
     assert_eq!(track.items.len(), 2);
     match (&track.items[0], &track.items[1]) {
         (Item::Gap(g), Item::Clip(c2)) => {
-            assert!((g.duration - 4.0).abs() < 1e-9);
-            assert!((c2.duration - 6.0).abs() < 1e-9);
+            assert!((g.source_range.duration.value - 4.0).abs() < 1e-9);
+            assert!((c2.source_range.duration.value - 6.0).abs() < 1e-9);
         }
         _ => panic!("unexpected items: {:#?}", track.items),
     }
