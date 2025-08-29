@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Serialize};
 
 pub type Seconds = f64;
 
@@ -45,6 +45,7 @@ pub struct Timeline {
 pub struct Track {
     #[serde(rename = "OTIO_SCHEMA", default = "default_track_schema")]
     pub otio_schema: String,
+    #[serde(deserialize_with = "deserialize_track_kind_case_insensitive")]
     pub kind: TrackKind,
     #[serde(default)]
     pub items: Vec<Item>,
@@ -78,6 +79,20 @@ pub enum TrackKind {
     Video,
     Audio,
     Other,
+}
+
+fn deserialize_track_kind_case_insensitive<'de, D>(deserializer: D) -> Result<TrackKind, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let lower = s.to_ascii_lowercase();
+    match lower.as_str() {
+        "video" => Ok(TrackKind::Video),
+        "audio" => Ok(TrackKind::Audio),
+        "other" => Ok(TrackKind::Other),
+        _ => Err(D::Error::unknown_variant(&s, &["video", "audio", "other"])),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
