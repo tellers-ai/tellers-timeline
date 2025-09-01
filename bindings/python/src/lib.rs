@@ -490,8 +490,14 @@ impl PyStack {
     fn clear_children(&mut self) {
         self.inner.children.clear();
     }
-    fn add_track(&mut self, track: PyTrack) {
-        self.inner.children.push(track.inner);
+    #[pyo3(signature = (track, insertion_index=-1))]
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) {
+        self.inner.add_track_at(track.inner, insertion_index);
+    }
+    fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
+        self.inner
+            .delete_track(id)
+            .map(|t| Py::new(py, PyTrack { inner: t }).unwrap())
     }
     fn set_tracks(&mut self, tracks: Vec<PyTrack>) {
         self.inner.children = tracks.into_iter().map(|t| t.inner).collect();
@@ -674,6 +680,15 @@ impl PyTimeline {
     }
     fn set_stack(&mut self, stack: PyStack) {
         self.inner.tracks = stack.inner;
+    }
+    #[pyo3(signature = (track, insertion_index=-1))]
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) {
+        self.inner.add_track_at(track.inner, insertion_index);
+    }
+    fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
+        self.inner
+            .delete_track(id)
+            .map(|t| Py::new(py, PyTrack { inner: t }).unwrap())
     }
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)
