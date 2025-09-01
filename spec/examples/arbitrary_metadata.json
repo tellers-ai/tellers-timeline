@@ -1,0 +1,59 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "Two Tracks",
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "kind": "audio",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Gap.1",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 1.0
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0.0
+              }
+            },
+            "metadata": {
+              "id": "00000000-0000-0000-0000-000000000112",
+              "arbitrary": "metadata_gap",
+              "arbitrary_object": {
+                "arbitrary_nested": "metadata"
+              }
+            }
+          }
+        ],
+        "metadata": {
+          "id": "00000000-0000-0000-0000-000000000112",
+          "arbitrary": "metadata_track",
+          "arbitrary_object": {
+            "arbitrary_nested": "metadata"
+          }
+        }
+      }
+    ],
+    "metadata": {
+      "id": "00000000-0000-0000-0000-000000000112",
+      "arbitrary": "metadata_stack",
+      "arbitrary_object": {
+        "arbitrary_nested": "metadata"
+      }
+    }
+  },
+  "metadata": {
+    "id": "00000000-0000-0000-0000-000000000112",
+    "arbitrary": "metadata_timeline",
+    "arbitrary_object": {
+      "arbitrary_nested": "metadata"
+    }
+  }
+}
