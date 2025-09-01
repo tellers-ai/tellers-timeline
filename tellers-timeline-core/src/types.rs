@@ -271,6 +271,19 @@ impl Default for Timeline {
     }
 }
 
+impl Timeline {
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        crate::to_json_with_precision(self, None, true)
+    }
+    pub fn to_json_with_options(
+        &self,
+        precision: Option<usize>,
+        pretty: bool,
+    ) -> serde_json::Result<String> {
+        crate::to_json_with_precision(self, precision, pretty)
+    }
+}
+
 impl Default for Track {
     fn default() -> Self {
         Self::new(TrackKind::Video, None)

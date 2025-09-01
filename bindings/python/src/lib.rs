@@ -4,8 +4,8 @@ use pyo3::types::PyAny;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::IdMetadataExt;
 use tellers_timeline_core::{
-    serialize::to_json_with_precision, validate_timeline, Clip, Gap, Item, MediaReference,
-    RationalTime, Stack, TimeRange, Timeline, Track, TrackKind,
+    validate_timeline, Clip, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    Track, TrackKind,
 };
 
 #[pyclass(name = "MediaSource")]
@@ -629,14 +629,10 @@ impl PyTimeline {
         Ok(Self { inner: tl })
     }
 
-    fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string_pretty(&self.inner)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
-    }
-
     #[pyo3(signature = (precision=None, pretty=true))]
-    fn to_json_with_precision(&self, precision: Option<usize>, pretty: bool) -> PyResult<String> {
-        to_json_with_precision(&self.inner, precision, pretty)
+    fn to_json(&self, precision: Option<usize>, pretty: bool) -> PyResult<String> {
+        self.inner
+            .to_json_with_options(precision, pretty)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 
