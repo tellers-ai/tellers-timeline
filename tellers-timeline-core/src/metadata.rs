@@ -1,4 +1,4 @@
-use crate::{Clip, Gap, Item, Track};
+use crate::{Clip, Gap, Item, MediaReference, Stack, Timeline, Track};
 
 pub trait IdMetadataExt {
     fn get_id(&self) -> Option<String>;
@@ -80,6 +80,105 @@ impl IdMetadataExt for Item {
         match self {
             Item::Clip(c) => c.set_id(id),
             Item::Gap(g) => g.set_id(id),
+        }
+    }
+}
+
+pub trait MetadataExt {
+    fn get_metadata(&self) -> &serde_json::Value;
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value;
+    fn set_metadata(&mut self, metadata: serde_json::Value);
+}
+
+impl MetadataExt for Timeline {
+    fn get_metadata(&self) -> &serde_json::Value {
+        &self.metadata
+    }
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.metadata
+    }
+    fn set_metadata(&mut self, metadata: serde_json::Value) {
+        self.metadata = metadata;
+    }
+}
+
+impl MetadataExt for Stack {
+    fn get_metadata(&self) -> &serde_json::Value {
+        &self.metadata
+    }
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.metadata
+    }
+    fn set_metadata(&mut self, metadata: serde_json::Value) {
+        self.metadata = metadata;
+    }
+}
+
+impl MetadataExt for Track {
+    fn get_metadata(&self) -> &serde_json::Value {
+        &self.metadata
+    }
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.metadata
+    }
+    fn set_metadata(&mut self, metadata: serde_json::Value) {
+        self.metadata = metadata;
+    }
+}
+
+impl MetadataExt for Clip {
+    fn get_metadata(&self) -> &serde_json::Value {
+        &self.metadata
+    }
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.metadata
+    }
+    fn set_metadata(&mut self, metadata: serde_json::Value) {
+        self.metadata = metadata;
+    }
+}
+
+impl MetadataExt for Gap {
+    fn get_metadata(&self) -> &serde_json::Value {
+        &self.metadata
+    }
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.metadata
+    }
+    fn set_metadata(&mut self, metadata: serde_json::Value) {
+        self.metadata = metadata;
+    }
+}
+
+impl MetadataExt for MediaReference {
+    fn get_metadata(&self) -> &serde_json::Value {
+        &self.metadata
+    }
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.metadata
+    }
+    fn set_metadata(&mut self, metadata: serde_json::Value) {
+        self.metadata = metadata;
+    }
+}
+
+impl MetadataExt for Item {
+    fn get_metadata(&self) -> &serde_json::Value {
+        match self {
+            Item::Clip(c) => &c.metadata,
+            Item::Gap(g) => &g.metadata,
+        }
+    }
+    fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
+        match self {
+            Item::Clip(c) => &mut c.metadata,
+            Item::Gap(g) => &mut g.metadata,
+        }
+    }
+    fn set_metadata(&mut self, metadata: serde_json::Value) {
+        match self {
+            Item::Clip(c) => c.metadata = metadata,
+            Item::Gap(g) => g.metadata = metadata,
         }
     }
 }
