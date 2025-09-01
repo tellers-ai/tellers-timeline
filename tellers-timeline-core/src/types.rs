@@ -37,11 +37,20 @@ fn gen_hex_id_12() -> String {
 }
 
 fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_json::Value {
-    // Keep all existing fields, only ensure metadata["tellers.ai"]["id"] exists
+    // Ensure we have an object at the root
     if meta.as_object().is_none() {
         meta = serde_json::Value::Object(serde_json::Map::new());
     }
+
+    // Work with a mutable map and migrate legacy key if present
     let map = meta.as_object_mut().unwrap();
+
+    // Extract and remove legacy `tellers_id` from metadata root if present
+    let legacy_id_opt = map
+        .remove("tellers_id")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+
+    // Ensure we have an object at metadata["tellers.ai"]
     let ai_entry = map
         .entry("tellers.ai".to_string())
         .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
@@ -49,12 +58,17 @@ fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_json::Value {
         *ai_entry = serde_json::Value::Object(serde_json::Map::new());
     }
     let ai_map = ai_entry.as_object_mut().unwrap();
-    if ai_map.get("timeline_id").and_then(|v| v.as_str()).is_none() {
+
+    // If timeline_id is missing, prefer the legacy id; otherwise generate a new one
+    let has_timeline_id = ai_map.get("timeline_id").and_then(|v| v.as_str()).is_some();
+    if !has_timeline_id {
+        let final_id = legacy_id_opt.unwrap_or_else(gen_hex_id_12);
         ai_map.insert(
             "timeline_id".to_string(),
-            serde_json::Value::String(gen_hex_id_12()),
+            serde_json::Value::String(final_id),
         );
     }
+
     meta
 }
 
