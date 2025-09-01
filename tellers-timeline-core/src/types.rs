@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::{de::Error as _, Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 
 pub type Seconds = f64;
@@ -36,6 +36,37 @@ fn gen_hex_id_12() -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
+fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_json::Value {
+    // Keep all existing fields, only ensure metadata["tellers.ai"]["id"] exists
+    if meta.as_object().is_none() {
+        meta = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let map = meta.as_object_mut().unwrap();
+    let ai_entry = map
+        .entry("tellers.ai".to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if ai_entry.as_object().is_none() {
+        *ai_entry = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let ai_map = ai_entry.as_object_mut().unwrap();
+    if ai_map.get("timeline_id").and_then(|v| v.as_str()).is_none() {
+        ai_map.insert(
+            "timeline_id".to_string(),
+            serde_json::Value::String(gen_hex_id_12()),
+        );
+    }
+    meta
+}
+
+fn deserialize_metadata_with_id<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let meta = v.unwrap_or(serde_json::Value::Null);
+    Ok(ensure_tellers_ai_with_id(meta))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Timeline {
     #[serde(rename = "OTIO_SCHEMA", default = "default_timeline_schema")]
@@ -58,7 +89,7 @@ pub struct Track {
     pub name: Option<String>,
     #[serde(rename = "children", default)]
     pub items: Vec<Item>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
 }
 
@@ -142,7 +173,7 @@ pub struct Clip {
     pub media_references: HashMap<String, MediaReference>,
     #[serde(default)]
     pub active_media_reference_key: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
 }
 
@@ -176,7 +207,7 @@ pub struct Gap {
     #[serde(default)]
     pub name: Option<String>,
     pub source_range: TimeRange,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
 }
 

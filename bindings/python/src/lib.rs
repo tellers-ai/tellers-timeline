@@ -2,11 +2,11 @@ use pyo3::prelude::*;
 // use pyo3::types::PyList;
 use pyo3::types::PyAny;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
-use tellers_timeline_core::IdMetadataExt;
 use tellers_timeline_core::{
     validate_timeline, Clip, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
     Track, TrackKind,
 };
+use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
 #[pyclass(name = "MediaSource")]
 #[derive(Clone)]
@@ -209,6 +209,16 @@ impl PyItem {
     }
     fn set_id(&mut self, id: Option<&str>) {
         self.inner.set_id(id.map(|s| s.to_string()));
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(self.inner.get_metadata())
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.set_metadata(v);
+        Ok(())
     }
 }
 
