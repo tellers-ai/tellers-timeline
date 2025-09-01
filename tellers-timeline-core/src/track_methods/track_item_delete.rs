@@ -10,7 +10,7 @@ impl Track {
         }
         match &self.items[index] {
             Item::Clip(c) => {
-                let removed_duration = c.duration.max(0.0);
+                let removed_duration = c.source_range.duration.value.max(0.0);
                 self.items.remove(index);
                 if replace_with_gap && removed_duration > 0.0 {
                     self.items.insert(

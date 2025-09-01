@@ -19,9 +19,17 @@ impl Track {
         let mut effective_duration = new_duration.max(0.0);
         if clamp_to_media {
             if let Item::Clip(ref clip) = item {
-                if let Some(media_total) = clip.source.media_duration {
-                    let remaining = (media_total - clip.source.media_start).max(0.0);
-                    effective_duration = effective_duration.min(remaining);
+                let active_key = clip
+                    .active_media_reference_key
+                    .as_deref()
+                    .unwrap_or("DEFAULT_MEDIA");
+                if let Some(r) = clip.media_references.get(active_key) {
+                    if let Some(ar) = &r.available_range {
+                        let media_total = ar.duration.value;
+                        let start = clip.source_range.start_time.value;
+                        let remaining = (media_total - start).max(0.0);
+                        effective_duration = effective_duration.min(remaining);
+                    }
                 }
             }
         }

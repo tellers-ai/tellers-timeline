@@ -21,7 +21,7 @@ impl Track {
 
         match original {
             crate::Item::Clip(mut clip) => {
-                let total = clip.duration.max(0.0);
+                let total = clip.source_range.duration.value.max(0.0);
                 if local_offset >= total - EPS {
                     // Nothing to split, put the original back
                     self.items.insert(item_index, crate::Item::Clip(clip));
@@ -32,17 +32,17 @@ impl Track {
                 let right_duration = (total - left_duration).max(0.0);
 
                 let mut left_clip = clip.clone();
-                left_clip.duration = left_duration;
+                left_clip.source_range.duration.value = left_duration;
 
                 // Right clip keeps the rest, media_start advances by left_duration
-                clip.duration = right_duration;
-                clip.source.media_start += left_duration;
+                clip.source_range.duration.value = right_duration;
+                clip.source_range.start_time.value += left_duration;
 
                 self.items.insert(item_index, crate::Item::Clip(left_clip));
                 self.items.insert(item_index + 1, crate::Item::Clip(clip));
             }
             crate::Item::Gap(mut gap) => {
-                let total = gap.duration.max(0.0);
+                let total = gap.source_range.duration.value.max(0.0);
                 if local_offset >= total - EPS {
                     // Nothing to split, put the original back
                     self.items.insert(item_index, crate::Item::Gap(gap));
@@ -54,11 +54,25 @@ impl Track {
 
                 let left_gap = crate::types::Gap {
                     otio_schema: gap.otio_schema.clone(),
-                    duration: left_duration,
+                    name: gap.name.clone(),
+                    source_range: crate::types::TimeRange {
+                        otio_schema: gap.source_range.otio_schema.clone(),
+                        duration: crate::types::RationalTime {
+                            otio_schema: gap.source_range.duration.otio_schema.clone(),
+                            rate: gap.source_range.duration.rate,
+                            value: left_duration,
+                        },
+                        start_time: crate::types::RationalTime {
+                            otio_schema: gap.source_range.start_time.otio_schema.clone(),
+                            rate: gap.source_range.start_time.rate,
+                            value: gap.source_range.start_time.value,
+                        },
+                    },
                     metadata: gap.metadata.clone(),
                 };
 
-                gap.duration = right_duration;
+                gap.source_range.duration.value = right_duration;
+                gap.source_range.start_time.value += left_duration;
 
                 self.items.insert(item_index, crate::Item::Gap(left_gap));
                 self.items.insert(item_index + 1, crate::Item::Gap(gap));

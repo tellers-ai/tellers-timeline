@@ -1,17 +1,30 @@
-use tellers_timeline_core::{Clip, InsertPolicy, Item, MediaSource, OverlapPolicy, Seconds, Track};
+use std::collections::HashMap;
+use tellers_timeline_core::{Clip, InsertPolicy, Item, MediaReference, OverlapPolicy, Seconds, Track, TimeRange, RationalTime};
 
 fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
+    let sr = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: duration },
+        start_time: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: media_start },
+    };
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference {
+            otio_schema: "ExternalReference.1".to_string(),
+            target_url: "mem://".to_string(),
+            available_range: None,
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
     Item::Clip(Clip {
         otio_schema: "Clip.2".to_string(),
         name: None,
-        duration,
-        source: MediaSource {
-            otio_schema: "ExternalReference.1".to_string(),
-            url: "mem://".to_string(),
-            media_start,
-            media_duration: None,
-            metadata: serde_json::Value::Null,
-        },
+        source_range: sr,
+        media_references: refs,
+        active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
     })
 }
@@ -68,7 +81,7 @@ fn insert_split_and_override() {
     // Expect an item at 3.0 of duration 4.0
     let idx = track.get_item_at_time(3.1).unwrap();
     match &track.items[idx] {
-        Item::Clip(c) => assert!((c.duration - 4.0).abs() < 1e-9),
+        Item::Clip(c) => assert!((c.source_range.duration.value - 4.0).abs() < 1e-9),
         _ => panic!("expected clip inserted with override"),
     }
 }

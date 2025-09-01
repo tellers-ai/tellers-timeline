@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as _, Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub type Seconds = f64;
 
@@ -20,6 +21,12 @@ fn default_gap_schema() -> String {
 }
 fn default_external_ref_schema() -> String {
     "ExternalReference.1".to_string()
+}
+fn default_time_range_schema() -> String {
+    "TimeRange.1".to_string()
+}
+fn default_rational_time_schema() -> String {
+    "RationalTime.1".to_string()
 }
 
 fn gen_hex_id_12() -> String {
@@ -45,8 +52,11 @@ pub struct Timeline {
 pub struct Track {
     #[serde(rename = "OTIO_SCHEMA", default = "default_track_schema")]
     pub otio_schema: String,
+    #[serde(deserialize_with = "deserialize_track_kind_case_insensitive")]
     pub kind: TrackKind,
     #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "children", default)]
     pub items: Vec<Item>,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -57,6 +67,8 @@ pub struct Stack {
     #[serde(rename = "OTIO_SCHEMA", default = "default_stack_schema")]
     pub otio_schema: String,
     #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
     pub children: Vec<Track>,
     #[serde(default)]
     pub metadata: serde_json::Value,
@@ -66,6 +78,7 @@ impl Default for Stack {
     fn default() -> Self {
         Self {
             otio_schema: default_stack_schema(),
+            name: None,
             children: vec![],
             metadata: serde_json::Value::Null,
         }
@@ -80,24 +93,40 @@ pub enum TrackKind {
     Other,
 }
 
+fn deserialize_track_kind_case_insensitive<'de, D>(deserializer: D) -> Result<TrackKind, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    let lower = s.to_ascii_lowercase();
+    match lower.as_str() {
+        "video" => Ok(TrackKind::Video),
+        "audio" => Ok(TrackKind::Audio),
+        "other" => Ok(TrackKind::Other),
+        _ => Err(D::Error::unknown_variant(&s, &["video", "audio", "other"])),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum Item {
     Clip(Clip),
     Gap(Gap),
 }
 
+// No longer used; OTIO-only shape is parsed directly above
+
 impl Item {
     pub fn duration(&self) -> Seconds {
         match self {
-            Item::Clip(c) => c.duration,
-            Item::Gap(g) => g.duration,
+            Item::Clip(c) => c.source_range.duration.value,
+            Item::Gap(g) => g.source_range.duration.value,
         }
     }
     pub fn set_duration(&mut self, dur: Seconds) {
         match self {
-            Item::Clip(c) => c.duration = dur,
-            Item::Gap(g) => g.duration = dur,
+            Item::Clip(c) => c.source_range.duration.value = dur,
+            Item::Gap(g) => g.source_range.duration.value = dur,
         }
     }
 }
@@ -108,24 +137,31 @@ pub struct Clip {
     pub otio_schema: String,
     #[serde(default)]
     pub name: Option<String>,
-    pub duration: Seconds,
-    pub source: MediaSource,
+    pub source_range: TimeRange,
+    #[serde(default)]
+    pub media_references: HashMap<String, MediaReference>,
+    #[serde(default)]
+    pub active_media_reference_key: Option<String>,
     #[serde(default)]
     pub metadata: serde_json::Value,
 }
 
 impl Clip {
-    pub fn new(
-        duration: Seconds,
-        source: MediaSource,
+    pub fn new_single(
+        source_range: TimeRange,
+        reference_key: String,
+        reference: MediaReference,
         name: Option<String>,
         id: Option<String>,
     ) -> Self {
+        let mut refs = HashMap::new();
+        refs.insert(reference_key.clone(), reference);
         let mut c = Clip {
             otio_schema: default_clip_schema(),
             name,
-            duration,
-            source,
+            source_range,
+            media_references: refs,
+            active_media_reference_key: Some(reference_key),
             metadata: serde_json::Value::Null,
         };
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
@@ -137,7 +173,9 @@ impl Clip {
 pub struct Gap {
     #[serde(rename = "OTIO_SCHEMA", default = "default_gap_schema")]
     pub otio_schema: String,
-    pub duration: Seconds,
+    #[serde(default)]
+    pub name: Option<String>,
+    pub source_range: TimeRange,
     #[serde(default)]
     pub metadata: serde_json::Value,
 }
@@ -146,7 +184,20 @@ impl Gap {
     pub fn new(duration: Seconds, id: Option<String>) -> Self {
         let mut g = Gap {
             otio_schema: default_gap_schema(),
-            duration,
+            name: None,
+            source_range: TimeRange {
+                otio_schema: default_time_range_schema(),
+                duration: RationalTime {
+                    otio_schema: default_rational_time_schema(),
+                    rate: 1.0,
+                    value: duration,
+                },
+                start_time: RationalTime {
+                    otio_schema: default_rational_time_schema(),
+                    rate: 1.0,
+                    value: 0.0,
+                },
+            },
             metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
         crate::metadata::IdMetadataExt::set_id(&mut g, Some(id.unwrap_or_else(gen_hex_id_12)));
@@ -158,18 +209,55 @@ impl Gap {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct MediaSource {
+pub struct MediaReference {
     #[serde(rename = "OTIO_SCHEMA", default = "default_external_ref_schema")]
     pub otio_schema: String,
-    pub url: String,
-    /// Offset into the media in seconds
+    #[serde(rename = "target_url")]
+    pub target_url: String,
     #[serde(default)]
-    pub media_start: Seconds,
-    /// Optional media duration if known
+    pub available_range: Option<TimeRange>,
     #[serde(default)]
-    pub media_duration: Option<Seconds>,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub available_image_bounds: Option<serde_json::Value>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct RationalTime {
+    #[serde(rename = "OTIO_SCHEMA", default = "default_rational_time_schema")]
+    pub otio_schema: String,
+    pub rate: f64,
+    pub value: Seconds,
+}
+
+impl Default for RationalTime {
+    fn default() -> Self {
+        Self {
+            otio_schema: default_rational_time_schema(),
+            rate: 1.0,
+            value: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct TimeRange {
+    #[serde(rename = "OTIO_SCHEMA", default = "default_time_range_schema")]
+    pub otio_schema: String,
+    pub duration: RationalTime,
+    pub start_time: RationalTime,
+}
+
+impl Default for TimeRange {
+    fn default() -> Self {
+        Self {
+            otio_schema: default_time_range_schema(),
+            duration: RationalTime::default(),
+            start_time: RationalTime::default(),
+        }
+    }
 }
 
 impl Default for Timeline {
@@ -180,6 +268,19 @@ impl Default for Timeline {
             tracks: Stack::default(),
             metadata: serde_json::Value::Null,
         }
+    }
+}
+
+impl Timeline {
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        crate::to_json_with_precision(self, None, true)
+    }
+    pub fn to_json_with_options(
+        &self,
+        precision: Option<usize>,
+        pretty: bool,
+    ) -> serde_json::Result<String> {
+        crate::to_json_with_precision(self, precision, pretty)
     }
 }
 
@@ -194,6 +295,7 @@ impl Track {
         let mut t = Track {
             otio_schema: default_track_schema(),
             kind,
+            name: None,
             items: vec![],
             metadata: serde_json::Value::Null,
         };

@@ -4,13 +4,14 @@ use pyo3::types::PyAny;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::IdMetadataExt;
 use tellers_timeline_core::{
-    validate_timeline, Clip, Gap, Item, MediaSource, Stack, Timeline, Track, TrackKind,
+    validate_timeline, Clip, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    Track, TrackKind,
 };
 
 #[pyclass(name = "MediaSource")]
 #[derive(Clone)]
 struct PyMediaSource {
-    inner: MediaSource,
+    inner: MediaReference,
 }
 
 #[pymethods]
@@ -18,32 +19,31 @@ impl PyMediaSource {
     #[new]
     fn new(url: String) -> Self {
         Self {
-            inner: MediaSource {
+            inner: MediaReference {
                 otio_schema: "ExternalReference.1".to_string(),
-                url,
-                media_start: 0.0,
-                media_duration: None,
+                target_url: url,
+                available_range: None,
+                name: None,
+                available_image_bounds: None,
                 metadata: serde_json::Value::Null,
             },
         }
     }
     fn get_url(&self) -> String {
-        self.inner.url.clone()
+        self.inner.target_url.clone()
     }
     fn set_url(&mut self, url: String) {
-        self.inner.url = url;
+        self.inner.target_url = url;
     }
-    fn get_media_start(&self) -> f64 {
-        self.inner.media_start
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
-    fn set_media_start(&mut self, v: f64) {
-        self.inner.media_start = v;
-    }
-    fn get_media_duration(&self) -> Option<f64> {
-        self.inner.media_duration
-    }
-    fn set_media_duration(&mut self, v: Option<f64>) {
-        self.inner.media_duration = v;
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
 }
 
@@ -58,7 +58,21 @@ impl PyClip {
     #[new]
     #[pyo3(signature = (duration, source, name=None, id=None))]
     fn new(duration: f64, source: PyMediaSource, name: Option<String>, id: Option<String>) -> Self {
-        let inner = Clip::new(duration, source.inner, name, id);
+        let rt = RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: duration,
+        };
+        let sr = TimeRange {
+            otio_schema: "TimeRange.1".to_string(),
+            duration: rt,
+            start_time: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: 0.0,
+            },
+        };
+        let inner = Clip::new_single(sr, "DEFAULT_MEDIA".to_string(), source.inner, name, id);
         Self { inner }
     }
     fn get_name(&self) -> Option<String> {
@@ -68,24 +82,49 @@ impl PyClip {
         self.inner.name = name;
     }
     fn get_duration(&self) -> f64 {
-        self.inner.duration
+        self.inner.source_range.duration.value
     }
     fn set_duration(&mut self, v: f64) {
-        self.inner.duration = v;
+        self.inner.source_range.duration.value = v;
     }
-    fn get_source(&self) -> PyMediaSource {
-        PyMediaSource {
-            inner: self.inner.source.clone(),
-        }
+    fn get_source(&self) -> Option<PyMediaSource> {
+        let key = self
+            .inner
+            .active_media_reference_key
+            .as_deref()
+            .unwrap_or("DEFAULT_MEDIA");
+        self.inner
+            .media_references
+            .get(key)
+            .cloned()
+            .map(|inner| PyMediaSource { inner })
     }
     fn set_source(&mut self, source: PyMediaSource) {
-        self.inner.source = source.inner;
+        let key = self
+            .inner
+            .active_media_reference_key
+            .clone()
+            .unwrap_or_else(|| "DEFAULT_MEDIA".to_string());
+        self.inner
+            .media_references
+            .insert(key.clone(), source.inner);
+        self.inner.active_media_reference_key = Some(key);
     }
     fn get_id(&self) -> Option<String> {
         self.inner.get_id()
     }
     fn set_id(&mut self, id: Option<&str>) {
         self.inner.set_id(id.map(|s| s.to_string()));
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
 }
 
@@ -97,6 +136,12 @@ struct PyGap {
 
 #[pymethods]
 impl PyGap {
+    fn get_name(&self) -> Option<String> {
+        self.inner.name.clone()
+    }
+    fn set_name(&mut self, name: Option<String>) {
+        self.inner.name = name;
+    }
     #[new]
     #[pyo3(signature = (duration, id=None))]
     fn new(duration: f64, id: Option<String>) -> Self {
@@ -104,16 +149,26 @@ impl PyGap {
         Self { inner }
     }
     fn get_duration(&self) -> f64 {
-        self.inner.duration
+        self.inner.source_range.duration.value
     }
     fn set_duration(&mut self, v: f64) {
-        self.inner.duration = v;
+        self.inner.source_range.duration.value = v;
     }
     fn get_id(&self) -> Option<String> {
         self.inner.get_id()
     }
     fn set_id(&mut self, id: Option<&str>) {
         self.inner.set_id(id.map(|s| s.to_string()));
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
 }
 
@@ -190,6 +245,12 @@ fn insert_policy_from_str(s: &str) -> InsertPolicy {
 
 #[pymethods]
 impl PyTrack {
+    fn get_name(&self) -> Option<String> {
+        self.inner.name.clone()
+    }
+    fn set_name(&mut self, name: Option<String>) {
+        self.inner.name = name;
+    }
     #[new]
     #[pyo3(signature = (kind=None, id=None))]
     fn new(kind: Option<String>, id: Option<String>) -> Self {
@@ -317,6 +378,16 @@ impl PyTrack {
     fn start_time_of_item(&self, index: usize) -> f64 {
         self.inner.start_time_of_item(index)
     }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
+    }
     #[pyo3(signature = (start_time, duration, url, overlap_policy, insert_policy, name=None, media_start=None, media_duration=None))]
     fn insert_clip(
         &mut self,
@@ -329,14 +400,40 @@ impl PyTrack {
         media_start: Option<f64>,
         media_duration: Option<f64>,
     ) {
-        let ms = MediaSource {
+        let ms = MediaReference {
             otio_schema: "ExternalReference.1".to_string(),
-            url,
-            media_start: media_start.unwrap_or(0.0),
-            media_duration,
+            target_url: url,
+            available_range: media_duration.map(|md| TimeRange {
+                otio_schema: "TimeRange.1".to_string(),
+                duration: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: md,
+                },
+                start_time: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: media_start.unwrap_or(0.0),
+                },
+            }),
+            name: None,
+            available_image_bounds: None,
             metadata: serde_json::Value::Null,
         };
-        let clip = Clip::new(duration, ms, name, None);
+        let sr = TimeRange {
+            otio_schema: "TimeRange.1".to_string(),
+            duration: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: duration,
+            },
+            start_time: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: 0.0,
+            },
+        };
+        let clip = Clip::new_single(sr, "DEFAULT_MEDIA".to_string(), ms, name, None);
         let item = Item::Clip(clip);
         let op = overlap_policy_from_str(overlap_policy);
         let ip = insert_policy_from_str(insert_policy);
@@ -357,6 +454,12 @@ impl PyStack {
         Self {
             inner: Stack::default(),
         }
+    }
+    fn get_name(&self) -> Option<String> {
+        self.inner.name.clone()
+    }
+    fn set_name(&mut self, name: Option<String>) {
+        self.inner.name = name;
     }
     fn tracks(&self, py: Python<'_>) -> Vec<Py<PyTrack>> {
         self.inner
@@ -385,6 +488,16 @@ impl PyStack {
     }
     fn sanitize(&mut self) {
         self.inner.sanitize();
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
     fn get_track_by_id(&self, py: Python<'_>, id: &str) -> Option<(usize, Py<PyTrack>)> {
         self.inner.get_track_by_id(id).map(|(i, _t)| {
@@ -516,8 +629,10 @@ impl PyTimeline {
         Ok(Self { inner: tl })
     }
 
-    fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string_pretty(&self.inner)
+    #[pyo3(signature = (precision=None, pretty=true))]
+    fn to_json(&self, precision: Option<usize>, pretty: bool) -> PyResult<String> {
+        self.inner
+            .to_json_with_options(precision, pretty)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 
@@ -549,6 +664,16 @@ impl PyTimeline {
     }
     fn set_stack(&mut self, stack: PyStack) {
         self.inner.tracks = stack.inner;
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        self.inner.metadata = v;
+        Ok(())
     }
     fn move_item(&mut self, item_id: &str, dest_track_id: &str, dest_time: f64) -> PyResult<bool> {
         // Backwards-compat convenience wrapper: default policies

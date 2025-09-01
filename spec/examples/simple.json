@@ -7,27 +7,53 @@
       {
         "OTIO_SCHEMA": "Track.1",
         "kind": "video",
-        "items": [
+        "children": [
           {
-            "type": "gap",
             "OTIO_SCHEMA": "Gap.1",
-            "duration": 1.0,
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 1.0
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0.0
+              }
+            },
             "metadata": {
               "id": "00000000-0000-0000-0000-000000000100"
             }
           },
           {
-            "type": "clip",
             "OTIO_SCHEMA": "Clip.2",
             "name": "A",
-            "duration": 2.5,
-            "source": {
-              "OTIO_SCHEMA": "ExternalReference.1",
-              "url": "file:///media/A.mov",
-              "media_start": 0.0,
-              "media_duration": 2.5,
-              "metadata": {}
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 2.5
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0.0
+              }
             },
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "target_url": "file:///media/A.mov",
+                "available_range": null,
+                "name": "",
+                "available_image_bounds": null,
+                "metadata": {}
+              }
+            },
+            "active_media_reference_key": "DEFAULT_MEDIA",
             "metadata": {
               "id": "00000000-0000-0000-0000-000000000101"
             }
