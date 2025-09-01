@@ -45,10 +45,12 @@ fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_json::Value {
     // Work with a mutable map and migrate legacy key if present
     let map = meta.as_object_mut().unwrap();
 
-    // Extract and remove legacy `tellers_id` from metadata root if present
+    // Read legacy `tellers_id` from metadata root if present.
+    // TODO: remove legacy `tellers_id` once frontend is updated
     let legacy_id_opt = map
-        .remove("tellers_id")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
+        .get("tellers_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // Ensure we have an object at metadata["tellers.ai"]
     let ai_entry = map
@@ -70,6 +72,54 @@ fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_json::Value {
     }
 
     meta
+}
+
+fn deserialize_media_metadata<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let mut meta = v.unwrap_or(serde_json::Value::Null);
+
+    // Ensure we have an object at the root
+    if meta.as_object().is_none() {
+        meta = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let map = meta.as_object_mut().unwrap();
+
+    // Pre-read possible legacy fields before mutably borrowing the tellers.ai map
+    let root_media_id = map.get("media_id").cloned();
+    let root_score = map.get("score").cloned();
+    let root_keyframe_id = map.get("keyframe_id").cloned();
+
+    // Ensure we have an object at metadata["tellers.ai"]
+    let ai_entry = map
+        .entry("tellers.ai".to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if ai_entry.as_object().is_none() {
+        *ai_entry = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let ai_map = ai_entry.as_object_mut().unwrap();
+
+    // Duplicate legacy media fields under tellers.ai if missing there
+    // TODO: remove legacy media fields (media_id, score, keyframe_id) from root once frontend is updated
+    if !ai_map.contains_key("media_id") {
+        if let Some(v) = root_media_id {
+            ai_map.insert("media_id".to_string(), v);
+        }
+    }
+    if !ai_map.contains_key("score") {
+        if let Some(v) = root_score {
+            ai_map.insert("score".to_string(), v);
+        }
+    }
+    if !ai_map.contains_key("keyframe_id") {
+        if let Some(v) = root_keyframe_id {
+            ai_map.insert("keyframe_id".to_string(), v);
+        }
+    }
+
+    Ok(meta)
 }
 
 fn deserialize_metadata_with_id<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
@@ -265,7 +315,7 @@ pub struct MediaReference {
     pub name: Option<String>,
     #[serde(default)]
     pub available_image_bounds: Option<serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_media_metadata")]
     pub metadata: serde_json::Value,
 }
 
