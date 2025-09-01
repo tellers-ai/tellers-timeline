@@ -1,7 +1,7 @@
 use crate::{Item, Seconds, Track};
 
 impl Track {
-    /// Find an item by id stored in its metadata under key `id`.
+    /// Find an item by id stored at `metadata["tellers.ai"]["timeline_id"]`.
     /// Returns the index and a non-mut reference to the item Some((index, item)).
     pub fn get_item_by_id(&self, id: &str) -> Option<(usize, &Item)> {
         for (i, it) in self.items.iter().enumerate() {
