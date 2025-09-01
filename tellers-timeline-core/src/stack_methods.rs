@@ -1,4 +1,24 @@
-use crate::{InsertPolicy, Item, OverlapPolicy, Seconds, Stack};
+use crate::{InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track};
+
+fn clamp_insertion_index(len: usize, index: isize) -> usize {
+    if index < 0 {
+        let pos = len as isize + index;
+        if pos <= 0 {
+            0
+        } else if pos >= len as isize {
+            len
+        } else {
+            pos as usize
+        }
+    } else {
+        let idx = index as usize;
+        if idx > len {
+            len
+        } else {
+            idx
+        }
+    }
+}
 
 impl Stack {
     /// Find an item by id across all tracks. Returns (track_index, item_index, &Item).
@@ -127,5 +147,25 @@ impl Stack {
         }
 
         self.insert_item_at_index(dest_track_id, dest_index, item_to_move, overlap_policy)
+    }
+
+    /// Append a track to the stack.
+    pub fn add_track(&mut self, track: Track) {
+        self.children.push(track);
+    }
+
+    /// Insert a track at a specific index. Negative indices behave like Python's.
+    pub fn add_track_at(&mut self, track: Track, insertion_index: isize) {
+        let idx = clamp_insertion_index(self.children.len(), insertion_index);
+        self.children.insert(idx, track);
+    }
+
+    /// Delete a track by id. Returns the removed track on success.
+    pub fn delete_track(&mut self, id: &str) -> Option<Track> {
+        if let Some((i, _)) = self.get_track_by_id(id) {
+            Some(self.children.remove(i))
+        } else {
+            None
+        }
     }
 }
