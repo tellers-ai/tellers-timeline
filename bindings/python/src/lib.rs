@@ -45,6 +45,18 @@ impl PyMediaSource {
         self.inner.metadata = v;
         Ok(())
     }
+    fn get_media_start(&self) -> f64 {
+        self.inner.media_start()
+    }
+    fn set_media_start(&mut self, value: f64) {
+        self.inner.set_media_start(value);
+    }
+    fn get_media_duration(&self) -> Option<f64> {
+        self.inner.media_duration()
+    }
+    fn set_media_duration(&mut self, value: Option<f64>) {
+        self.inner.set_media_duration(value);
+    }
 }
 
 #[pyclass(name = "Clip")]

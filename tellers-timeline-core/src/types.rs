@@ -319,6 +319,66 @@ pub struct MediaReference {
     pub metadata: serde_json::Value,
 }
 
+impl MediaReference {
+    pub fn media_start(&self) -> Seconds {
+        self.available_range
+            .as_ref()
+            .map(|tr| tr.start_time.value)
+            .unwrap_or(0.0)
+    }
+
+    pub fn set_media_start(&mut self, start_seconds: Seconds) {
+        if let Some(tr) = &mut self.available_range {
+            tr.start_time.value = start_seconds;
+        } else {
+            self.available_range = Some(TimeRange {
+                otio_schema: default_time_range_schema(),
+                duration: RationalTime {
+                    otio_schema: default_rational_time_schema(),
+                    rate: 1.0,
+                    value: 0.0,
+                },
+                start_time: RationalTime {
+                    otio_schema: default_rational_time_schema(),
+                    rate: 1.0,
+                    value: start_seconds,
+                },
+            });
+        }
+    }
+
+    pub fn media_duration(&self) -> Option<Seconds> {
+        self.available_range.as_ref().map(|tr| tr.duration.value)
+    }
+
+    pub fn set_media_duration(&mut self, duration_seconds: Option<Seconds>) {
+        match duration_seconds {
+            Some(v) => {
+                if let Some(tr) = &mut self.available_range {
+                    tr.duration.value = v;
+                } else {
+                    self.available_range = Some(TimeRange {
+                        otio_schema: default_time_range_schema(),
+                        duration: RationalTime {
+                            otio_schema: default_rational_time_schema(),
+                            rate: 1.0,
+                            value: v,
+                        },
+                        start_time: RationalTime {
+                            otio_schema: default_rational_time_schema(),
+                            rate: 1.0,
+                            value: 0.0,
+                        },
+                    });
+                }
+            }
+            None => {
+                self.available_range = None;
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct RationalTime {
     #[serde(rename = "OTIO_SCHEMA", default = "default_rational_time_schema")]
