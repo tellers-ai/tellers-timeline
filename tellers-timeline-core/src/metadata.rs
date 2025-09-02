@@ -98,7 +98,11 @@ impl MetadataExt for Timeline {
         &mut self.metadata
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
-        self.metadata = metadata;
+        let mut v = metadata;
+        if v.as_object().is_none() {
+            v = serde_json::Value::Object(serde_json::Map::new());
+        }
+        self.metadata = v;
     }
 }
 
@@ -110,7 +114,11 @@ impl MetadataExt for Stack {
         &mut self.metadata
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
-        self.metadata = metadata;
+        let mut v = metadata;
+        if v.as_object().is_none() {
+            v = serde_json::Value::Object(serde_json::Map::new());
+        }
+        self.metadata = v;
     }
 }
 
@@ -122,7 +130,11 @@ impl MetadataExt for Track {
         &mut self.metadata
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
-        self.metadata = metadata;
+        let mut v = metadata;
+        if v.as_object().is_none() {
+            v = serde_json::Value::Object(serde_json::Map::new());
+        }
+        self.metadata = v;
     }
 }
 
@@ -134,7 +146,11 @@ impl MetadataExt for Clip {
         &mut self.metadata
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
-        self.metadata = metadata;
+        let mut v = metadata;
+        if v.as_object().is_none() {
+            v = serde_json::Value::Object(serde_json::Map::new());
+        }
+        self.metadata = v;
     }
 }
 
@@ -146,7 +162,11 @@ impl MetadataExt for Gap {
         &mut self.metadata
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
-        self.metadata = metadata;
+        let mut v = metadata;
+        if v.as_object().is_none() {
+            v = serde_json::Value::Object(serde_json::Map::new());
+        }
+        self.metadata = v;
     }
 }
 
@@ -158,7 +178,11 @@ impl MetadataExt for MediaReference {
         &mut self.metadata
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
-        self.metadata = metadata;
+        let mut v = metadata;
+        if v.as_object().is_none() {
+            v = serde_json::Value::Object(serde_json::Map::new());
+        }
+        self.metadata = v;
     }
 }
 
@@ -176,9 +200,13 @@ impl MetadataExt for Item {
         }
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
+        let mut v = metadata;
+        if v.as_object().is_none() {
+            v = serde_json::Value::Object(serde_json::Map::new());
+        }
         match self {
-            Item::Clip(c) => c.metadata = metadata,
-            Item::Gap(g) => g.metadata = metadata,
+            Item::Clip(c) => c.metadata = v,
+            Item::Gap(g) => g.metadata = v,
         }
     }
 }
