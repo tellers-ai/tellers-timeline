@@ -51,7 +51,7 @@ impl Stack {
     }
 
     /// Insert an item at a given time into the track at `dest_track_index`.
-    /// Returns true if the destination exists and insertion occurred.
+    /// Returns the inserted item's id if insertion occurred.
     pub fn insert_item_at_time(
         &mut self,
         dest_track_index: usize,
@@ -59,38 +59,40 @@ impl Stack {
         item: Item,
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
-    ) -> bool {
+    ) -> Option<String> {
         if dest_track_index >= self.children.len() {
-            return false;
+            return None;
         }
+        let inserted_id = crate::metadata::IdMetadataExt::get_id(&item);
         self.children[dest_track_index].insert_at_time(
             dest_time,
             item,
             overlap_policy,
             insert_policy,
         );
-        true
+        inserted_id
     }
 
     /// Insert an item at an index into the track with `dest_track_id`.
-    /// Returns true if the destination track is found and insertion occurred.
+    /// Returns the inserted item's id if insertion occurred.
     pub fn insert_item_at_index(
         &mut self,
         dest_track_id: &str,
         dest_index: usize,
         item: Item,
         overlap_policy: OverlapPolicy,
-    ) -> bool {
+    ) -> Option<String> {
         let dest_track_index = match self.get_track_by_id(dest_track_id) {
             Some((i, _)) => i,
-            None => return false,
+            None => return None,
         };
         if dest_track_index >= self.children.len() {
-            return false;
+            return None;
         }
 
+        let inserted_id = crate::metadata::IdMetadataExt::get_id(&item);
         self.children[dest_track_index].insert_at_index(dest_index, item, overlap_policy);
-        true
+        inserted_id
     }
 
     /// Move a clip identified by `item_id` to `dest_time` on the track with `dest_track_id`.
@@ -125,6 +127,7 @@ impl Stack {
             overlap_policy,
             insert_policy,
         )
+        .is_some()
     }
 
     /// Move a clip identified by `item_id` to `dest_index` on the track with `dest_track_id`.
@@ -147,6 +150,7 @@ impl Stack {
         }
 
         self.insert_item_at_index(dest_track_id, dest_index, item_to_move, overlap_policy)
+            .is_some()
     }
 
     /// Append a track to the stack.
