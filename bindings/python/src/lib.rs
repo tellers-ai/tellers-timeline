@@ -26,7 +26,7 @@ impl PyMediaSource {
         media_duration: Option<f64>,
         metadata_json: Option<String>,
     ) -> PyResult<Self> {
-        let metadata = if let Some(s) = metadata_json {
+        let mut metadata = if let Some(s) = metadata_json {
             let v: serde_json::Value = serde_json::from_str(&s)
                 .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
             if v.as_object().is_none() {
@@ -38,12 +38,17 @@ impl PyMediaSource {
             serde_json::Value::Object(serde_json::Map::new())
         };
 
+        // Default to empty object
+        if metadata.as_object().is_none() {
+            metadata = serde_json::Value::Object(serde_json::Map::new());
+        }
+
         let mut inner = MediaReference {
             otio_schema: "ExternalReference.1".to_string(),
             target_url: url,
             available_range: None,
-            name,
-            available_image_bounds: None,
+            name: Some(name.unwrap_or_default()),
+            available_image_bounds: Some(serde_json::Value::Null),
             metadata,
         };
 
