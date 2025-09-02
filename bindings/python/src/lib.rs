@@ -18,17 +18,43 @@ struct PyMediaSource {
 #[pymethods]
 impl PyMediaSource {
     #[new]
-    fn new(url: String) -> Self {
-        Self {
-            inner: MediaReference {
-                otio_schema: "ExternalReference.1".to_string(),
-                target_url: url,
-                available_range: None,
-                name: None,
-                available_image_bounds: None,
-                metadata: serde_json::Value::Null,
-            },
+    #[pyo3(signature = (url, name=None, media_start=None, media_duration=None, metadata_json=None))]
+    fn new(
+        url: String,
+        name: Option<String>,
+        media_start: Option<f64>,
+        media_duration: Option<f64>,
+        metadata_json: Option<String>,
+    ) -> PyResult<Self> {
+        let metadata = if let Some(s) = metadata_json {
+            let v: serde_json::Value = serde_json::from_str(&s)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+            if v.as_object().is_none() {
+                serde_json::Value::Object(serde_json::Map::new())
+            } else {
+                v
+            }
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+
+        let mut inner = MediaReference {
+            otio_schema: "ExternalReference.1".to_string(),
+            target_url: url,
+            available_range: None,
+            name,
+            available_image_bounds: None,
+            metadata,
+        };
+
+        if let Some(ms) = media_start {
+            inner.set_media_start(ms);
         }
+        if let Some(md) = media_duration {
+            inner.set_media_duration(Some(md));
+        }
+
+        Ok(Self { inner })
     }
     fn get_url(&self) -> String {
         self.inner.target_url.clone()
@@ -43,7 +69,12 @@ impl PyMediaSource {
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
         let v: serde_json::Value = serde_json::from_str(metadata_json)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        self.inner.metadata = v;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
         Ok(())
     }
     fn get_media_start(&self) -> f64 {
@@ -140,7 +171,12 @@ impl PyClip {
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
         let v: serde_json::Value = serde_json::from_str(metadata_json)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        self.inner.metadata = v;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
         Ok(())
     }
     fn __str__(&self) -> PyResult<String> {
@@ -188,7 +224,12 @@ impl PyGap {
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
         let v: serde_json::Value = serde_json::from_str(metadata_json)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        self.inner.metadata = v;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
         Ok(())
     }
     fn __str__(&self) -> PyResult<String> {
@@ -291,12 +332,15 @@ impl PyTrack {
         self.inner.name = name;
     }
     #[new]
-    #[pyo3(signature = (kind=None, id=None))]
-    fn new(kind: Option<String>, id: Option<String>) -> Self {
+    #[pyo3(signature = (kind=None, id=None, children=None))]
+    fn new(kind: Option<String>, id: Option<String>, children: Option<Vec<PyItem>>) -> Self {
         let k = kind
             .map(|s| track_kind_from_str(&s))
             .unwrap_or(TrackKind::Video);
-        let inner = Track::new(k, id);
+        let mut inner = Track::new(k, id);
+        if let Some(items) = children {
+            inner.items = items.into_iter().map(|i| i.inner).collect();
+        }
         Self { inner }
     }
     #[getter]
@@ -335,50 +379,6 @@ impl PyTrack {
     }
     fn sanitize(&mut self) {
         self.inner.sanitize();
-    }
-    fn append(&mut self, item: &Bound<PyAny>) -> PyResult<()> {
-        if let Some(inner_item) = extract_item(item) {
-            self.inner.append(inner_item);
-            Ok(())
-        } else {
-            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                "append expects an Item, Clip, or Gap",
-            ))
-        }
-    }
-    fn insert_at_index(
-        &mut self,
-        index: usize,
-        item: &Bound<PyAny>,
-        overlap_policy: &str,
-    ) -> PyResult<()> {
-        if let Some(inner_item) = extract_item(item) {
-            let op = overlap_policy_from_str(overlap_policy);
-            self.inner.insert_at_index(index, inner_item, op);
-            Ok(())
-        } else {
-            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                "insert_at_index expects an Item, Clip, or Gap",
-            ))
-        }
-    }
-    fn insert_at_time(
-        &mut self,
-        start_time: f64,
-        item: &Bound<PyAny>,
-        overlap_policy: &str,
-        insert_policy: &str,
-    ) -> PyResult<()> {
-        if let Some(inner_item) = extract_item(item) {
-            let op = overlap_policy_from_str(overlap_policy);
-            let ip = insert_policy_from_str(insert_policy);
-            self.inner.insert_at_time(start_time, inner_item, op, ip);
-            Ok(())
-        } else {
-            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                "insert_at_time expects an Item, Clip, or Gap",
-            ))
-        }
     }
     fn split_at_time(&mut self, time: f64) {
         self.inner.split_at_time(time);
@@ -435,63 +435,17 @@ impl PyTrack {
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
         let v: serde_json::Value = serde_json::from_str(metadata_json)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        self.inner.metadata = v;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
         Ok(())
     }
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
-    }
-    #[pyo3(signature = (start_time, duration, url, overlap_policy, insert_policy, name=None, media_start=None, media_duration=None))]
-    fn insert_clip(
-        &mut self,
-        start_time: f64,
-        duration: f64,
-        url: String,
-        overlap_policy: &str,
-        insert_policy: &str,
-        name: Option<String>,
-        media_start: Option<f64>,
-        media_duration: Option<f64>,
-    ) {
-        let ms = MediaReference {
-            otio_schema: "ExternalReference.1".to_string(),
-            target_url: url,
-            available_range: media_duration.map(|md| TimeRange {
-                otio_schema: "TimeRange.1".to_string(),
-                duration: RationalTime {
-                    otio_schema: "RationalTime.1".to_string(),
-                    rate: 1.0,
-                    value: md,
-                },
-                start_time: RationalTime {
-                    otio_schema: "RationalTime.1".to_string(),
-                    rate: 1.0,
-                    value: media_start.unwrap_or(0.0),
-                },
-            }),
-            name: None,
-            available_image_bounds: None,
-            metadata: serde_json::Value::Null,
-        };
-        let sr = TimeRange {
-            otio_schema: "TimeRange.1".to_string(),
-            duration: RationalTime {
-                otio_schema: "RationalTime.1".to_string(),
-                rate: 1.0,
-                value: duration,
-            },
-            start_time: RationalTime {
-                otio_schema: "RationalTime.1".to_string(),
-                rate: 1.0,
-                value: 0.0,
-            },
-        };
-        let clip = Clip::new_single(sr, "DEFAULT_MEDIA".to_string(), ms, name, None);
-        let item = Item::Clip(clip);
-        let op = overlap_policy_from_str(overlap_policy);
-        let ip = insert_policy_from_str(insert_policy);
-        self.inner.insert_at_time(start_time, item, op, ip);
     }
 }
 
@@ -504,10 +458,13 @@ struct PyStack {
 #[pymethods]
 impl PyStack {
     #[new]
-    fn new() -> Self {
-        Self {
-            inner: Stack::default(),
+    #[pyo3(signature = (children=None))]
+    fn new(children: Option<Vec<PyTrack>>) -> Self {
+        let mut inner = Stack::default();
+        if let Some(tracks) = children {
+            inner.children = tracks.into_iter().map(|t| t.inner).collect();
         }
+        Self { inner }
     }
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
@@ -556,7 +513,12 @@ impl PyStack {
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
         let v: serde_json::Value = serde_json::from_str(metadata_json)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        self.inner.metadata = v;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
         Ok(())
     }
     fn __str__(&self) -> PyResult<String> {
@@ -592,7 +554,7 @@ impl PyStack {
         item: &Bound<PyAny>,
         overlap_policy: &str,
         insert_policy: &str,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<String>> {
         if let Some(inner_item) = extract_item(item) {
             let op = overlap_policy_from_str(overlap_policy);
             let ip = insert_policy_from_str(insert_policy);
@@ -611,7 +573,7 @@ impl PyStack {
         dest_index: usize,
         item: &Bound<PyAny>,
         overlap_policy: &str,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Option<String>> {
         if let Some(inner_item) = extract_item(item) {
             let op = overlap_policy_from_str(overlap_policy);
             Ok(self
@@ -680,10 +642,21 @@ struct PyTimeline {
 #[pymethods]
 impl PyTimeline {
     #[new]
-    fn new() -> Self {
-        Self {
-            inner: Timeline::default(),
+    #[pyo3(signature = (tracks=None))]
+    fn new(tracks: Option<&Bound<PyAny>>) -> PyResult<Self> {
+        let mut inner = Timeline::default();
+        if let Some(arg) = tracks {
+            if let Ok(py_stack) = arg.extract::<PyRef<PyStack>>() {
+                inner.tracks = py_stack.inner.clone();
+            } else if let Ok(v_tracks) = arg.extract::<Vec<PyTrack>>() {
+                inner.tracks.children = v_tracks.into_iter().map(|t| t.inner).collect();
+            } else {
+                return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                    "tracks must be a Stack or a list[Track]",
+                ));
+            }
         }
+        Ok(Self { inner })
     }
 
     #[staticmethod]
@@ -745,7 +718,12 @@ impl PyTimeline {
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
         let v: serde_json::Value = serde_json::from_str(metadata_json)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        self.inner.metadata = v;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
         Ok(())
     }
     fn move_item(&mut self, item_id: &str, dest_track_id: &str, dest_time: f64) -> PyResult<bool> {

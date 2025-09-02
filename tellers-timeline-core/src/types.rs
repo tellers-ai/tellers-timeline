@@ -139,7 +139,7 @@ pub struct Timeline {
     pub name: Option<String>,
     #[serde(default)]
     pub tracks: Stack,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
 }
 
@@ -165,7 +165,7 @@ pub struct Stack {
     pub name: Option<String>,
     #[serde(default)]
     pub children: Vec<Track>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
 }
 
@@ -175,7 +175,7 @@ impl Default for Stack {
             otio_schema: default_stack_schema(),
             name: None,
             children: vec![],
-            metadata: serde_json::Value::Null,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
         }
     }
 }
@@ -257,7 +257,7 @@ impl Clip {
             source_range,
             media_references: refs,
             active_media_reference_key: Some(reference_key),
-            metadata: serde_json::Value::Null,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
         c
@@ -421,7 +421,7 @@ impl Default for Timeline {
             otio_schema: default_timeline_schema(),
             name: None,
             tracks: Stack::default(),
-            metadata: serde_json::Value::Null,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
         }
     }
 }
@@ -461,7 +461,7 @@ impl Track {
             kind,
             name: None,
             items: vec![],
-            metadata: serde_json::Value::Null,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
         crate::metadata::IdMetadataExt::set_id(&mut t, Some(id.unwrap_or_else(gen_hex_id_12)));
         t
