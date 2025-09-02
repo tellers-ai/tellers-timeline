@@ -1,6 +1,7 @@
 use pyo3::prelude::*;
 // use pyo3::types::PyList;
 use pyo3::types::PyAny;
+use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
     validate_timeline, Clip, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
@@ -56,6 +57,10 @@ impl PyMediaSource {
     }
     fn set_media_duration(&mut self, value: Option<f64>) {
         self.inner.set_media_duration(value);
+    }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 }
 
@@ -138,6 +143,10 @@ impl PyClip {
         self.inner.metadata = v;
         Ok(())
     }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
 }
 
 #[pyclass(name = "Gap")]
@@ -181,6 +190,10 @@ impl PyGap {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         self.inner.metadata = v;
         Ok(())
+    }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 }
 
@@ -231,6 +244,10 @@ impl PyItem {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         self.inner.set_metadata(v);
         Ok(())
+    }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 }
 
@@ -302,8 +319,19 @@ impl PyTrack {
             .map(|it| Py::new(py, PyItem { inner: it }).unwrap())
             .collect()
     }
+    fn get_items(&self, py: Python<'_>) -> Vec<Py<PyItem>> {
+        self.inner
+            .items
+            .iter()
+            .cloned()
+            .map(|it| Py::new(py, PyItem { inner: it }).unwrap())
+            .collect()
+    }
     fn clear_items(&mut self) {
         self.inner.items.clear();
+    }
+    fn set_items(&mut self, items: Vec<PyItem>) {
+        self.inner.items = items.into_iter().map(|i| i.inner).collect();
     }
     fn sanitize(&mut self) {
         self.inner.sanitize();
@@ -409,6 +437,10 @@ impl PyTrack {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         self.inner.metadata = v;
         Ok(())
+    }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
     #[pyo3(signature = (start_time, duration, url, overlap_policy, insert_policy, name=None, media_start=None, media_duration=None))]
     fn insert_clip(
@@ -526,6 +558,10 @@ impl PyStack {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         self.inner.metadata = v;
         Ok(())
+    }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
     fn get_track_by_id(&self, py: Python<'_>, id: &str) -> Option<(usize, Py<PyTrack>)> {
         self.inner.get_track_by_id(id).map(|(i, _t)| {
@@ -722,6 +758,12 @@ impl PyTimeline {
             InsertPolicy::InsertBeforeOrAfter,
             OverlapPolicy::Override,
         ))
+    }
+    fn __str__(&self) -> PyResult<String> {
+        // Use same precision logic as other types, but pretty-print for timelines by default
+        self.inner
+            .to_json_with_options(None, true)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 }
 
