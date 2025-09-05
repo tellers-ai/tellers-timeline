@@ -29,7 +29,7 @@ fn default_rational_time_schema() -> String {
     "RationalTime.1".to_string()
 }
 
-fn gen_hex_id_12() -> String {
+pub(crate) fn gen_hex_id_12() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 6];
     rand::thread_rng().fill_bytes(&mut bytes);

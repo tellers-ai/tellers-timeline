@@ -38,6 +38,12 @@ impl Track {
                 clip.source_range.duration.value = right_duration;
                 clip.source_range.start_time.value += left_duration;
 
+                // Ensure the right-hand piece receives a fresh unique id
+                crate::metadata::IdMetadataExt::set_id(
+                    &mut clip,
+                    Some(crate::types::gen_hex_id_12()),
+                );
+
                 self.items.insert(item_index, crate::Item::Clip(left_clip));
                 self.items.insert(item_index + 1, crate::Item::Clip(clip));
             }
@@ -73,6 +79,12 @@ impl Track {
 
                 gap.source_range.duration.value = right_duration;
                 gap.source_range.start_time.value += left_duration;
+
+                // Ensure the right-hand piece receives a fresh unique id
+                crate::metadata::IdMetadataExt::set_id(
+                    &mut gap,
+                    Some(crate::types::gen_hex_id_12()),
+                );
 
                 self.items.insert(item_index, crate::Item::Gap(left_gap));
                 self.items.insert(item_index + 1, crate::Item::Gap(gap));
