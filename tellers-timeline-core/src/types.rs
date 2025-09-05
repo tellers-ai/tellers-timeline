@@ -224,6 +224,40 @@ impl Item {
             Item::Gap(g) => g.source_range.duration.value = dur,
         }
     }
+    pub fn get_source_range(&self) -> TimeRange {
+        match self {
+            Item::Clip(c) => c.source_range.clone(),
+            Item::Gap(g) => g.source_range.clone(),
+        }
+    }
+    pub fn set_source_range(&mut self, source_range: TimeRange) {
+        match self {
+            Item::Clip(c) => c.source_range = source_range,
+            Item::Gap(g) => g.source_range = source_range,
+        }
+    }
+    pub fn get_active_media_reference_key(&self) -> Option<String> {
+        match self {
+            Item::Clip(c) => c.active_media_reference_key.clone(),
+            Item::Gap(_g) => None,
+        }
+    }
+    pub fn set_active_media_reference_key(&mut self, key: Option<String>) {
+        if let Item::Clip(c) = self {
+            c.active_media_reference_key = key;
+        }
+    }
+    pub fn get_media_references(&self) -> HashMap<String, MediaReference> {
+        match self {
+            Item::Clip(c) => c.media_references.clone(),
+            Item::Gap(_g) => HashMap::new(),
+        }
+    }
+    pub fn set_media_references(&mut self, references: HashMap<String, MediaReference>) {
+        if let Item::Clip(c) = self {
+            c.media_references = references;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -242,21 +276,39 @@ pub struct Clip {
 }
 
 impl Clip {
-    pub fn new_single(
+    pub fn new_single_media_reference(
         source_range: TimeRange,
-        reference_key: String,
         reference: MediaReference,
         name: Option<String>,
         id: Option<String>,
     ) -> Self {
         let mut refs = HashMap::new();
-        refs.insert(reference_key.clone(), reference);
+        refs.insert("DEFAULT_MEDIA".to_string(), reference);
         let mut c = Clip {
             otio_schema: default_clip_schema(),
             name,
             source_range,
             media_references: refs,
-            active_media_reference_key: Some(reference_key),
+            active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
+        };
+        crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
+        c
+    }
+
+    pub fn new(
+        source_range: TimeRange,
+        media_references: HashMap<String, MediaReference>,
+        active_media_reference_key: Option<String>,
+        name: Option<String>,
+        id: Option<String>,
+    ) -> Self {
+        let mut c = Clip {
+            otio_schema: default_clip_schema(),
+            name,
+            source_range,
+            media_references,
+            active_media_reference_key,
             metadata: serde_json::Value::Object(serde_json::Map::new()),
         };
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
@@ -412,6 +464,36 @@ impl Default for TimeRange {
             duration: RationalTime::default(),
             start_time: RationalTime::default(),
         }
+    }
+}
+
+impl TimeRange {
+    pub fn new(duration: Seconds, start_time: Seconds) -> Self {
+        Self {
+            otio_schema: default_time_range_schema(),
+            duration: RationalTime {
+                otio_schema: default_rational_time_schema(),
+                rate: 1.0,
+                value: duration,
+            },
+            start_time: RationalTime {
+                otio_schema: default_rational_time_schema(),
+                rate: 1.0,
+                value: start_time,
+            },
+        }
+    }
+    pub fn get_duration(&self) -> Seconds {
+        self.duration.value
+    }
+    pub fn get_start_time(&self) -> Seconds {
+        self.start_time.value
+    }
+    pub fn set_duration(&mut self, duration: Seconds) {
+        self.duration.value = duration;
+    }
+    pub fn set_start_time(&mut self, start_time: Seconds) {
+        self.start_time.value = start_time;
     }
 }
 
