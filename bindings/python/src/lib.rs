@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 // use pyo3::types::PyList;
-use pyo3::types::PyAny;
+use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
@@ -9,14 +9,14 @@ use tellers_timeline_core::{
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
-#[pyclass(name = "MediaSource")]
+#[pyclass(name = "MediaReference")]
 #[derive(Clone)]
-struct PyMediaSource {
+struct PyMediaReference {
     inner: MediaReference,
 }
 
 #[pymethods]
-impl PyMediaSource {
+impl PyMediaReference {
     #[new]
     #[pyo3(signature = (url, name=None, media_start=None, media_duration=None, metadata_json=None))]
     fn new(
@@ -106,11 +106,37 @@ struct PyClip {
     inner: Clip,
 }
 
+fn dict_to_media_references(
+    dict_any: &Bound<PyAny>,
+) -> PyResult<std::collections::HashMap<String, MediaReference>> {
+    let dict = dict_any.downcast::<PyDict>()?;
+    let mut out = std::collections::HashMap::<String, MediaReference>::new();
+    for (k, v) in dict {
+        let key: String = k.extract().map_err(|_| {
+            PyErr::new::<pyo3::exceptions::PyTypeError, _>("media_references keys must be str")
+        })?;
+        if let Ok(py_ref) = v.extract::<PyRef<PyMediaReference>>() {
+            out.insert(key, py_ref.inner.clone());
+        } else {
+            return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "media_references values must be MediaReference",
+            ));
+        }
+    }
+    Ok(out)
+}
+
 #[pymethods]
 impl PyClip {
     #[new]
-    #[pyo3(signature = (duration, source, name=None, id=None))]
-    fn new(duration: f64, source: PyMediaSource, name: Option<String>, id: Option<String>) -> Self {
+    #[pyo3(signature = (duration, references, active_key=None, name=None, id=None))]
+    fn new(
+        duration: f64,
+        references: &Bound<PyAny>,
+        active_key: Option<String>,
+        name: Option<String>,
+        id: Option<String>,
+    ) -> PyResult<Self> {
         let rt = RationalTime {
             otio_schema: "RationalTime.1".to_string(),
             rate: 1.0,
@@ -125,8 +151,14 @@ impl PyClip {
                 value: 0.0,
             },
         };
-        let inner = Clip::new_single(sr, "DEFAULT_MEDIA".to_string(), source.inner, name, id);
-        Self { inner }
+        let refs = dict_to_media_references(references)?;
+        let mut inner = Clip::new(sr, refs, active_key, name, id);
+        if inner.active_media_reference_key.is_none() {
+            if let Some(first_key) = inner.media_references.keys().next().cloned() {
+                inner.active_media_reference_key = Some(first_key);
+            }
+        }
+        Ok(Self { inner })
     }
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
@@ -140,28 +172,34 @@ impl PyClip {
     fn set_duration(&mut self, v: f64) {
         self.inner.source_range.duration.value = v;
     }
-    fn get_source(&self) -> Option<PyMediaSource> {
-        let key = self
-            .inner
-            .active_media_reference_key
-            .as_deref()
-            .unwrap_or("DEFAULT_MEDIA");
-        self.inner
-            .media_references
-            .get(key)
-            .cloned()
-            .map(|inner| PyMediaSource { inner })
+    fn get_media_references(&self, py: Python<'_>) -> Py<PyDict> {
+        let d = PyDict::new(py);
+        for (k, v) in &self.inner.media_references {
+            d.set_item(
+                k,
+                Py::new(py, PyMediaReference { inner: v.clone() }).unwrap(),
+            )
+            .unwrap();
+        }
+        d.into_py(py)
     }
-    fn set_source(&mut self, source: PyMediaSource) {
-        let key = self
-            .inner
-            .active_media_reference_key
-            .clone()
-            .unwrap_or_else(|| "DEFAULT_MEDIA".to_string());
-        self.inner
-            .media_references
-            .insert(key.clone(), source.inner);
-        self.inner.active_media_reference_key = Some(key);
+    fn set_media_references(&mut self, references: &Bound<PyAny>) -> PyResult<()> {
+        self.inner.media_references = dict_to_media_references(references)?;
+        Ok(())
+    }
+    fn get_active_media_reference_key(&self) -> Option<String> {
+        self.inner.active_media_reference_key.clone()
+    }
+    fn set_active_media_reference_key(&mut self, key: Option<String>) -> PyResult<()> {
+        if let Some(k) = &key {
+            if !self.inner.media_references.contains_key(k) {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "active key must exist in media_references",
+                ));
+            }
+        }
+        self.inner.active_media_reference_key = key;
+        Ok(())
     }
     fn get_id(&self) -> Option<String> {
         self.inner.get_id()
@@ -249,6 +287,39 @@ struct PyItem {
     inner: Item,
 }
 
+#[pyclass(name = "TimeRange")]
+#[derive(Clone)]
+struct PyTimeRange {
+    inner: TimeRange,
+}
+
+#[pymethods]
+impl PyTimeRange {
+    #[new]
+    #[pyo3(signature = (duration, start_time=0.0))]
+    fn new(duration: f64, start_time: f64) -> Self {
+        Self {
+            inner: TimeRange::new(duration, start_time),
+        }
+    }
+    fn get_duration(&self) -> f64 {
+        self.inner.duration.value
+    }
+    fn set_duration(&mut self, duration: f64) {
+        self.inner.duration.value = duration;
+    }
+    fn get_start_time(&self) -> f64 {
+        self.inner.start_time.value
+    }
+    fn set_start_time(&mut self, start_time: f64) {
+        self.inner.start_time.value = start_time;
+    }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+}
+
 #[pymethods]
 impl PyItem {
     #[staticmethod]
@@ -290,6 +361,33 @@ impl PyItem {
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
         self.inner.set_metadata(v);
         Ok(())
+    }
+    fn get_active_media_reference_key(&self) -> Option<String> {
+        self.inner.get_active_media_reference_key()
+    }
+    fn set_active_media_reference_key(&mut self, key: Option<&str>) {
+        self.inner
+            .set_active_media_reference_key(key.map(|s| s.to_string()));
+    }
+    fn get_media_references(&self, py: Python<'_>) -> Py<PyDict> {
+        let d = PyDict::new(py);
+        for (k, v) in self.inner.get_media_references() {
+            d.set_item(k, Py::new(py, PyMediaReference { inner: v }).unwrap())
+                .unwrap();
+        }
+        d.into_py(py)
+    }
+    fn set_media_references(&mut self, references: &Bound<PyAny>) -> PyResult<()> {
+        let refs = dict_to_media_references(references)?;
+        self.inner.set_media_references(refs);
+        Ok(())
+    }
+    fn get_source_range(&self, py: Python<'_>) -> Py<PyTimeRange> {
+        let tr = self.inner.get_source_range();
+        Py::new(py, PyTimeRange { inner: tr }).unwrap()
+    }
+    fn set_source_range(&mut self, tr: PyTimeRange) {
+        self.inner.set_source_range(tr.inner);
     }
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
@@ -752,7 +850,7 @@ impl PyTimeline {
 
 #[pymodule]
 fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
-    m.add_class::<PyMediaSource>()?;
+    m.add_class::<PyMediaReference>()?;
     m.add_class::<PyClip>()?;
     m.add_class::<PyGap>()?;
     m.add_class::<PyItem>()?;
