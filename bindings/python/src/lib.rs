@@ -173,7 +173,7 @@ impl PyClip {
         self.inner.source_range.duration.value = v;
     }
     fn get_media_references(&self, py: Python<'_>) -> Py<PyDict> {
-        let d = PyDict::new(py);
+        let d = PyDict::new_bound(py);
         for (k, v) in &self.inner.media_references {
             d.set_item(
                 k,
@@ -181,7 +181,7 @@ impl PyClip {
             )
             .unwrap();
         }
-        d.into_py(py)
+        d.unbind()
     }
     fn set_media_references(&mut self, references: &Bound<PyAny>) -> PyResult<()> {
         self.inner.media_references = dict_to_media_references(references)?;
@@ -370,12 +370,12 @@ impl PyItem {
             .set_active_media_reference_key(key.map(|s| s.to_string()));
     }
     fn get_media_references(&self, py: Python<'_>) -> Py<PyDict> {
-        let d = PyDict::new(py);
+        let d = PyDict::new_bound(py);
         for (k, v) in self.inner.get_media_references() {
             d.set_item(k, Py::new(py, PyMediaReference { inner: v }).unwrap())
                 .unwrap();
         }
-        d.into_py(py)
+        d.unbind()
     }
     fn set_media_references(&mut self, references: &Bound<PyAny>) -> PyResult<()> {
         let refs = dict_to_media_references(references)?;
