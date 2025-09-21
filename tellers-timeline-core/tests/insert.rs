@@ -1,11 +1,22 @@
 use std::collections::HashMap;
-use tellers_timeline_core::{Clip, InsertPolicy, Item, MediaReference, OverlapPolicy, Seconds, Track, TimeRange, RationalTime};
+use tellers_timeline_core::{
+    Clip, InsertPolicy, Item, MediaReference, OverlapPolicy, RationalTime, Seconds, TimeRange,
+    Track,
+};
 
 fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
     let sr = TimeRange {
         otio_schema: "TimeRange.1".to_string(),
-        duration: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: duration },
-        start_time: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: media_start },
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: duration,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: media_start,
+        },
     };
     let mut refs: HashMap<String, MediaReference> = HashMap::new();
     refs.insert(
@@ -83,5 +94,29 @@ fn insert_split_and_override() {
     match &track.items[idx] {
         Item::Clip(c) => assert!((c.source_range.duration.value - 4.0).abs() < 1e-9),
         _ => panic!("expected clip inserted with override"),
+    }
+}
+
+#[test]
+fn insert_split_and_override_at_zero() {
+    let mut track = Track::default();
+    track.append(make_clip(5.0, 0.0));
+
+    // Insert across boundary with override: should split as needed and replace overlap
+    track.insert_at_time(
+        0.0,
+        make_clip(4.0, 0.0),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+    );
+    assert_eq!(track.items.len(), 2);
+    assert_eq!(track.items[0].duration(), 4.0);
+    assert_eq!(track.items[1].duration(), 1.0);
+    match (&track.items[0], &track.items[1]) {
+        (Item::Clip(c0), Item::Clip(c1)) => {
+            assert_eq!(c0.source_range.duration.value, 4.0);
+            assert_eq!(c1.source_range.duration.value, 1.0);
+        }
+        _ => panic!("expected two clips after insert"),
     }
 }

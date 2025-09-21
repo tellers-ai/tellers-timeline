@@ -152,7 +152,16 @@ impl Track {
                     i + 1
                 }
             }
-            InsertPolicy::SplitAndInsert => i + 1,
+            InsertPolicy::SplitAndInsert => {
+                // If t is at the start boundary of item i, insert at i; otherwise insert after i.
+                const EPS: Seconds = 1e-9;
+                let start = self.start_time_of_item(i);
+                if (t - start).abs() <= EPS {
+                    i
+                } else {
+                    i + 1
+                }
+            }
         }
     }
 }
