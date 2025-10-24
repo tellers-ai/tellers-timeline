@@ -28,6 +28,9 @@ fn default_time_range_schema() -> String {
 fn default_rational_time_schema() -> String {
     "RationalTime.1".to_string()
 }
+fn default_effect_schema() -> String {
+    "Effect.1".to_string()
+}
 
 pub(crate) fn gen_hex_id_12() -> String {
     use rand::RngCore;
@@ -258,6 +261,17 @@ impl Item {
             c.media_references = references;
         }
     }
+    pub fn get_effects(&self) -> Vec<Effect> {
+        match self {
+            Item::Clip(c) => c.effects.clone(),
+            Item::Gap(_g) => Vec::new(),
+        }
+    }
+    pub fn set_effects(&mut self, effects: Vec<Effect>) {
+        if let Item::Clip(c) = self {
+            c.effects = effects;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -273,6 +287,8 @@ pub struct Clip {
     pub active_media_reference_key: Option<String>,
     #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
+    #[serde(default)]
+    pub effects: Vec<Effect>,
 }
 
 impl Clip {
@@ -291,6 +307,7 @@ impl Clip {
             media_references: refs,
             active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
             metadata: serde_json::Value::Object(serde_json::Map::new()),
+            effects: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
         c
@@ -310,6 +327,7 @@ impl Clip {
             media_references,
             active_media_reference_key,
             metadata: serde_json::Value::Object(serde_json::Map::new()),
+            effects: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
         c
@@ -353,6 +371,18 @@ impl Gap {
     pub fn make_gap(duration: Seconds) -> Self {
         Self::new(duration, None)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Effect {
+    #[serde(rename = "OTIO_SCHEMA", default = "default_effect_schema")]
+    pub otio_schema: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub effect_name: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
