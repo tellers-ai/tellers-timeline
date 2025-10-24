@@ -264,12 +264,13 @@ impl Item {
     pub fn get_effects(&self) -> Vec<Effect> {
         match self {
             Item::Clip(c) => c.effects.clone(),
-            Item::Gap(_g) => Vec::new(),
+            Item::Gap(g) => g.effects.clone(),
         }
     }
     pub fn set_effects(&mut self, effects: Vec<Effect>) {
-        if let Item::Clip(c) = self {
-            c.effects = effects;
+        match self {
+            Item::Clip(c) => c.effects = effects,
+            Item::Gap(g) => g.effects = effects,
         }
     }
 }
@@ -343,6 +344,8 @@ pub struct Gap {
     pub source_range: TimeRange,
     #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
+    #[serde(default)]
+    pub effects: Vec<Effect>,
 }
 
 impl Gap {
@@ -364,6 +367,7 @@ impl Gap {
                 },
             },
             metadata: serde_json::Value::Object(serde_json::Map::new()),
+            effects: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut g, Some(id.unwrap_or_else(gen_hex_id_12)));
         g
