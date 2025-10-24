@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    validate_timeline, Clip, Effect, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -94,6 +94,87 @@ impl PyMediaReference {
     fn set_media_duration(&mut self, value: Option<f64>) {
         self.inner.set_media_duration(value);
     }
+    fn __str__(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+}
+
+#[pyclass(name = "Effect")]
+#[derive(Clone)]
+struct PyEffect {
+    inner: Effect,
+}
+
+#[pymethods]
+impl PyEffect {
+    #[new]
+    #[pyo3(signature = (name=None, effect_name=None, metadata_json=None))]
+    fn new(
+        name: Option<String>,
+        effect_name: Option<String>,
+        metadata_json: Option<String>,
+    ) -> PyResult<Self> {
+        let mut metadata = if let Some(s) = metadata_json {
+            let v: serde_json::Value = serde_json::from_str(&s)
+                .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+            if v.as_object().is_none() {
+                serde_json::Value::Object(serde_json::Map::new())
+            } else {
+                v
+            }
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        };
+
+        // Default to empty object
+        if metadata.as_object().is_none() {
+            metadata = serde_json::Value::Object(serde_json::Map::new());
+        }
+
+        let inner = Effect {
+            otio_schema: "Effect.1".to_string(),
+            name: name.unwrap_or_default(),
+            effect_name: effect_name.unwrap_or_default(),
+            metadata,
+        };
+
+        Ok(Self { inner })
+    }
+
+    fn get_name(&self) -> String {
+        self.inner.name.clone()
+    }
+
+    fn set_name(&mut self, name: String) {
+        self.inner.name = name;
+    }
+
+    fn get_effect_name(&self) -> String {
+        self.inner.effect_name.clone()
+    }
+
+    fn set_effect_name(&mut self, effect_name: String) {
+        self.inner.effect_name = effect_name;
+    }
+
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
+        Ok(())
+    }
+
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
@@ -225,6 +306,12 @@ impl PyClip {
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn get_effects(&self, py: Python<'_>) -> Vec<Py<PyEffect>> {
+        self.inner.effects.iter().map(|e| Py::new(py, PyEffect { inner: e.clone() }).unwrap()).collect()
+    }
+    fn set_effects(&mut self, effects: Vec<PyEffect>) {
+        self.inner.effects = effects.into_iter().map(|e| e.inner).collect();
     }
 }
 
@@ -851,6 +938,7 @@ impl PyTimeline {
 #[pymodule]
 fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyMediaReference>()?;
+    m.add_class::<PyEffect>()?;
     m.add_class::<PyClip>()?;
     m.add_class::<PyGap>()?;
     m.add_class::<PyItem>()?;
