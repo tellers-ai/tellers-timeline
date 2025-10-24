@@ -486,6 +486,12 @@ impl PyItem {
         to_json_with_precision(&self.inner, None, false)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
+    fn get_effects(&self, py: Python<'_>) -> Vec<Py<PyEffect>> {
+        self.inner.get_effects().iter().map(|e| Py::new(py, PyEffect { inner: e.clone() }).unwrap()).collect()
+    }
+    fn set_effects(&mut self, effects: Vec<PyEffect>) {
+        self.inner.set_effects(effects.into_iter().map(|e| e.inner).collect());
+    }
 }
 
 #[pyclass(name = "Track")]
