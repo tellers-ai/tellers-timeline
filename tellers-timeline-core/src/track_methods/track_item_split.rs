@@ -75,6 +75,7 @@ impl Track {
                         },
                     },
                     metadata: gap.metadata.clone(),
+                    effects: gap.effects.clone(),
                 };
 
                 gap.source_range.duration.value = right_duration;
