@@ -333,6 +333,145 @@ impl Clip {
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
         c
     }
+
+    /// Extract text data from clip, including HTML content and transformation parameters.
+    /// Checks both media reference parameters and clip effects.
+    /// Returns default values if text data is not found.
+    /// This method is defensive and won't panic on unexpected data structures.
+    pub fn extract_text_data(&self) -> (Option<String>, TextEffectParams) {
+        let mut result = TextEffectParams {
+            position: [0.5, 0.5],
+            zoom_x: 1.0,
+            zoom_y: 1.0,
+            rotation: 0.0,
+        };
+        let mut html: Option<String> = None;
+
+        // Get active media reference
+        let media_ref_key = self
+            .active_media_reference_key
+            .as_deref()
+            .unwrap_or("DEFAULT_MEDIA");
+        if let Some(media_ref) = self.media_references.get(media_ref_key) {
+            // Check for Resolve_OTIO parameters in media reference
+            if let Some(parameters) = media_ref.metadata.get("parameters") {
+                if let Some(params_obj) = parameters.as_object() {
+                    if let Some(resolve_otio) = params_obj.get("Resolve_OTIO") {
+                        if let Some(resolve_array) = resolve_otio.as_array() {
+                            for effect in resolve_array {
+                                if let Some(effect_obj) = effect.as_object() {
+                                    let effect_name = effect_obj
+                                        .get("Effect Name")
+                                        .and_then(|v| v.as_str());
+
+                                    if effect_name == Some("Rich Text") {
+                                        if let Some(params) = effect_obj.get("Parameters") {
+                                            if let Some(params_array) = params.as_array() {
+                                                for param in params_array {
+                                                    if let Some(param_obj) = param.as_object() {
+                                                        let param_id = param_obj
+                                                            .get("Parameter ID")
+                                                            .and_then(|v| v.as_str());
+
+                                                        match param_id {
+                                                            Some("title blob") => {
+                                                                if let Some(title_html) = param_obj
+                                                                    .get("Title HTML")
+                                                                    .and_then(|v| v.as_str())
+                                                                {
+                                                                    html = Some(title_html.to_string());
+                                                                }
+                                                            }
+                                                            Some("position") => {
+                                                                if let Some(val) = param_obj.get("Parameter Value") {
+                                                                    if let Some(arr) = val.as_array() {
+                                                                        if arr.len() >= 2 {
+                                                                            if let (Some(x), Some(y)) = (
+                                                                                arr[0].as_f64(),
+                                                                                arr[1].as_f64(),
+                                                                            ) {
+                                                                                result.position = [x, y];
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            Some("transformationZoomX") => {
+                                                                if let Some(val) = param_obj.get("Parameter Value") {
+                                                                    if let Some(num) = val.as_f64() {
+                                                                        result.zoom_x = num;
+                                                                    }
+                                                                }
+                                                            }
+                                                            Some("transformationZoomY") => {
+                                                                if let Some(val) = param_obj.get("Parameter Value") {
+                                                                    if let Some(num) = val.as_f64() {
+                                                                        result.zoom_y = num;
+                                                                    }
+                                                                }
+                                                            }
+                                                            Some("transformationRotationAngle") => {
+                                                                if let Some(val) = param_obj.get("Parameter Value") {
+                                                                    if let Some(num) = val.as_f64() {
+                                                                        result.rotation = num;
+                                                                    }
+                                                                }
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also check clip effects for transformation parameters
+        for effect in &self.effects {
+            let text_params = effect.parse_text_effect();
+            // Merge with existing values (effects override media reference params)
+            result.position = text_params.position;
+            result.zoom_x = text_params.zoom_x;
+            result.zoom_y = text_params.zoom_y;
+            result.rotation = text_params.rotation;
+        }
+
+        (html, result)
+    }
+
+    /// Get the first valid video effect output from clip effects.
+    /// Returns default output if no valid video effects are found.
+    pub fn get_video_effect_output(&self) -> VideoEffectOutput {
+        for effect in &self.effects {
+            if let Some(output) = effect.parse_video_effect() {
+                return output;
+            }
+        }
+        // Default output
+        VideoEffectOutput {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        }
+    }
+
+    /// Get the first valid audio effect output from clip effects.
+    /// Returns None if no valid audio effects are found.
+    pub fn get_audio_effect_output(&self) -> Option<AudioEffectOutput> {
+        for effect in &self.effects {
+            if let Some(output) = effect.parse_audio_effect() {
+                return Some(output);
+            }
+        }
+        None
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -387,6 +526,236 @@ pub struct Effect {
     pub effect_name: String,
     #[serde(default)]
     pub metadata: serde_json::Value,
+}
+
+/// Video transformation output coordinates
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoEffectOutput {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Audio effect output (gain/volume)
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioEffectOutput {
+    pub gain: Option<f64>,
+}
+
+/// Text effect parameters
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextEffectParams {
+    pub position: [f64; 2],
+    pub zoom_x: f64,
+    pub zoom_y: f64,
+    pub rotation: f64,
+}
+
+impl Effect {
+    /// Parse Resolve_OTIO video transformation effects and convert to output coordinates.
+    /// Returns None if the effect doesn't contain valid video transformation parameters.
+    /// This method is defensive and won't panic on unexpected data structures.
+    pub fn parse_video_effect(&self) -> Option<VideoEffectOutput> {
+        // Get Resolve_OTIO metadata
+        let resolve_data = self.metadata.get("Resolve_OTIO")?;
+        let resolve_obj = resolve_data.as_object()?;
+
+        // Get Parameters array
+        let parameters = resolve_obj.get("Parameters")?;
+        let params_array = parameters.as_array()?;
+
+        // Initialize with default values
+        let mut pan = 0.0;      // OTIO: -0.5 to 0.5, where 0 is center
+        let mut tilt = 0.0;     // OTIO: -0.5 to 0.5, where 0 is center
+        let mut zoom_x = 1.0;    // OTIO: normalized 0-1
+        let mut zoom_y = 1.0;    // OTIO: normalized 0-1
+        let mut _flip_y = false;
+
+        // Collect all parameters
+        for param in params_array {
+            let param_obj = param.as_object()?;
+            let param_id = param_obj.get("Parameter ID")?.as_str()?;
+
+            match param_id {
+                "transformationPan" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(num) = val.as_f64() {
+                            pan = num;
+                        }
+                    }
+                }
+                "transformationTilt" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(num) = val.as_f64() {
+                            tilt = num;
+                        }
+                    }
+                }
+                "transformationZoomX" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(num) = val.as_f64() {
+                            zoom_x = num;
+                        }
+                    }
+                }
+                "transformationZoomY" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(num) = val.as_f64() {
+                            zoom_y = num;
+                        }
+                    }
+                }
+                "transformationFlipY" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(b) = val.as_bool() {
+                            _flip_y = b;
+                        }
+                    }
+                }
+                _ => {
+                    // Ignore unknown parameters
+                }
+            }
+        }
+
+        // Convert OTIO coordinates to our coordinate system
+        // OTIO: origin at center, X: -0.5 (left) to 0.5 (right), Y: -0.5 (bottom) to 0.5 (top)
+        // Our system: origin at top-left, X: 0 (left) to 1 (right), Y: 0 (top) to 1 (bottom)
+        // Calculate the position taking zoom into account:
+        // 1. The zoom affects how much space is available for movement
+        // 2. We need to center the zoomed content and then apply the pan/tilt
+        Some(VideoEffectOutput {
+            x: pan - zoom_x / 2.0 + 0.5,
+            y: tilt - zoom_y / 2.0 + 0.5,
+            width: zoom_x,
+            height: zoom_y,
+        })
+    }
+
+    /// Parse Resolve_OTIO audio effects (volume/gain).
+    /// Returns None if the effect doesn't contain valid audio parameters.
+    /// This method is defensive and won't panic on unexpected data structures.
+    pub fn parse_audio_effect(&self) -> Option<AudioEffectOutput> {
+        // Get Resolve_OTIO metadata
+        let resolve_data = self.metadata.get("Resolve_OTIO")?;
+        let resolve_obj = resolve_data.as_object()?;
+
+        // Get Parameters array
+        let parameters = resolve_obj.get("Parameters")?;
+        let params_array = parameters.as_array()?;
+
+        // Look for volume or gain parameters
+        for param in params_array {
+            let param_obj = param.as_object()?;
+            let param_id = param_obj.get("Parameter ID")?.as_str()?;
+
+            if param_id == "volume" || param_id == "gain" {
+                if let Some(val) = param_obj.get("Parameter Value") {
+                    if let Some(gain_value) = val.as_f64() {
+                        return Some(AudioEffectOutput {
+                            gain: Some(gain_value),
+                        });
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Parse Resolve_OTIO text transformation parameters.
+    /// Returns default values if parameters are not found.
+    /// This method is defensive and won't panic on unexpected data structures.
+    pub fn parse_text_effect(&self) -> TextEffectParams {
+        let mut result = TextEffectParams {
+            position: [0.5, 0.5],
+            zoom_x: 1.0,
+            zoom_y: 1.0,
+            rotation: 0.0,
+        };
+
+        // Get Resolve_OTIO metadata
+        let resolve_data = match self.metadata.get("Resolve_OTIO") {
+            Some(d) => d,
+            None => return result,
+        };
+
+        let resolve_obj = match resolve_data.as_object() {
+            Some(o) => o,
+            None => return result,
+        };
+
+        // Get Parameters array
+        let parameters = match resolve_obj.get("Parameters") {
+            Some(p) => p,
+            None => return result,
+        };
+
+        let params_array = match parameters.as_array() {
+            Some(a) => a,
+            None => return result,
+        };
+
+        // Parse parameters
+        for param in params_array {
+            let param_obj = match param.as_object() {
+                Some(o) => o,
+                None => continue,
+            };
+
+            let param_id = match param_obj.get("Parameter ID") {
+                Some(id) => match id.as_str() {
+                    Some(s) => s,
+                    None => continue,
+                },
+                None => continue,
+            };
+
+            match param_id {
+                "position" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(arr) = val.as_array() {
+                            if arr.len() >= 2 {
+                                if let (Some(x), Some(y)) = (
+                                    arr[0].as_f64(),
+                                    arr[1].as_f64(),
+                                ) {
+                                    result.position = [x, y];
+                                }
+                            }
+                        }
+                    }
+                }
+                "transformationZoomX" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(num) = val.as_f64() {
+                            result.zoom_x = num;
+                        }
+                    }
+                }
+                "transformationZoomY" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(num) = val.as_f64() {
+                            result.zoom_y = num;
+                        }
+                    }
+                }
+                "transformationRotationAngle" => {
+                    if let Some(val) = param_obj.get("Parameter Value") {
+                        if let Some(num) = val.as_f64() {
+                            result.rotation = num;
+                        }
+                    }
+                }
+                _ => {
+                    // Ignore unknown parameters
+                }
+            }
+        }
+
+        result
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
