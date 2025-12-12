@@ -662,9 +662,87 @@ impl Clip {
                 }
             }
         }
-        return 0.0;
+        return 1.0;
     }
 
+    pub fn set_volume(&mut self, volume: f64) {
+        // Find existing Volume effect and update the parameter
+        let mut found_volume_effect = false;
+        for effect in &mut self.effects {
+            if effect.effect_name == "Resolve Effect" {
+                if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_mut() {
+                    if resolve_otio_effect.name == "Volume" {
+                        found_volume_effect = true;
+                        // Update existing volume parameter
+                        let mut found_volume_param = false;
+                        for parameter in &mut resolve_otio_effect.parameters {
+                            if let ResolveOTIOParameter::Double(param) = parameter {
+                                if param.parameter_id == "volume" {
+                                    param.parameter_value = volume;
+                                    found_volume_param = true;
+                                    break;
+                                }
+                            }
+                        }
+                        // If volume parameter doesn't exist, create it
+                        if !found_volume_param {
+                            resolve_otio_effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                                variant_type: "Double".to_string(),
+                                parameter_id: "volume".to_string(),
+                                parameter_value: volume,
+                                default_parameter_value: Some(0.0),
+                                max_value: Some(30.0),
+                                min_value: Some(-100.0),
+                            }));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // If no Volume effect found, create one
+        if !found_volume_effect {
+            let volume_effect = ResolveOTIOEffect {
+                effect_name: "Fairlight Clip Volume and Fades".to_string(),
+                enabled: true,
+                name: "Volume".to_string(),
+                parameters: vec![
+                    ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                        variant_type: "Double".to_string(),
+                        parameter_id: "volume".to_string(),
+                        parameter_value: volume,
+                        default_parameter_value: Some(0.0),
+                        max_value: Some(30.0),
+                        min_value: Some(-100.0),
+                    }),
+                ],
+                effect_type: 62,
+            };
+
+            // Find or create the Resolve Effect
+            let mut found_resolve_effect = false;
+            for effect in &mut self.effects {
+                if effect.effect_name == "Resolve Effect" {
+                    effect.metadata.resolve_otio = Some(volume_effect.clone());
+                    found_resolve_effect = true;
+                    break;
+                }
+            }
+
+            if !found_resolve_effect {
+                self.effects.push(Effect {
+                    otio_schema: default_effect_schema(),
+                    name: "".to_string(),
+                    effect_name: "Resolve Effect".to_string(),
+                    metadata: EffectMetadata {
+                        resolve_otio: Some(volume_effect),
+                        other: serde_json::Map::new(),
+                    },
+                });
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
