@@ -379,7 +379,7 @@ impl Clip {
                             ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
                                 zoom_x = param.parameter_value;
                             }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationTilt" => {
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
                                 zoom_y = param.parameter_value;
                             }
                             ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
@@ -399,6 +399,250 @@ impl Clip {
             rotation,
             zoom_x,
             zoom_y,
+        }
+    }
+
+    pub fn set_position(&mut self, position: MediaReferencePosition) {
+        let active_media_reference = self.media_references.get_mut(self.active_media_reference_key.as_ref().unwrap()).unwrap();
+
+        // Case 1: GeneratorReference - uses "position" (PointF) for x/y coordinates
+        if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
+            if let Some(resolve_otio_effects) = parameters.resolve_otio.as_mut() {
+                let mut found_position_param = false;
+                let mut found_zoom_x = false;
+                let mut found_zoom_y = false;
+                let mut found_rotation = false;
+
+                for effect in &mut *resolve_otio_effects {
+                    for parameter in &mut effect.parameters {
+                        match parameter {
+                            ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
+                                param.parameter_value = Some([position.x, position.y]);
+                                found_position_param = true;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                                param.parameter_value = position.zoom_x;
+                                found_zoom_x = true;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
+                                param.parameter_value = position.zoom_y;
+                                found_zoom_y = true;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                                param.parameter_value = position.rotation;
+                                found_rotation = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // Create missing parameters in the first effect, or create a new effect if none exist
+                if resolve_otio_effects.is_empty() || !found_position_param || !found_zoom_x || !found_zoom_y || !found_rotation {
+                    let effect = if resolve_otio_effects.is_empty() {
+                        let new_effect = ResolveOTIOEffect {
+                            effect_name: "Transform".to_string(),
+                            enabled: true,
+                            name: "Transform".to_string(),
+                            parameters: vec![],
+                            effect_type: 2,
+                        };
+                        resolve_otio_effects.push(new_effect);
+                        resolve_otio_effects.last_mut().unwrap()
+                    } else {
+                        &mut resolve_otio_effects[0]
+                    };
+
+                    if !found_position_param {
+                        effect.parameters.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
+                            variant_type: "POINTF".to_string(),
+                            parameter_id: "position".to_string(),
+                            parameter_value: Some([position.x, position.y]),
+                            default_parameter_value: Some([0.5, 0.5]),
+                            key_frames: None,
+                        }));
+                    }
+                    if !found_zoom_x {
+                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomX".to_string(),
+                            parameter_value: position.zoom_x,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }));
+                    }
+                    if !found_zoom_y {
+                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomY".to_string(),
+                            parameter_value: position.zoom_y,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }));
+                    }
+                    if !found_rotation {
+                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationRotationAngle".to_string(),
+                            parameter_value: position.rotation,
+                            default_parameter_value: Some(0.0),
+                            max_value: Some(100000.0),
+                            min_value: Some(-100000.0),
+                        }));
+                    }
+                }
+            } else {
+                // Create resolve_otio if it doesn't exist
+                parameters.resolve_otio = Some(vec![ResolveOTIOEffect {
+                    effect_name: "Transform".to_string(),
+                    enabled: true,
+                    name: "Transform".to_string(),
+                    parameters: vec![
+                        ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
+                            variant_type: "POINTF".to_string(),
+                            parameter_id: "position".to_string(),
+                            parameter_value: Some([position.x, position.y]),
+                            default_parameter_value: Some([0.5, 0.5]),
+                            key_frames: None,
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomX".to_string(),
+                            parameter_value: position.zoom_x,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomY".to_string(),
+                            parameter_value: position.zoom_y,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationRotationAngle".to_string(),
+                            parameter_value: position.rotation,
+                            default_parameter_value: Some(0.0),
+                            max_value: Some(100000.0),
+                            min_value: Some(-100000.0),
+                        }),
+                    ],
+                    effect_type: 2,
+                }]);
+            }
+        } else {
+            // Case 2: ExternalReference - uses "transformationPan" and "transformationTilt" (Double) for x/y coordinates
+            // Find or create the Resolve Effect with Transform
+            let mut found_transform_effect = false;
+            for effect in &mut self.effects {
+                if effect.effect_name == "Resolve Effect" {
+                    if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_mut() {
+                        if resolve_otio_effect.effect_name == "Transform" {
+                            found_transform_effect = true;
+                            // Update existing parameters
+                            for parameter in &mut resolve_otio_effect.parameters {
+                                match parameter {
+                                    ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationPan" => {
+                                        param.parameter_value = position.x;
+                                    }
+                                    ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationTilt" => {
+                                        param.parameter_value = position.y;
+                                    }
+                                    ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                                        param.parameter_value = position.zoom_x;
+                                    }
+                                    ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
+                                        param.parameter_value = position.zoom_y;
+                                    }
+                                    ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                                        param.parameter_value = position.rotation;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If no Transform effect found, create one
+            if !found_transform_effect {
+                let transform_effect = ResolveOTIOEffect {
+                    effect_name: "Transform".to_string(),
+                    enabled: true,
+                    name: "Transform".to_string(),
+                    parameters: vec![
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationPan".to_string(),
+                            parameter_value: position.x,
+                            default_parameter_value: Some(0.0),
+                            max_value: Some(4.0),
+                            min_value: Some(-4.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationTilt".to_string(),
+                            parameter_value: position.y,
+                            default_parameter_value: Some(0.0),
+                            max_value: Some(4.0),
+                            min_value: Some(-4.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomX".to_string(),
+                            parameter_value: position.zoom_x,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomY".to_string(),
+                            parameter_value: position.zoom_y,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationRotationAngle".to_string(),
+                            parameter_value: position.rotation,
+                            default_parameter_value: Some(0.0),
+                            max_value: Some(100000.0),
+                            min_value: Some(-100000.0),
+                        }),
+                    ],
+                    effect_type: 2,
+                };
+
+                // Find or create the Resolve Effect
+                let mut found_resolve_effect = false;
+                for effect in &mut self.effects {
+                    if effect.effect_name == "Resolve Effect" {
+                        effect.metadata.resolve_otio = Some(transform_effect.clone());
+                        found_resolve_effect = true;
+                        break;
+                    }
+                }
+
+                if !found_resolve_effect {
+                    self.effects.push(Effect {
+                        otio_schema: default_effect_schema(),
+                        name: "".to_string(),
+                        effect_name: "Resolve Effect".to_string(),
+                        metadata: EffectMetadata {
+                            resolve_otio: Some(transform_effect),
+                            other: serde_json::Map::new(),
+                        },
+                    });
+                }
+            }
         }
     }
 }
