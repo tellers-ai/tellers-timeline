@@ -331,7 +331,76 @@ impl Clip {
         c
     }
 
-
+    pub fn get_position(&self) -> MediaReferencePosition {
+        let active_media_reference = self.media_references.get(self.active_media_reference_key.as_ref().unwrap()).unwrap();
+        let mut x = 0.5;
+        let mut y = 0.5;
+        let mut rotation = 0.0;
+        let mut zoom_x = 1.0;
+        let mut zoom_y = 1.0;
+        if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
+            if let Some(resolve_otio_effects) = parameters.resolve_otio.as_ref() {
+                for effect in resolve_otio_effects {
+                    for parameter in &effect.parameters {
+                        match parameter {
+                            ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
+                                if let Some([x_val, y_val]) = param.parameter_value {
+                                    x = x_val;
+                                    y = y_val;
+                                }
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                                zoom_x = param.parameter_value;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
+                                zoom_y = param.parameter_value;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                                rotation = param.parameter_value;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        } else {
+            for effect in &self.effects {
+                if effect.effect_name == "Resolve Effect" {
+                    if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_ref(){
+                        if resolve_otio_effect.effect_name == "Transform" {
+                        for parameter in &resolve_otio_effect.parameters {
+                        match parameter {
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationPan" => {
+                                x = param.parameter_value;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationTilt" => {
+                                y = param.parameter_value;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                                zoom_x = param.parameter_value;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationTilt" => {
+                                zoom_y = param.parameter_value;
+                            }
+                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                                rotation = param.parameter_value;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                }
+                }
+            }
+        }
+        MediaReferencePosition {
+            x,
+            y,
+            rotation,
+            zoom_x,
+            zoom_y,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -630,8 +699,6 @@ pub struct Effect {
 pub struct MediaReferencePosition {
     pub x: f64,
     pub y: f64,
-    pub width: f64,
-    pub height: f64,
     pub rotation: f64,
     pub zoom_x: f64,
     pub zoom_y: f64,
@@ -778,62 +845,6 @@ impl MediaReference {
             }
             None => {
                 *available_range = None;
-            }
-        }
-    }
-
-    pub fn get_position(&self) -> MediaReferencePosition {
-        match self {
-            MediaReference::ExternalReference { .. } => MediaReferencePosition {
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: 0.0,
-                rotation: 0.0,
-                zoom_x: 0.0,
-                zoom_y: 0.0,
-            },
-            MediaReference::GeneratorReference { parameters, .. } => {
-                let mut x = 0.0;
-                let mut y = 0.0;
-                let width = 0.0;
-                let height = 0.0;
-                let mut rotation = 0.0;
-                let mut zoom_x = 0.0;
-                let mut zoom_y = 0.0;
-                if let Some(resolve_otio_effects) = parameters.resolve_otio.as_ref() {
-                    for effect in resolve_otio_effects {
-                        for parameter in &effect.parameters {
-                            match parameter {
-                                ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
-                                    if let Some([x_val, y_val]) = param.parameter_value {
-                                        x = x_val;
-                                        y = y_val;
-                                    }
-                                }
-                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
-                                    zoom_x = param.parameter_value;
-                                }
-                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
-                                    zoom_y = param.parameter_value;
-                                }
-                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
-                                    rotation = param.parameter_value;
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                }
-                MediaReferencePosition {
-                    x,
-                    y,
-                    width,
-                    height,
-                    rotation,
-                    zoom_x,
-                    zoom_y,
-                }
             }
         }
     }
