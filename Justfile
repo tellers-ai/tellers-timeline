@@ -15,8 +15,16 @@ test-all:
   cargo test -p tellers-timeline-core -p tellers-timeline-schema -q
   # Python binding tests
   if command -v maturin >/dev/null 2>&1; then \
-    maturin develop -m bindings/python/pyproject.toml -q && \
-    pytest -q bindings/python/tests; \
+    cd bindings/python && \
+    maturin develop -q && \
+    cd ../.. && \
+    if [ -d bindings/python/.venv ]; then \
+      bindings/python/.venv/bin/python -m pip install -q pytest && \
+      bindings/python/.venv/bin/python -m pytest -q bindings/python/tests; \
+    else \
+      python -m pip install -q pytest && \
+      python -m pytest -q bindings/python/tests; \
+    fi; \
   else \
     echo "maturin not found, skipping python tests"; \
   fi

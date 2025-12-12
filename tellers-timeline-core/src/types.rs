@@ -625,9 +625,18 @@ impl Clip {
                 let mut found_resolve_effect = false;
                 for effect in &mut self.effects {
                     if effect.effect_name == "Resolve Effect" {
-                        effect.metadata.resolve_otio = Some(transform_effect.clone());
-                        found_resolve_effect = true;
-                        break;
+                        // Only overwrite if it's not already a Volume effect
+                        if let Some(existing) = effect.metadata.resolve_otio.as_ref() {
+                            if existing.name != "Volume" && existing.effect_name != "Fairlight Clip Volume and Fades" {
+                                effect.metadata.resolve_otio = Some(transform_effect.clone());
+                                found_resolve_effect = true;
+                                break;
+                            }
+                        } else {
+                            effect.metadata.resolve_otio = Some(transform_effect.clone());
+                            found_resolve_effect = true;
+                            break;
+                        }
                     }
                 }
 
@@ -650,7 +659,8 @@ impl Clip {
         for effect in &self.effects {
             if effect.effect_name == "Resolve Effect" {
                 if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_ref() {
-                    if resolve_otio_effect.name == "Volume" {
+                    if resolve_otio_effect.name == "Volume" ||
+                       resolve_otio_effect.effect_name == "Fairlight Clip Volume and Fades" {
                         for parameter in &resolve_otio_effect.parameters {
                             if let ResolveOTIOParameter::Double(param) = parameter {
                                 if param.parameter_id == "volume" {
@@ -724,9 +734,18 @@ impl Clip {
             let mut found_resolve_effect = false;
             for effect in &mut self.effects {
                 if effect.effect_name == "Resolve Effect" {
-                    effect.metadata.resolve_otio = Some(volume_effect.clone());
-                    found_resolve_effect = true;
-                    break;
+                    // Only overwrite if it's not already a Transform effect
+                    if let Some(existing) = effect.metadata.resolve_otio.as_ref() {
+                        if existing.name != "Transform" && existing.effect_name != "Transform" {
+                            effect.metadata.resolve_otio = Some(volume_effect.clone());
+                            found_resolve_effect = true;
+                            break;
+                        }
+                    } else {
+                        effect.metadata.resolve_otio = Some(volume_effect.clone());
+                        found_resolve_effect = true;
+                        break;
+                    }
                 }
             }
 
@@ -883,57 +902,52 @@ impl<'de> Deserialize<'de> for ResolveOTIOParameter {
     {
         let value = serde_json::Value::deserialize(deserializer)?;
         let variant_type_str = value.get("Variant Type").and_then(|v| v.as_str());
-        if let Some(_variant_type_str) = variant_type_str {
-            #[derive(Deserialize)]
-            #[serde(tag = "Variant Type")]
-            enum TaggedResolveOTIOParameter {
-                #[serde(rename = "Int")]
-                Int(ResolveOTIOParameterNumber<i64>),
-                #[serde(rename = "UInt")]
-                UInt(ResolveOTIOParameterNumber<u64>),
-                #[serde(rename = "Double")]
-                Double(ResolveOTIOParameterNumber<f64>),
-                #[serde(rename = "Bool")]
-                Bool(ResolveOTIOParameterSimple<bool>),
-                #[serde(rename = "String")]
-                String(ResolveOTIOParameterSimple<String>),
-                #[serde(rename = "POINTF")]
-                PointF(ResolveOTIOParameterPointF),
-                #[serde(rename = "Color")]
-                Color(ResolveOTIOParameterSimple<String>),
-            }
-
-            if let Ok(tagged) = serde_json::from_value::<TaggedResolveOTIOParameter>(value.clone()) {
-                return Ok(match tagged {
-                    TaggedResolveOTIOParameter::Int(mut v) => {
+        if let Some(variant_type_str) = variant_type_str {
+            // Try to deserialize based on variant type
+            match variant_type_str {
+                "Int" => {
+                    if let Ok(mut v) = serde_json::from_value::<ResolveOTIOParameterNumber<i64>>(value.clone()) {
                         v.variant_type = "Int".to_string();
-                        ResolveOTIOParameter::Int(v)
+                        return Ok(ResolveOTIOParameter::Int(v));
                     }
-                    TaggedResolveOTIOParameter::UInt(mut v) => {
+                }
+                "UInt" => {
+                    if let Ok(mut v) = serde_json::from_value::<ResolveOTIOParameterNumber<u64>>(value.clone()) {
                         v.variant_type = "UInt".to_string();
-                        ResolveOTIOParameter::UInt(v)
+                        return Ok(ResolveOTIOParameter::UInt(v));
                     }
-                    TaggedResolveOTIOParameter::Double(mut v) => {
+                }
+                "Double" => {
+                    if let Ok(mut v) = serde_json::from_value::<ResolveOTIOParameterNumber<f64>>(value.clone()) {
                         v.variant_type = "Double".to_string();
-                        ResolveOTIOParameter::Double(v)
+                        return Ok(ResolveOTIOParameter::Double(v));
                     }
-                    TaggedResolveOTIOParameter::Bool(mut v) => {
+                }
+                "Bool" => {
+                    if let Ok(mut v) = serde_json::from_value::<ResolveOTIOParameterSimple<bool>>(value.clone()) {
                         v.variant_type = "Bool".to_string();
-                        ResolveOTIOParameter::Bool(v)
+                        return Ok(ResolveOTIOParameter::Bool(v));
                     }
-                    TaggedResolveOTIOParameter::String(mut v) => {
+                }
+                "String" => {
+                    if let Ok(mut v) = serde_json::from_value::<ResolveOTIOParameterSimple<String>>(value.clone()) {
                         v.variant_type = "String".to_string();
-                        ResolveOTIOParameter::String(v)
+                        return Ok(ResolveOTIOParameter::String(v));
                     }
-                    TaggedResolveOTIOParameter::PointF(mut v) => {
+                }
+                "POINTF" => {
+                    if let Ok(mut v) = serde_json::from_value::<ResolveOTIOParameterPointF>(value.clone()) {
                         v.variant_type = "POINTF".to_string();
-                        ResolveOTIOParameter::PointF(v)
+                        return Ok(ResolveOTIOParameter::PointF(v));
                     }
-                    TaggedResolveOTIOParameter::Color(mut v) => {
+                }
+                "Color" => {
+                    if let Ok(mut v) = serde_json::from_value::<ResolveOTIOParameterSimple<String>>(value.clone()) {
                         v.variant_type = "Color".to_string();
-                        ResolveOTIOParameter::Color(v)
+                        return Ok(ResolveOTIOParameter::Color(v));
                     }
-                });
+                }
+                _ => {}
             }
         }
 
@@ -987,9 +1001,9 @@ impl ResolveOTIOParameter {
 pub struct ResolveOTIOEffect {
     #[serde(rename = "Effect Name")]
     pub effect_name: String,
-    #[serde(default)]
+    #[serde(default, rename = "Enabled")]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default, rename = "Name")]
     pub name: String,
     #[serde(rename = "Parameters", default)]
     pub parameters: Vec<ResolveOTIOParameter>,

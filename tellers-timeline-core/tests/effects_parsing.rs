@@ -759,16 +759,20 @@ fn test_parse_title_blob_parameter() {
 
     let param = &parameters[0];
     match param {
-        tellers_timeline_core::types::ResolveOTIOParameter::String(v) => {
-            assert!(v.parameter_value.contains("Basic"));
-            assert!(v.parameter_value.contains("Title"));
+        tellers_timeline_core::types::ResolveOTIOParameter::Unknown(v) => {
+            assert!(v.title_html.is_some());
+            let html = v.title_html.as_ref().unwrap();
+            assert!(html.contains("Basic"));
+            assert!(html.contains("Title"));
         }
-        _ => panic!("Expected String variant for title blob, got {:?}", param),
+        _ => panic!("Expected Unknown variant for title blob, got {:?}", param),
     }
 
     // Verify we can get the HTML directly from the variant
-    if let tellers_timeline_core::types::ResolveOTIOParameter::String(v) = param {
-        assert!(v.parameter_value.contains("Basic"));
+    if let tellers_timeline_core::types::ResolveOTIOParameter::Unknown(v) = param {
+        assert!(v.title_html.is_some());
+        let html = v.title_html.as_ref().unwrap();
+        assert!(html.contains("Basic"));
     }
 
     // Verify parameter_id is accessible
@@ -1010,26 +1014,54 @@ fn parse_video_effect(effect: &Effect) -> Option<VideoEffectOutput> {
             "transformationPan" => {
                 if let ResolveOTIOParameter::Double(v) = &param {
                     pan = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(p) = n.as_f64() {
+                            pan = p;
+                        }
+                    }
                 }
             }
             "transformationTilt" => {
                 if let ResolveOTIOParameter::Double(v) = &param {
                     tilt = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(t) = n.as_f64() {
+                            tilt = t;
+                        }
+                    }
                 }
             }
             "transformationZoomX" => {
                 if let ResolveOTIOParameter::Double(v) = &param {
                     zoom_x = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(z) = n.as_f64() {
+                            zoom_x = z;
+                        }
+                    }
                 }
             }
             "transformationZoomY" => {
                 if let ResolveOTIOParameter::Double(v) = &param {
                     zoom_y = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(z) = n.as_f64() {
+                            zoom_y = z;
+                        }
+                    }
                 }
             }
             "transformationFlipY" => {
                 if let ResolveOTIOParameter::Bool(v) = &param {
                     _flip_y = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Bool(b)) = &v.parameter_value {
+                        _flip_y = *b;
+                    }
                 }
             }
             _ => {}
@@ -1091,16 +1123,34 @@ fn parse_text_effect(effect: &Effect) -> TextEffectParams {
             "transformationZoomX" => {
                 if let ResolveOTIOParameter::Double(v) = &param {
                     result.zoom_x = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(z) = n.as_f64() {
+                            result.zoom_x = z;
+                        }
+                    }
                 }
             }
             "transformationZoomY" => {
                 if let ResolveOTIOParameter::Double(v) = &param {
                     result.zoom_y = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(z) = n.as_f64() {
+                            result.zoom_y = z;
+                        }
+                    }
                 }
             }
             "transformationRotationAngle" => {
                 if let ResolveOTIOParameter::Double(v) = &param {
                     result.rotation = v.parameter_value;
+                } else if let ResolveOTIOParameter::Unknown(v) = &param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(r) = n.as_f64() {
+                            result.rotation = r;
+                        }
+                    }
                 }
             }
             _ => {
@@ -1152,6 +1202,14 @@ fn parse_audio_effect(effect: &Effect) -> Option<AudioEffectOutput> {
                     return Some(AudioEffectOutput {
                         gain: Some(v.parameter_value),
                     });
+                } else if let ResolveOTIOParameter::Unknown(v) = param {
+                    if let Some(serde_json::Value::Number(n)) = &v.parameter_value {
+                        if let Some(g) = n.as_f64() {
+                            return Some(AudioEffectOutput {
+                                gain: Some(g),
+                            });
+                        }
+                    }
                 }
             }
             _ => {}
