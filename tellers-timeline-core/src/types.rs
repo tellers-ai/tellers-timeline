@@ -1038,6 +1038,7 @@ pub struct Effect {
 }
 
 
+#[derive(Clone)]
 pub struct MediaReferencePosition {
     pub x: f64,
     pub y: f64,

@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Effect, EffectMetadata, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    validate_timeline, Clip, Effect, EffectMetadata, Gap, Item, MediaReference, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -199,6 +199,59 @@ impl PyEffect {
     }
 }
 
+#[pyclass(name = "MediaReferencePosition")]
+#[derive(Clone)]
+struct PyMediaReferencePosition {
+    inner: MediaReferencePosition,
+}
+
+#[pymethods]
+impl PyMediaReferencePosition {
+    #[new]
+    #[pyo3(signature = (x=0.5, y=0.5, rotation=0.0, zoom_x=1.0, zoom_y=1.0))]
+    fn new(x: f64, y: f64, rotation: f64, zoom_x: f64, zoom_y: f64) -> Self {
+        Self {
+            inner: MediaReferencePosition {
+                x,
+                y,
+                rotation,
+                zoom_x,
+                zoom_y,
+            },
+        }
+    }
+    fn get_x(&self) -> f64 {
+        self.inner.x
+    }
+    fn set_x(&mut self, x: f64) {
+        self.inner.x = x;
+    }
+    fn get_y(&self) -> f64 {
+        self.inner.y
+    }
+    fn set_y(&mut self, y: f64) {
+        self.inner.y = y;
+    }
+    fn get_rotation(&self) -> f64 {
+        self.inner.rotation
+    }
+    fn set_rotation(&mut self, rotation: f64) {
+        self.inner.rotation = rotation;
+    }
+    fn get_zoom_x(&self) -> f64 {
+        self.inner.zoom_x
+    }
+    fn set_zoom_x(&mut self, zoom_x: f64) {
+        self.inner.zoom_x = zoom_x;
+    }
+    fn get_zoom_y(&self) -> f64 {
+        self.inner.zoom_y
+    }
+    fn set_zoom_y(&mut self, zoom_y: f64) {
+        self.inner.zoom_y = zoom_y;
+    }
+}
+
 #[pyclass(name = "Clip")]
 #[derive(Clone)]
 struct PyClip {
@@ -330,6 +383,29 @@ impl PyClip {
     }
     fn set_effects(&mut self, effects: Vec<PyEffect>) {
         self.inner.effects = effects.into_iter().map(|e| e.inner).collect();
+    }
+    fn get_position(&self, py: Python<'_>) -> Py<PyMediaReferencePosition> {
+        let pos = self.inner.get_position();
+        Py::new(py, PyMediaReferencePosition { inner: pos }).unwrap()
+    }
+    fn set_position(&mut self, position: PyRef<PyMediaReferencePosition>) {
+        self.inner.set_position(position.inner.clone());
+    }
+    fn get_volume(&self) -> f64 {
+        self.inner.get_volume()
+    }
+    fn set_volume(&mut self, volume: f64) {
+        self.inner.set_volume(volume);
+    }
+    #[staticmethod]
+    fn parse_json(s: &str) -> PyResult<Self> {
+        let clip: Clip = serde_json::from_str(s)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(Self { inner: clip })
+    }
+    fn to_json(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 }
 
@@ -968,6 +1044,7 @@ impl PyTimeline {
 #[pymodule]
 fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyMediaReference>()?;
+    m.add_class::<PyMediaReferencePosition>()?;
     m.add_class::<PyEffect>()?;
     m.add_class::<PyClip>()?;
     m.add_class::<PyGap>()?;

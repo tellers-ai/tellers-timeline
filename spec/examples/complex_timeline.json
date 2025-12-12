@@ -1,0 +1,143 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "metadata": {
+    "tellers_aspect_ratio": "16_9",
+    "Resolve_OTIO": null,
+    "tellers_timed_words": [
+      {
+        "text": "I",
+        "start": 0,
+        "end": 0.2199999988079071
+      },
+      {
+        "text": "am",
+        "start": 0.2199999988079071,
+        "end": 0.3400000035762787
+      },
+      {
+        "text": "the",
+        "start": 0.3400000035762787,
+        "end": 0.5400000214576721
+      },
+      {
+        "text": "best",
+        "start": 0.5400000214576721,
+        "end": 0.7400000095367432
+      }
+    ],
+    "tellers_subtitles": null,
+    "tellers_subtitles_enabled": true
+  },
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "name": null,
+    "metadata": {
+      "tellers.ai": {
+        "timeline_id": "51a235550be3"
+      }
+    },
+    "source_range": null,
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "Voiceover",
+        "kind": "Audio",
+        "children": [],
+        "metadata": {
+          "tellers.ai": {
+            "timeline_id": "3609cc113746",
+            "media_id": null
+          }
+        }
+      },
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "Video",
+        "kind": "video",
+        "children": [
+          {
+            "name": "be7838fe-cbeb-4b86-82c6-c8a85c24da95.mp4",
+            "metadata": {
+              "tellers.ai": {
+                "timeline_id": "0t9v",
+                "media_id": null
+              }
+            },
+            "source_range": {
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 3.644075732644574
+              },
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0
+              },
+              "OTIO_SCHEMA": "TimeRange.1"
+            },
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "available_range": {
+                  "duration": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "rate": 1,
+                    "value": 5.063
+                  },
+                  "start_time": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "rate": 1,
+                    "value": 0
+                  },
+                  "OTIO_SCHEMA": "TimeRange.1"
+                },
+                "target_url": "http://s3mock.localhost:9090/tellers-source-videos/68hfCMR05mSs0aR9THhcPmGc5fl2/be7838fe-cbeb-4b86-82c6-c8a85c24da95?response-content-disposition=attachment%3B%20filename%3D%22be7838fe-cbeb-4b86-82c6-c8a85c24da95%22&response-cache-control=no-store&AWSAccessKeyId=1234567890&Signature=fqJ%2FsSTClHfcqaEQFLhykqtFqT0%3D&Expires=1764125307",
+                "name": null,
+                "metadata": {
+                  "tellers.ai": {
+                    "timeline_id": "",
+                    "media_id": "be7838fe-cbeb-4b86-82c6-c8a85c24da95"
+                  }
+                }
+              }
+            },
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "effects": [
+              {
+                "OTIO_SCHEMA": "Effect.1",
+                "effect_name": "",
+                "name": "",
+                "metadata": {
+                  "Resolve_OTIO": {
+                    "Effect Name": "Fairlight Clip Volume and Fades",
+                    "Enabled": true,
+                    "Name": "Volume",
+                    "Parameters": [
+                      {
+                        "Default Parameter Value": 0,
+                        "Key Frames": {},
+                        "Parameter ID": "volume",
+                        "Parameter Value": -27.08759083332872,
+                        "maxValue": 30,
+                        "minValue": -100
+                      }
+                    ],
+                    "Type": 62
+                  }
+                }
+              }
+            ],
+            "OTIO_SCHEMA": "Clip.2"
+          }
+        ],
+        "metadata": {
+          "tellers.ai": {
+            "timeline_id": "5eef136612c3",
+            "media_id": null
+          }
+        }
+      }
+    ]
+  }
+}
