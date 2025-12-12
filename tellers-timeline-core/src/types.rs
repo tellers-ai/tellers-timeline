@@ -19,9 +19,6 @@ fn default_clip_schema() -> String {
 fn default_gap_schema() -> String {
     "Gap.1".to_string()
 }
-fn default_external_ref_schema() -> String {
-    "ExternalReference.1".to_string()
-}
 fn default_time_range_schema() -> String {
     "TimeRange.1".to_string()
 }
@@ -334,144 +331,7 @@ impl Clip {
         c
     }
 
-    /// Extract text data from clip, including HTML content and transformation parameters.
-    /// Checks both media reference parameters and clip effects.
-    /// Returns default values if text data is not found.
-    /// This method is defensive and won't panic on unexpected data structures.
-    pub fn extract_text_data(&self) -> (Option<String>, TextEffectParams) {
-        let mut result = TextEffectParams {
-            position: [0.5, 0.5],
-            zoom_x: 1.0,
-            zoom_y: 1.0,
-            rotation: 0.0,
-        };
-        let mut html: Option<String> = None;
 
-        // Get active media reference
-        let media_ref_key = self
-            .active_media_reference_key
-            .as_deref()
-            .unwrap_or("DEFAULT_MEDIA");
-        if let Some(media_ref) = self.media_references.get(media_ref_key) {
-            // Check for Resolve_OTIO parameters in media reference
-            if let Some(parameters) = media_ref.metadata.get("parameters") {
-                if let Some(params_obj) = parameters.as_object() {
-                    if let Some(resolve_otio) = params_obj.get("Resolve_OTIO") {
-                        if let Some(resolve_array) = resolve_otio.as_array() {
-                            for effect in resolve_array {
-                                if let Some(effect_obj) = effect.as_object() {
-                                    let effect_name = effect_obj
-                                        .get("Effect Name")
-                                        .and_then(|v| v.as_str());
-
-                                    if effect_name == Some("Rich Text") {
-                                        if let Some(params) = effect_obj.get("Parameters") {
-                                            if let Some(params_array) = params.as_array() {
-                                                for param in params_array {
-                                                    if let Some(param_obj) = param.as_object() {
-                                                        let param_id = param_obj
-                                                            .get("Parameter ID")
-                                                            .and_then(|v| v.as_str());
-
-                                                        match param_id {
-                                                            Some("title blob") => {
-                                                                if let Some(title_html) = param_obj
-                                                                    .get("Title HTML")
-                                                                    .and_then(|v| v.as_str())
-                                                                {
-                                                                    html = Some(title_html.to_string());
-                                                                }
-                                                            }
-                                                            Some("position") => {
-                                                                if let Some(val) = param_obj.get("Parameter Value") {
-                                                                    if let Some(arr) = val.as_array() {
-                                                                        if arr.len() >= 2 {
-                                                                            if let (Some(x), Some(y)) = (
-                                                                                arr[0].as_f64(),
-                                                                                arr[1].as_f64(),
-                                                                            ) {
-                                                                                result.position = [x, y];
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                            Some("transformationZoomX") => {
-                                                                if let Some(val) = param_obj.get("Parameter Value") {
-                                                                    if let Some(num) = val.as_f64() {
-                                                                        result.zoom_x = num;
-                                                                    }
-                                                                }
-                                                            }
-                                                            Some("transformationZoomY") => {
-                                                                if let Some(val) = param_obj.get("Parameter Value") {
-                                                                    if let Some(num) = val.as_f64() {
-                                                                        result.zoom_y = num;
-                                                                    }
-                                                                }
-                                                            }
-                                                            Some("transformationRotationAngle") => {
-                                                                if let Some(val) = param_obj.get("Parameter Value") {
-                                                                    if let Some(num) = val.as_f64() {
-                                                                        result.rotation = num;
-                                                                    }
-                                                                }
-                                                            }
-                                                            _ => {}
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Also check clip effects for transformation parameters
-        for effect in &self.effects {
-            let text_params = effect.parse_text_effect();
-            // Merge with existing values (effects override media reference params)
-            result.position = text_params.position;
-            result.zoom_x = text_params.zoom_x;
-            result.zoom_y = text_params.zoom_y;
-            result.rotation = text_params.rotation;
-        }
-
-        (html, result)
-    }
-
-    /// Get the first valid video effect output from clip effects.
-    /// Returns default output if no valid video effects are found.
-    pub fn get_video_effect_output(&self) -> VideoEffectOutput {
-        for effect in &self.effects {
-            if let Some(output) = effect.parse_video_effect() {
-                return output;
-            }
-        }
-        // Default output
-        VideoEffectOutput {
-            x: 0.0,
-            y: 0.0,
-            width: 1.0,
-            height: 1.0,
-        }
-    }
-
-    /// Get the first valid audio effect output from clip effects.
-    /// Returns None if no valid audio effects are found.
-    pub fn get_audio_effect_output(&self) -> Option<AudioEffectOutput> {
-        for effect in &self.effects {
-            if let Some(output) = effect.parse_audio_effect() {
-                return Some(output);
-            }
-        }
-        None
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -516,6 +376,506 @@ impl Gap {
     }
 }
 
+/// Variant type for Resolve_OTIO parameters
+/// Variant type for Resolve_OTIO parameters.
+/// Uses serde derive for Serialize with custom Deserialize for case-insensitive parsing.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub enum VariantType {
+    Int,
+    Bool,
+    String,
+    Double,
+    UInt,
+    #[serde(rename = "POINTF")]
+    PointF,
+    Color,
+    #[serde(untagged)]
+    Unknown(String),
+}
+
+impl VariantType {
+    /// Parse from string (case-insensitive)
+    pub fn from_str(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "int" => VariantType::Int,
+            "bool" | "boolean" => VariantType::Bool,
+            "string" => VariantType::String,
+            "double" => VariantType::Double,
+            "uint" => VariantType::UInt,
+            "pointf" => VariantType::PointF,
+            "color" => VariantType::Color,
+            _ => VariantType::Unknown(s.to_string()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for VariantType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(VariantType::from_str(&s))
+    }
+}
+
+impl schemars::JsonSchema for VariantType {
+    fn schema_name() -> String {
+        "VariantType".to_string()
+    }
+
+    fn json_schema(_gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        schemars::schema::SchemaObject {
+            instance_type: Some(schemars::schema::InstanceType::String.into()),
+            enum_values: Some(vec![
+                serde_json::Value::String("Int".to_string()),
+                serde_json::Value::String("Float".to_string()),
+                serde_json::Value::String("Bool".to_string()),
+                serde_json::Value::String("String".to_string()),
+                serde_json::Value::String("Double".to_string()),
+                serde_json::Value::String("Long".to_string()),
+                serde_json::Value::String("UInt".to_string()),
+                serde_json::Value::String("POINTF".to_string()),
+                serde_json::Value::String("Color".to_string()),
+            ]),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+/// Common fields for all Resolve_OTIO parameter variants
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResolveOTIOParameterBase {
+    #[serde(rename = "Parameter ID", default)]
+    pub parameter_id: Option<String>,
+    #[serde(rename = "Title HTML", default)]
+    pub title_html: Option<String>,
+    #[serde(rename = "Key Frames", default)]
+    pub key_frames: Option<serde_json::Value>,
+}
+
+/// Resolve_OTIO parameter as a discriminated union based on "Variant Type"
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolveOTIOParameter {
+    Int {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<i64>,
+        default_parameter_value: Option<i64>,
+        max_value: Option<i64>,
+        min_value: Option<i64>,
+    },
+    UInt {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<u64>,
+        default_parameter_value: Option<u64>,
+        max_value: Option<u64>,
+        min_value: Option<u64>,
+    },
+    Double {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<f64>,
+        default_parameter_value: Option<f64>,
+        max_value: Option<f64>,
+        min_value: Option<f64>,
+    },
+    Bool {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<bool>,
+        default_parameter_value: Option<bool>,
+    },
+    String {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<String>,
+        default_parameter_value: Option<String>,
+    },
+    PointF {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<[f64; 2]>,
+        default_parameter_value: Option<[f64; 2]>,
+    },
+    Color {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<String>,
+        default_parameter_value: Option<String>,
+    },
+    /// Fallback for unknown or missing variant types
+    Unknown {
+        base: ResolveOTIOParameterBase,
+        parameter_value: Option<serde_json::Value>,
+        default_parameter_value: Option<serde_json::Value>,
+    },
+}
+
+impl<'de> Deserialize<'de> for ResolveOTIOParameter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // First deserialize into a temporary struct to get variant_type
+        #[derive(Deserialize)]
+        struct TempParameter {
+            #[serde(rename = "Parameter ID", default)]
+            parameter_id: Option<String>,
+            #[serde(rename = "Parameter Value", default)]
+            parameter_value: serde_json::Value,
+            #[serde(rename = "Default Parameter Value", default)]
+            default_parameter_value: Option<serde_json::Value>,
+            #[serde(rename = "Title HTML", default)]
+            title_html: Option<String>,
+            #[serde(rename = "Key Frames", default)]
+            key_frames: Option<serde_json::Value>,
+            #[serde(rename = "Variant Type", default)]
+            variant_type: Option<String>,
+            #[serde(default)]
+            max_value: Option<f64>,
+            #[serde(default)]
+            min_value: Option<f64>,
+        }
+
+        let temp: TempParameter = TempParameter::deserialize(deserializer)?;
+
+        let variant_type = temp.variant_type.as_deref().map(VariantType::from_str);
+
+        // Check if we need to handle special cases based on Parameter ID when Variant Type is missing
+        let use_param_id_fallback = variant_type.is_none();
+        let param_id_for_fallback = temp.parameter_id.as_deref();
+
+        let base = ResolveOTIOParameterBase {
+            parameter_id: temp.parameter_id.clone(),
+            title_html: temp.title_html.clone(),
+            key_frames: temp.key_frames,
+        };
+
+        match variant_type {
+            Some(VariantType::Int) => {
+                // For Int variant, max_value and min_value are i64 (same type as parameter_value)
+                Ok(ResolveOTIOParameter::Int {
+                    base,
+                    parameter_value: temp.parameter_value.as_i64(),
+                    default_parameter_value: temp.default_parameter_value.and_then(|v| v.as_i64()),
+                    max_value: temp.max_value.map(|v| v as i64),
+                    min_value: temp.min_value.map(|v| v as i64),
+                })
+            }
+            Some(VariantType::UInt) => {
+                // For UInt variant, max_value and min_value are u64 (same type as parameter_value)
+                // Convert from i64 or f64 to u64, ensuring non-negative values
+                let parameter_value = temp.parameter_value.as_i64()
+                    .and_then(|v| if v >= 0 { Some(v as u64) } else { None })
+                    .or_else(|| temp.parameter_value.as_f64().and_then(|v| if v >= 0.0 && v <= u64::MAX as f64 && v.fract() == 0.0 { Some(v as u64) } else { None }));
+
+                let default_parameter_value = temp.default_parameter_value.and_then(|v| {
+                    v.as_i64()
+                        .and_then(|x| if x >= 0 { Some(x as u64) } else { None })
+                        .or_else(|| v.as_f64().and_then(|x| if x >= 0.0 && x <= u64::MAX as f64 && x.fract() == 0.0 { Some(x as u64) } else { None }))
+                });
+
+                Ok(ResolveOTIOParameter::UInt {
+                    base,
+                    parameter_value,
+                    default_parameter_value,
+                    max_value: temp.max_value.and_then(|v| if v >= 0.0 && v <= u64::MAX as f64 { Some(v as u64) } else { None }),
+                    min_value: temp.min_value.and_then(|v| if v >= 0.0 && v <= u64::MAX as f64 { Some(v as u64) } else { None }),
+                })
+            }
+            Some(VariantType::Double) => {
+                Ok(ResolveOTIOParameter::Double {
+                    base,
+                    parameter_value: temp.parameter_value.as_f64(),
+                    default_parameter_value: temp.default_parameter_value.and_then(|v| v.as_f64()),
+                    max_value: temp.max_value,
+                    min_value: temp.min_value,
+                })
+            }
+            Some(VariantType::Bool) => {
+                Ok(ResolveOTIOParameter::Bool {
+                    base,
+                    parameter_value: temp.parameter_value.as_bool(),
+                    default_parameter_value: temp.default_parameter_value.and_then(|v| v.as_bool()),
+                })
+            }
+            Some(VariantType::String) => {
+                Ok(ResolveOTIOParameter::String {
+                    base,
+                    parameter_value: temp.parameter_value.as_str().map(|s| s.to_string()),
+                    default_parameter_value: temp.default_parameter_value.and_then(|v| v.as_str().map(|s| s.to_string())),
+                })
+            }
+            Some(VariantType::PointF) => {
+                // PointF is an array of two floats [x, y]
+                let parameter_value = if let Some(arr) = temp.parameter_value.as_array() {
+                    if arr.len() >= 2 {
+                        if let (Some(x), Some(y)) = (arr[0].as_f64(), arr[1].as_f64()) {
+                            Some([x, y])
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let default_parameter_value = temp.default_parameter_value.and_then(|v| {
+                    if let Some(arr) = v.as_array() {
+                        if arr.len() >= 2 {
+                            if let (Some(x), Some(y)) = (arr[0].as_f64(), arr[1].as_f64()) {
+                                Some([x, y])
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                });
+
+                Ok(ResolveOTIOParameter::PointF {
+                    base,
+                    parameter_value,
+                    default_parameter_value,
+                })
+            }
+            Some(VariantType::Color) => {
+                // Color is a string (e.g., "#000000")
+                Ok(ResolveOTIOParameter::Color {
+                    base,
+                    parameter_value: temp.parameter_value.as_str().map(|s| s.to_string()),
+                    default_parameter_value: temp.default_parameter_value.and_then(|v| v.as_str().map(|s| s.to_string())),
+                })
+            }
+            _ => {
+                // If no Variant Type, try to infer from Parameter ID
+                if use_param_id_fallback {
+                    if let Some(param_id) = param_id_for_fallback {
+                        match param_id {
+                            "title blob" => {
+                                // Special case: title blob has Title HTML but no Variant Type
+                                // Store Title HTML in parameter_value as a string
+                                Ok(ResolveOTIOParameter::String {
+                                    base,
+                                    parameter_value: temp.title_html,
+                                    default_parameter_value: None,
+                                })
+                            }
+                            _ => {
+                                // For other parameters without Variant Type, use Unknown
+                                Ok(ResolveOTIOParameter::Unknown {
+                                    base,
+                                    parameter_value: Some(temp.parameter_value),
+                                    default_parameter_value: temp.default_parameter_value,
+                                })
+                            }
+                        }
+                    } else {
+                        // No Parameter ID, use Unknown
+                        Ok(ResolveOTIOParameter::Unknown {
+                            base,
+                            parameter_value: Some(temp.parameter_value),
+                            default_parameter_value: temp.default_parameter_value,
+                        })
+                    }
+                } else {
+                    // Has Variant Type but it's unknown, use Unknown
+                    Ok(ResolveOTIOParameter::Unknown {
+                        base,
+                        parameter_value: Some(temp.parameter_value),
+                        default_parameter_value: temp.default_parameter_value,
+                    })
+                }
+            }
+        }
+    }
+}
+
+impl Serialize for ResolveOTIOParameter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("ResolveOTIOParameter", 8)?;
+
+        match self {
+            ResolveOTIOParameter::Int { base, parameter_value, default_parameter_value, max_value, min_value } => {
+                state.serialize_field("Variant Type", "Int")?;
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+                state.serialize_field("maxValue", &max_value.map(|v| v as f64))?;
+                state.serialize_field("minValue", &min_value.map(|v| v as f64))?;
+            }
+            ResolveOTIOParameter::UInt { base, parameter_value, default_parameter_value, max_value, min_value } => {
+                state.serialize_field("Variant Type", "UInt")?;
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+                state.serialize_field("maxValue", &max_value.map(|v| v as f64))?;
+                state.serialize_field("minValue", &min_value.map(|v| v as f64))?;
+            }
+            ResolveOTIOParameter::Double { base, parameter_value, default_parameter_value, max_value, min_value } => {
+                state.serialize_field("Variant Type", "Double")?;
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+                state.serialize_field("maxValue", max_value)?;
+                state.serialize_field("minValue", min_value)?;
+            }
+            ResolveOTIOParameter::Bool { base, parameter_value, default_parameter_value } => {
+                state.serialize_field("Variant Type", "Bool")?;
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+            }
+            ResolveOTIOParameter::String { base, parameter_value, default_parameter_value } => {
+                state.serialize_field("Variant Type", "String")?;
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+            }
+            ResolveOTIOParameter::PointF { base, parameter_value, default_parameter_value } => {
+                state.serialize_field("Variant Type", "POINTF")?;
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+            }
+            ResolveOTIOParameter::Color { base, parameter_value, default_parameter_value } => {
+                state.serialize_field("Variant Type", "Color")?;
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+            }
+            ResolveOTIOParameter::Unknown { base, parameter_value, default_parameter_value } => {
+                // For unknown, we try to preserve the original variant type if it exists
+                // But since we don't store it, we'll just serialize as-is
+                // Note: max_value and min_value are not included for Unknown variant
+                state.serialize_field("Parameter ID", &base.parameter_id)?;
+                state.serialize_field("Parameter Value", parameter_value)?;
+                state.serialize_field("Default Parameter Value", default_parameter_value)?;
+                state.serialize_field("Title HTML", &base.title_html)?;
+                state.serialize_field("Key Frames", &base.key_frames)?;
+            }
+        }
+
+        state.end()
+    }
+}
+
+impl schemars::JsonSchema for ResolveOTIOParameter {
+    fn schema_name() -> String {
+        "ResolveOTIOParameter".to_string()
+    }
+
+    fn json_schema(gen: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+        use schemars::schema::*;
+        SchemaObject {
+            metadata: Some(Box::new(Metadata {
+                description: Some("Resolve_OTIO parameter as discriminated union".to_string()),
+                ..Default::default()
+            })),
+            instance_type: Some(InstanceType::Object.into()),
+            object: Some(Box::new(ObjectValidation {
+                properties: {
+                    let mut props = schemars::Map::new();
+                    props.insert("Parameter ID".to_string(), gen.subschema_for::<Option<String>>());
+                    props.insert("Parameter Value".to_string(), gen.subschema_for::<serde_json::Value>());
+                    props.insert("Default Parameter Value".to_string(), gen.subschema_for::<Option<serde_json::Value>>());
+                    props.insert("Title HTML".to_string(), gen.subschema_for::<Option<String>>());
+                    props.insert("Key Frames".to_string(), gen.subschema_for::<Option<serde_json::Value>>());
+                    props.insert("Variant Type".to_string(), gen.subschema_for::<String>());
+                    props.insert("maxValue".to_string(), gen.subschema_for::<Option<f64>>());
+                    props.insert("minValue".to_string(), gen.subschema_for::<Option<f64>>());
+                    props
+                },
+                required: std::collections::BTreeSet::new(),
+                ..Default::default()
+            })),
+            ..Default::default()
+        }
+        .into()
+    }
+}
+
+impl ResolveOTIOParameter {
+    /// Get parameter value as f64
+
+
+    /// Get the parameter ID
+    pub fn parameter_id(&self) -> Option<&String> {
+        self.base().parameter_id.as_ref()
+    }
+
+    /// Get the base fields
+    pub fn base(&self) -> &ResolveOTIOParameterBase {
+        match self {
+            ResolveOTIOParameter::Int { base, .. }
+            | ResolveOTIOParameter::UInt { base, .. }
+            | ResolveOTIOParameter::Double { base, .. }
+            | ResolveOTIOParameter::Bool { base, .. }
+            | ResolveOTIOParameter::String { base, .. }
+            | ResolveOTIOParameter::PointF { base, .. }
+            | ResolveOTIOParameter::Color { base, .. }
+            | ResolveOTIOParameter::Unknown { base, .. } => base,
+        }
+    }
+}
+
+/// Resolve_OTIO effect data structure (used in Effect.metadata)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ResolveOTIOData {
+    #[serde(rename = "Effect Name", default)]
+    pub effect_name: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "Parameters", default)]
+    pub parameters: Option<Vec<ResolveOTIOParameter>>,
+    #[serde(rename = "Type", default)]
+    pub effect_type: Option<u64>,
+}
+
+/// Resolve_OTIO effect structure (used in media reference parameters array)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ResolveOTIOEffect {
+    #[serde(rename = "Effect Name")]
+    pub effect_name: String,
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(rename = "Parameters", default)]
+    pub parameters: Option<Vec<ResolveOTIOParameter>>,
+    #[serde(rename = "Type", default)]
+    pub effect_type: Option<u64>,
+}
+
+/// Generator parameters structure for GeneratorReference
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
+pub struct GeneratorParameters {
+    #[serde(rename = "Resolve_OTIO", default)]
+    pub resolve_otio: Option<Vec<ResolveOTIOEffect>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct Effect {
     #[serde(rename = "OTIO_SCHEMA", default = "default_effect_schema")]
@@ -557,13 +917,12 @@ impl Effect {
     /// Returns None if the effect doesn't contain valid video transformation parameters.
     /// This method is defensive and won't panic on unexpected data structures.
     pub fn parse_video_effect(&self) -> Option<VideoEffectOutput> {
-        // Get Resolve_OTIO metadata
-        let resolve_data = self.metadata.get("Resolve_OTIO")?;
-        let resolve_obj = resolve_data.as_object()?;
+        // Deserialize Resolve_OTIO metadata
+        let resolve_data: ResolveOTIOData = serde_json::from_value(
+            self.metadata.get("Resolve_OTIO")?.clone()
+        ).ok()?;
 
-        // Get Parameters array
-        let parameters = resolve_obj.get("Parameters")?;
-        let params_array = parameters.as_array()?;
+        let parameters = resolve_data.parameters?;
 
         // Initialize with default values
         let mut pan = 0.0;      // OTIO: -0.5 to 0.5, where 0 is center
@@ -573,44 +932,63 @@ impl Effect {
         let mut _flip_y = false;
 
         // Collect all parameters
-        for param in params_array {
-            let param_obj = param.as_object()?;
-            let param_id = param_obj.get("Parameter ID")?.as_str()?;
-
-            match param_id {
-                "transformationPan" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(num) = val.as_f64() {
-                            pan = num;
+        for param in parameters {
+            match param.parameter_id().and_then(|id| Some(id.as_str())) {
+                Some("transformationPan") => {
+                    match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => {
+                            if let Some(num) = parameter_value {
+                                pan = *num;
+                            }
                         }
+                        _ => {}
                     }
                 }
-                "transformationTilt" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(num) = val.as_f64() {
-                            tilt = num;
+                Some("transformationTilt") => {
+                    match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => {
+                            if let Some(num) = parameter_value {
+                                tilt = *num;
+                            }
                         }
+                        _ => {}
                     }
                 }
-                "transformationZoomX" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(num) = val.as_f64() {
-                            zoom_x = num;
+                Some("transformationZoomX") => {
+                    match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => {
+                            if let Some(num) = parameter_value {
+                                zoom_x = *num;
+                            }
                         }
+                        _ => {}
                     }
                 }
-                "transformationZoomY" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(num) = val.as_f64() {
-                            zoom_y = num;
+                Some("transformationZoomY") => {
+                    match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => {
+                            if let Some(num) = parameter_value {
+                                zoom_y = *num;
+                            }
                         }
+                        _ => {}
                     }
                 }
-                "transformationFlipY" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(b) = val.as_bool() {
-                            _flip_y = b;
+                Some("transformationFlipY") => {
+                    match &param {
+                        ResolveOTIOParameter::Bool { parameter_value, .. } => {
+                            if let Some(b) = parameter_value {
+                                _flip_y = *b;
+                            }
                         }
+                        ResolveOTIOParameter::Unknown { parameter_value, .. } => {
+                            if let Some(val) = parameter_value {
+                                if let Some(b) = val.as_bool() {
+                                    _flip_y = b;
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 _ => {
@@ -637,24 +1015,24 @@ impl Effect {
     /// Returns None if the effect doesn't contain valid audio parameters.
     /// This method is defensive and won't panic on unexpected data structures.
     pub fn parse_audio_effect(&self) -> Option<AudioEffectOutput> {
-        // Get Resolve_OTIO metadata
-        let resolve_data = self.metadata.get("Resolve_OTIO")?;
-        let resolve_obj = resolve_data.as_object()?;
+        // Deserialize Resolve_OTIO metadata
+        let resolve_data: ResolveOTIOData = serde_json::from_value(
+            self.metadata.get("Resolve_OTIO")?.clone()
+        ).ok()?;
 
-        // Get Parameters array
-        let parameters = resolve_obj.get("Parameters")?;
-        let params_array = parameters.as_array()?;
+        let parameters = resolve_data.parameters?;
 
         // Look for volume or gain parameters
-        for param in params_array {
-            let param_obj = param.as_object()?;
-            let param_id = param_obj.get("Parameter ID")?.as_str()?;
-
-            if param_id == "volume" || param_id == "gain" {
-                if let Some(val) = param_obj.get("Parameter Value") {
-                    if let Some(gain_value) = val.as_f64() {
+        for param in parameters {
+            if let Some(param_id) = param.parameter_id() {
+                if param_id == "volume" || param_id == "gain" {
+                    let gain_value = match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => *parameter_value,
+                        _ => None,
+                    };
+                    if let Some(gain) = gain_value {
                         return Some(AudioEffectOutput {
-                            gain: Some(gain_value),
+                            gain: Some(gain),
                         });
                     }
                 }
@@ -675,77 +1053,76 @@ impl Effect {
             rotation: 0.0,
         };
 
-        // Get Resolve_OTIO metadata
-        let resolve_data = match self.metadata.get("Resolve_OTIO") {
-            Some(d) => d,
+        // Deserialize Resolve_OTIO metadata
+        let resolve_otio_value = match self.metadata.get("Resolve_OTIO") {
+            Some(v) => v,
             None => return result,
         };
 
-        let resolve_obj = match resolve_data.as_object() {
-            Some(o) => o,
-            None => return result,
+        let resolve_data: ResolveOTIOData = match serde_json::from_value(
+            resolve_otio_value.clone()
+        ) {
+            Ok(d) => d,
+            Err(_) => return result,
         };
 
-        // Get Parameters array
-        let parameters = match resolve_obj.get("Parameters") {
+        let parameters = match resolve_data.parameters {
             Some(p) => p,
             None => return result,
         };
 
-        let params_array = match parameters.as_array() {
-            Some(a) => a,
-            None => return result,
-        };
-
         // Parse parameters
-        for param in params_array {
-            let param_obj = match param.as_object() {
-                Some(o) => o,
-                None => continue,
-            };
-
-            let param_id = match param_obj.get("Parameter ID") {
-                Some(id) => match id.as_str() {
-                    Some(s) => s,
-                    None => continue,
-                },
-                None => continue,
-            };
-
-            match param_id {
-                "position" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(arr) = val.as_array() {
-                            if arr.len() >= 2 {
-                                if let (Some(x), Some(y)) = (
-                                    arr[0].as_f64(),
-                                    arr[1].as_f64(),
-                                ) {
-                                    result.position = [x, y];
+        for param in parameters {
+            match param.parameter_id().and_then(|id| Some(id.as_str())) {
+                Some("position") => {
+                    match &param {
+                        ResolveOTIOParameter::PointF { parameter_value, .. } => {
+                            if let Some(arr) = parameter_value {
+                                result.position = *arr;
+                            }
+                        }
+                        ResolveOTIOParameter::Unknown { parameter_value, .. } => {
+                            if let Some(val) = parameter_value {
+                                if let Some(arr) = val.as_array() {
+                                    if arr.len() >= 2 {
+                                        if let (Some(x), Some(y)) = (arr[0].as_f64(), arr[1].as_f64()) {
+                                            result.position = [x, y];
+                                        }
+                                    }
                                 }
                             }
                         }
+                        _ => {}
                     }
                 }
-                "transformationZoomX" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(num) = val.as_f64() {
-                            result.zoom_x = num;
+                Some("transformationZoomX") => {
+                    match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => {
+                            if let Some(num) = parameter_value {
+                                result.zoom_x = *num;
+                            }
                         }
+                        _ => {}
                     }
                 }
-                "transformationZoomY" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(num) = val.as_f64() {
-                            result.zoom_y = num;
+                Some("transformationZoomY") => {
+                    match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => {
+                            if let Some(num) = parameter_value {
+                                result.zoom_y = *num;
+                            }
                         }
+                        _ => {}
                     }
                 }
-                "transformationRotationAngle" => {
-                    if let Some(val) = param_obj.get("Parameter Value") {
-                        if let Some(num) = val.as_f64() {
-                            result.rotation = num;
+                Some("transformationRotationAngle") => {
+                    match &param {
+                        ResolveOTIOParameter::Double { parameter_value, .. } => {
+                            if let Some(num) = parameter_value {
+                                result.rotation = *num;
+                            }
                         }
+                        _ => {}
                     }
                 }
                 _ => {
@@ -759,34 +1136,101 @@ impl Effect {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-pub struct MediaReference {
-    #[serde(rename = "OTIO_SCHEMA", default = "default_external_ref_schema")]
-    pub otio_schema: String,
-    #[serde(rename = "target_url")]
-    pub target_url: String,
-    #[serde(default)]
-    pub available_range: Option<TimeRange>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub available_image_bounds: Option<serde_json::Value>,
-    #[serde(default, deserialize_with = "deserialize_media_metadata")]
-    pub metadata: serde_json::Value,
+#[serde(tag = "OTIO_SCHEMA")]
+pub enum MediaReference {
+    #[serde(rename = "ExternalReference.1")]
+    ExternalReference {
+        #[serde(rename = "target_url")]
+        target_url: String,
+        #[serde(default)]
+        available_range: Option<TimeRange>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        available_image_bounds: Option<serde_json::Value>,
+        #[serde(default, deserialize_with = "deserialize_media_metadata")]
+        metadata: serde_json::Value,
+    },
+    #[serde(rename = "GeneratorReference.1")]
+    GeneratorReference {
+        #[serde(rename = "generator_kind")]
+        generator_kind: String,
+        #[serde(default)]
+        available_range: Option<TimeRange>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        available_image_bounds: Option<serde_json::Value>,
+        #[serde(default, deserialize_with = "deserialize_media_metadata")]
+        metadata: serde_json::Value,
+        #[serde(default)]
+        parameters: GeneratorParameters,
+    },
 }
 
 impl MediaReference {
+    pub fn available_range(&self) -> &Option<TimeRange> {
+        match self {
+            MediaReference::ExternalReference { available_range, .. } => available_range,
+            MediaReference::GeneratorReference { available_range, .. } => available_range,
+        }
+    }
+
+    pub fn available_range_mut(&mut self) -> &mut Option<TimeRange> {
+        match self {
+            MediaReference::ExternalReference { available_range, .. } => available_range,
+            MediaReference::GeneratorReference { available_range, .. } => available_range,
+        }
+    }
+
+    pub fn metadata(&self) -> &serde_json::Value {
+        match self {
+            MediaReference::ExternalReference { metadata, .. } => metadata,
+            MediaReference::GeneratorReference { metadata, .. } => metadata,
+        }
+    }
+
+    pub fn metadata_mut(&mut self) -> &mut serde_json::Value {
+        match self {
+            MediaReference::ExternalReference { metadata, .. } => metadata,
+            MediaReference::GeneratorReference { metadata, .. } => metadata,
+        }
+    }
+
+    pub fn target_url(&self) -> Option<&String> {
+        match self {
+            MediaReference::ExternalReference { target_url, .. } => Some(target_url),
+            MediaReference::GeneratorReference { .. } => None,
+        }
+    }
+
+    pub fn generator_kind(&self) -> Option<&String> {
+        match self {
+            MediaReference::ExternalReference { .. } => None,
+            MediaReference::GeneratorReference { generator_kind, .. } => Some(generator_kind),
+        }
+    }
+
+    pub fn parameters(&self) -> Option<&GeneratorParameters> {
+        match self {
+            MediaReference::ExternalReference { .. } => None,
+            MediaReference::GeneratorReference { parameters, .. } => Some(parameters),
+        }
+    }
+
     pub fn media_start(&self) -> Seconds {
-        self.available_range
+        self.available_range()
             .as_ref()
             .map(|tr| tr.start_time.value)
             .unwrap_or(0.0)
     }
 
     pub fn set_media_start(&mut self, start_seconds: Seconds) {
-        if let Some(tr) = &mut self.available_range {
+        let available_range = self.available_range_mut();
+        if let Some(tr) = available_range {
             tr.start_time.value = start_seconds;
         } else {
-            self.available_range = Some(TimeRange {
+            *available_range = Some(TimeRange {
                 otio_schema: default_time_range_schema(),
                 duration: RationalTime {
                     otio_schema: default_rational_time_schema(),
@@ -803,16 +1247,17 @@ impl MediaReference {
     }
 
     pub fn media_duration(&self) -> Option<Seconds> {
-        self.available_range.as_ref().map(|tr| tr.duration.value)
+        self.available_range().as_ref().map(|tr| tr.duration.value)
     }
 
     pub fn set_media_duration(&mut self, duration_seconds: Option<Seconds>) {
+        let available_range = self.available_range_mut();
         match duration_seconds {
             Some(v) => {
-                if let Some(tr) = &mut self.available_range {
+                if let Some(tr) = available_range {
                     tr.duration.value = v;
                 } else {
-                    self.available_range = Some(TimeRange {
+                    *available_range = Some(TimeRange {
                         otio_schema: default_time_range_schema(),
                         duration: RationalTime {
                             otio_schema: default_rational_time_schema(),
@@ -828,7 +1273,7 @@ impl MediaReference {
                 }
             }
             None => {
-                self.available_range = None;
+                *available_range = None;
             }
         }
     }

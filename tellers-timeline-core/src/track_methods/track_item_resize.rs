@@ -24,7 +24,7 @@ impl Track {
                     .as_deref()
                     .unwrap_or("DEFAULT_MEDIA");
                 if let Some(r) = clip.media_references.get(active_key) {
-                    if let Some(ar) = &r.available_range {
+                    if let Some(ar) = r.available_range() {
                         let media_total = ar.duration.value;
                         let start = clip.source_range.start_time.value;
                         let remaining = (media_total - start).max(0.0);

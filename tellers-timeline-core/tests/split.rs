@@ -20,8 +20,7 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
     let mut refs: HashMap<String, MediaReference> = HashMap::new();
     refs.insert(
         "DEFAULT_MEDIA".to_string(),
-        MediaReference {
-            otio_schema: "ExternalReference.1".to_string(),
+        MediaReference::ExternalReference {
             target_url: "mem://".to_string(),
             available_range: None,
             name: None,

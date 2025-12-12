@@ -43,8 +43,7 @@ impl PyMediaReference {
             metadata = serde_json::Value::Object(serde_json::Map::new());
         }
 
-        let mut inner = MediaReference {
-            otio_schema: "ExternalReference.1".to_string(),
+        let mut inner = MediaReference::ExternalReference {
             target_url: url,
             available_range: None,
             name: Some(name.unwrap_or_default()),
@@ -61,14 +60,28 @@ impl PyMediaReference {
 
         Ok(Self { inner })
     }
-    fn get_url(&self) -> String {
-        self.inner.target_url.clone()
+    fn get_url(&self) -> PyResult<String> {
+        self.inner.target_url()
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "MediaReference is not an ExternalReference (no target_url)"
+            ))
+            .map(|s| s.clone())
     }
-    fn set_url(&mut self, url: String) {
-        self.inner.target_url = url;
+    fn set_url(&mut self, url: String) -> PyResult<()> {
+        match &mut self.inner {
+            MediaReference::ExternalReference { target_url, .. } => {
+                *target_url = url;
+                Ok(())
+            }
+            MediaReference::GeneratorReference { .. } => {
+                Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Cannot set target_url on GeneratorReference"
+                ))
+            }
+        }
     }
     fn get_metadata_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner.metadata)
+        serde_json::to_string(self.inner.metadata())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
@@ -79,7 +92,7 @@ impl PyMediaReference {
         } else {
             v
         };
-        self.inner.metadata = coerced;
+        *self.inner.metadata_mut() = coerced;
         Ok(())
     }
     fn get_media_start(&self) -> f64 {
