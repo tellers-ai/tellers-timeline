@@ -932,7 +932,7 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                             match param.parameter_id().and_then(|id| Some(id.as_str())) {
                                 Some("title blob") => {
                                     // title_html is in the base field
-                                    if let Some(title_html) = param.base().title_html.as_ref() {
+                                    if let Some(title_html) = param.title_html() {
                                         html = Some(title_html.clone());
                                     }
                                 }
@@ -959,14 +959,12 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                                 }
                                 Some("transformationZoomX") => {
                                     match param {
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Float { parameter_value, .. } |
                                         tellers_timeline_core::types::ResolveOTIOParameter::Double { parameter_value, .. } => {
                                             if let Some(num) = parameter_value {
                                                 result.zoom_x = num;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } |
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Long { parameter_value, .. } => {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } => {
                                             if let Some(num) = parameter_value {
                                                 result.zoom_x = num as f64;
                                             }
@@ -983,14 +981,12 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                                 }
                                 Some("transformationZoomY") => {
                                     match param {
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Float { parameter_value, .. } |
                                         tellers_timeline_core::types::ResolveOTIOParameter::Double { parameter_value, .. } => {
                                             if let Some(num) = parameter_value {
                                                 result.zoom_y = num;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } |
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Long { parameter_value, .. } => {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } => {
                                             if let Some(num) = parameter_value {
                                                 result.zoom_y = num as f64;
                                             }
@@ -1007,14 +1003,12 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                                 }
                                 Some("transformationRotationAngle") => {
                                     match param {
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Float { parameter_value, .. } |
                                         tellers_timeline_core::types::ResolveOTIOParameter::Double { parameter_value, .. } => {
                                             if let Some(num) = parameter_value {
                                                 result.rotation = num;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } |
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Long { parameter_value, .. } => {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } => {
                                             if let Some(num) = parameter_value {
                                                 result.rotation = num as f64;
                                             }
