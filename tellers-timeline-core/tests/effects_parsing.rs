@@ -1,5 +1,30 @@
-use tellers_timeline_core::types::{Clip, TextEffectParams, ResolveOTIOEffect, MediaReference, VideoEffectOutput, AudioEffectOutput};
+use tellers_timeline_core::types::{Clip, Effect, ResolveOTIOEffect, ResolveOTIOParameter, MediaReference};
 use serde_json;
+
+// Test-only types
+/// Video transformation output coordinates
+#[derive(Debug, Clone, PartialEq)]
+pub struct VideoEffectOutput {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Audio effect output (gain/volume)
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioEffectOutput {
+    pub gain: Option<f64>,
+}
+
+/// Text effect parameters
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextEffectParams {
+    pub position: [f64; 2],
+    pub zoom_x: f64,
+    pub zoom_y: f64,
+    pub rotation: f64,
+}
 
 #[test]
 fn test_parse_clip_with_effects() {
@@ -65,7 +90,7 @@ fn test_parse_clip_with_effects() {
     // Verify metadata was preserved
     assert!(effect.metadata.get("Resolve_OTIO").is_some());
     let resolve_metadata = effect.metadata.get("Resolve_OTIO").unwrap();
-    assert_eq!(resolve_metadata.get("Effect Name").unwrap().as_str().unwrap(), "Fairlight Equaliser Band");
+    assert_eq!(resolve_metadata.effect_name, "Fairlight Equaliser Band");
 }
 
 #[test]
@@ -203,7 +228,7 @@ fn test_parse_video_effect() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_video_effect)
         .expect("Failed to parse effect");
 
-    let output = effect.parse_video_effect().expect("Should parse video effect");
+    let output = parse_video_effect(&effect).expect("Should parse video effect");
 
     // Verify calculations:
     // x = pan - zoomX / 2 + 0.5 = 0.1 - 0.8/2 + 0.5 = 0.1 - 0.4 + 0.5 = 0.2
@@ -233,7 +258,7 @@ fn test_parse_video_effect_defaults() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_empty_effect)
         .expect("Failed to parse effect");
 
-    let output = effect.parse_video_effect().expect("Should parse video effect with defaults");
+    let output = parse_video_effect(&effect).expect("Should parse video effect with defaults");
 
     // Should use default values: pan=0, tilt=0, zoomX=1, zoomY=1
     // x = 0 - 1/2 + 0.5 = 0
@@ -286,7 +311,7 @@ fn test_parse_audio_effect() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_audio_effect)
         .expect("Failed to parse effect");
 
-    let output = effect.parse_audio_effect().expect("Should parse audio effect");
+    let output = parse_audio_effect(&effect).expect("Should parse audio effect");
     assert!(output.gain.is_some());
     assert!((output.gain.unwrap() - (-27.08759083332872)).abs() < 0.0001);
 }
@@ -344,7 +369,7 @@ fn test_parse_audio_effect_no_volume() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_without_volume)
         .expect("Failed to parse effect");
 
-    let output = effect.parse_audio_effect();
+    let output = parse_audio_effect(&effect);
     assert!(output.is_none(), "Should return None when no volume/gain parameter found");
 }
 
@@ -384,7 +409,7 @@ fn test_parse_text_effect() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_text_effect)
         .expect("Failed to parse effect");
 
-    let params = effect.parse_text_effect();
+    let params = parse_text_effect(&effect);
     assert!((params.position[0] - 0.3).abs() < 0.0001);
     assert!((params.position[1] - 0.7).abs() < 0.0001);
     assert!((params.zoom_x - 1.5).abs() < 0.0001);
@@ -411,7 +436,7 @@ fn test_parse_text_effect_defaults() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_without_text_params)
         .expect("Failed to parse effect");
 
-    let params = effect.parse_text_effect();
+    let params = parse_text_effect(&effect);
     // Should return default values
     assert!((params.position[0] - 0.5).abs() < 0.0001);
     assert!((params.position[1] - 0.5).abs() < 0.0001);
@@ -586,24 +611,24 @@ fn test_parse_color_parameter() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_color)
         .expect("Failed to parse effect");
 
-    let resolve_data: tellers_timeline_core::types::ResolveOTIOData = serde_json::from_value(
-        effect.metadata.get("Resolve_OTIO").unwrap().clone()
-    ).expect("Failed to parse Resolve_OTIO");
+    let resolve_data = effect.metadata.resolve_otio.as_ref()
+        .expect("Should have Resolve_OTIO metadata");
 
-    let parameters = resolve_data.parameters.expect("Should have parameters");
+    let parameters = resolve_data.parameters.as_ref()
+        .expect("Should have parameters");
     assert_eq!(parameters.len(), 1);
 
     let param = &parameters[0];
     match param {
-        tellers_timeline_core::types::ResolveOTIOParameter::Color { parameter_value, .. } => {
-            assert_eq!(parameter_value.as_ref(), Some(&"#000000".to_string()));
+        tellers_timeline_core::types::ResolveOTIOParameter::Color(v) => {
+            assert_eq!(v.parameter_value.as_ref(), Some(&"#000000".to_string()));
         }
         _ => panic!("Expected Color variant, got {:?}", param),
     }
 
     // Verify we can get the color string directly from the variant
-    if let tellers_timeline_core::types::ResolveOTIOParameter::Color { parameter_value, .. } = param {
-        assert_eq!(parameter_value.as_ref(), Some(&"#000000".to_string()));
+    if let tellers_timeline_core::types::ResolveOTIOParameter::Color(v) = param {
+        assert_eq!(v.parameter_value.as_ref(), Some(&"#000000".to_string()));
     }
 }
 
@@ -634,11 +659,11 @@ fn test_parse_pointf_parameter() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_pointf)
         .expect("Failed to parse effect");
 
-    let resolve_data: tellers_timeline_core::types::ResolveOTIOData = serde_json::from_value(
-        effect.metadata.get("Resolve_OTIO").unwrap().clone()
-    ).expect("Failed to parse Resolve_OTIO");
+    let resolve_data = effect.metadata.resolve_otio.as_ref()
+        .expect("Should have Resolve_OTIO metadata");
 
-    let parameters = resolve_data.parameters.expect("Should have parameters");
+    let parameters = resolve_data.parameters.as_ref()
+        .expect("Should have parameters");
     assert_eq!(parameters.len(), 1);
 
     let param = &parameters[0];
@@ -650,8 +675,8 @@ fn test_parse_pointf_parameter() {
     }
 
     // Verify we can get the PointF value directly from the variant
-    if let tellers_timeline_core::types::ResolveOTIOParameter::PointF { parameter_value, .. } = param {
-        assert_eq!(parameter_value.as_ref(), Some(&[0.0, 0.0]));
+    if let tellers_timeline_core::types::ResolveOTIOParameter::PointF(v) = param {
+        assert_eq!(v.parameter_value.as_ref(), Some(&[0.0, 0.0]));
     }
 }
 
@@ -681,11 +706,11 @@ fn test_parse_uint_parameter() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_uint)
         .expect("Failed to parse effect");
 
-    let resolve_data: tellers_timeline_core::types::ResolveOTIOData = serde_json::from_value(
-        effect.metadata.get("Resolve_OTIO").unwrap().clone()
-    ).expect("Failed to parse Resolve_OTIO");
+    let resolve_data = effect.metadata.resolve_otio.as_ref()
+        .expect("Should have Resolve_OTIO metadata");
 
-    let parameters = resolve_data.parameters.expect("Should have parameters");
+    let parameters = resolve_data.parameters.as_ref()
+        .expect("Should have parameters");
     assert_eq!(parameters.len(), 1);
 
     let param = &parameters[0];
@@ -698,8 +723,8 @@ fn test_parse_uint_parameter() {
     }
 
     // Verify we can get the UInt value directly from the variant
-    if let tellers_timeline_core::types::ResolveOTIOParameter::UInt { parameter_value, .. } = param {
-        assert_eq!(parameter_value.as_ref(), Some(&4u64));
+    if let tellers_timeline_core::types::ResolveOTIOParameter::UInt(v) = param {
+        assert_eq!(v.parameter_value.as_ref(), Some(&4u64));
         // UInt can be converted to f64
         assert_eq!(parameter_value.map(|v| v as f64), Some(4.0));
     }
@@ -729,18 +754,18 @@ fn test_parse_title_blob_parameter() {
     let effect: tellers_timeline_core::types::Effect = serde_json::from_str(json_with_title_blob)
         .expect("Failed to parse effect");
 
-    let resolve_data: tellers_timeline_core::types::ResolveOTIOData = serde_json::from_value(
-        effect.metadata.get("Resolve_OTIO").unwrap().clone()
-    ).expect("Failed to parse Resolve_OTIO");
+    let resolve_data = effect.metadata.resolve_otio.as_ref()
+        .expect("Should have Resolve_OTIO metadata");
 
-    let parameters = resolve_data.parameters.expect("Should have parameters");
+    let parameters = resolve_data.parameters.as_ref()
+        .expect("Should have parameters");
     assert_eq!(parameters.len(), 1);
 
     let param = &parameters[0];
     match param {
-        tellers_timeline_core::types::ResolveOTIOParameter::String { parameter_value, .. } => {
-            assert!(parameter_value.is_some());
-            let html = parameter_value.as_ref().unwrap();
+        tellers_timeline_core::types::ResolveOTIOParameter::String(v) => {
+            assert!(v.parameter_value.is_some());
+            let html = v.parameter_value.as_ref().unwrap();
             assert!(html.contains("Basic"));
             assert!(html.contains("Title"));
         }
@@ -931,20 +956,22 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                         for param in params {
                             match param.parameter_id().and_then(|id| Some(id.as_str())) {
                                 Some("title blob") => {
-                                    // title_html is in the base field
-                                    if let Some(title_html) = param.title_html() {
-                                        html = Some(title_html.clone());
+                                    // title_html is only in Unknown variant
+                                    if let ResolveOTIOParameter::Unknown(v) = &param {
+                                        if let Some(title_html) = &v.title_html {
+                                            html = Some(title_html.clone());
+                                        }
                                     }
                                 }
                                 Some("position") => {
                                     match param {
-                                        tellers_timeline_core::types::ResolveOTIOParameter::PointF { parameter_value, .. } => {
-                                            if let Some(arr) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::PointF(v) => {
+                                            if let Some(arr) = v.parameter_value {
                                                 result.position = arr;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown { parameter_value, .. } => {
-                                            if let Some(val) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown(v) => {
+                                            if let Some(val) = v.parameter_value {
                                                 if let Some(arr) = val.as_array() {
                                                     if arr.len() >= 2 {
                                                         if let (Some(x), Some(y)) = (arr[0].as_f64(), arr[1].as_f64()) {
@@ -959,18 +986,18 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                                 }
                                 Some("transformationZoomX") => {
                                     match param {
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Double { parameter_value, .. } => {
-                                            if let Some(num) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Double(v) => {
+                                            if let Some(num) = v.parameter_value {
                                                 result.zoom_x = num;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } => {
-                                            if let Some(num) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Int(v) => {
+                                            if let Some(num) = v.parameter_value {
                                                 result.zoom_x = num as f64;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown { parameter_value, .. } => {
-                                            if let Some(val) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown(v) => {
+                                            if let Some(val) = v.parameter_value {
                                                 if let Some(num) = val.as_f64().or_else(|| val.as_i64().map(|v| v as f64)) {
                                                     result.zoom_x = num;
                                                 }
@@ -981,18 +1008,18 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                                 }
                                 Some("transformationZoomY") => {
                                     match param {
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Double { parameter_value, .. } => {
-                                            if let Some(num) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Double(v) => {
+                                            if let Some(num) = v.parameter_value {
                                                 result.zoom_y = num;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } => {
-                                            if let Some(num) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Int(v) => {
+                                            if let Some(num) = v.parameter_value {
                                                 result.zoom_y = num as f64;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown { parameter_value, .. } => {
-                                            if let Some(val) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown(v) => {
+                                            if let Some(val) = v.parameter_value {
                                                 if let Some(num) = val.as_f64().or_else(|| val.as_i64().map(|v| v as f64)) {
                                                     result.zoom_y = num;
                                                 }
@@ -1003,18 +1030,18 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
                                 }
                                 Some("transformationRotationAngle") => {
                                     match param {
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Double { parameter_value, .. } => {
-                                            if let Some(num) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Double(v) => {
+                                            if let Some(num) = v.parameter_value {
                                                 result.rotation = num;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Int { parameter_value, .. } => {
-                                            if let Some(num) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Int(v) => {
+                                            if let Some(num) = v.parameter_value {
                                                 result.rotation = num as f64;
                                             }
                                         }
-                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown { parameter_value, .. } => {
-                                            if let Some(val) = parameter_value {
+                                        tellers_timeline_core::types::ResolveOTIOParameter::Unknown(v) => {
+                                            if let Some(val) = v.parameter_value {
                                                 if let Some(num) = val.as_f64().or_else(|| val.as_i64().map(|v| v as f64)) {
                                                     result.rotation = num;
                                                 }
@@ -1034,7 +1061,7 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
 
     // Also check clip effects for transformation parameters
     for effect in &clip.effects {
-        let text_params = effect.parse_text_effect();
+        let text_params = parse_text_effect(effect);
         // Merge with existing values (effects override media reference params)
         result.position = text_params.position;
         result.zoom_x = text_params.zoom_x;
@@ -1045,10 +1072,188 @@ fn extract_text_data(clip: &Clip) -> (Option<String>, TextEffectParams) {
     (html, result)
 }
 
+// Test-only helper functions for parsing effects
+/// Parse Resolve_OTIO video transformation effects and convert to output coordinates.
+/// Returns None if the effect doesn't contain valid video transformation parameters.
+/// This function is defensive and won't panic on unexpected data structures.
+fn parse_video_effect(effect: &Effect) -> Option<VideoEffectOutput> {
+    // Get Resolve_OTIO metadata
+    let resolve_data = effect.metadata.resolve_otio.as_ref()?;
+    let parameters = resolve_data.parameters.as_ref()?;
+
+    // Initialize with default values
+    let mut pan = 0.0;      // OTIO: -0.5 to 0.5, where 0 is center
+    let mut tilt = 0.0;     // OTIO: -0.5 to 0.5, where 0 is center
+    let mut zoom_x = 1.0;    // OTIO: normalized 0-1
+    let mut zoom_y = 1.0;    // OTIO: normalized 0-1
+    let mut _flip_y = false;
+
+    // Collect all parameters
+    for param in parameters {
+        match param.parameter_id().and_then(|id| Some(id.as_str())) {
+            Some("transformationPan") => {
+                if let ResolveOTIOParameter::Double(v) = &param {
+                    if let Some(num) = v.parameter_value {
+                        pan = num;
+                    }
+                }
+            }
+            Some("transformationTilt") => {
+                if let ResolveOTIOParameter::Double(v) = &param {
+                    if let Some(num) = v.parameter_value {
+                        tilt = num;
+                    }
+                }
+            }
+            Some("transformationZoomX") => {
+                if let ResolveOTIOParameter::Double(v) = &param {
+                    if let Some(num) = v.parameter_value {
+                        zoom_x = num;
+                    }
+                }
+            }
+            Some("transformationZoomY") => {
+                if let ResolveOTIOParameter::Double(v) = &param {
+                    if let Some(num) = v.parameter_value {
+                        zoom_y = num;
+                    }
+                }
+            }
+            Some("transformationFlipY") => {
+                if let ResolveOTIOParameter::Bool(v) = &param {
+                    if let Some(b) = v.parameter_value {
+                        _flip_y = b;
+                    }
+                }
+            }
+            _ => {
+                // Ignore unknown parameters
+            }
+        }
+    }
+
+    // Convert OTIO coordinates to our coordinate system
+    // OTIO: origin at center, X: -0.5 (left) to 0.5 (right), Y: -0.5 (bottom) to 0.5 (top)
+    // Our system: origin at top-left, X: 0 (left) to 1 (right), Y: 0 (top) to 1 (bottom)
+    // Calculate the position taking zoom into account:
+    // 1. The zoom affects how much space is available for movement
+    // 2. We need to center the zoomed content and then apply the pan/tilt
+    Some(VideoEffectOutput {
+        x: pan - zoom_x / 2.0 + 0.5,
+        y: tilt - zoom_y / 2.0 + 0.5,
+        width: zoom_x,
+        height: zoom_y,
+    })
+}
+
+/// Parse Resolve_OTIO audio effects (volume/gain).
+/// Returns None if the effect doesn't contain valid audio parameters.
+/// This function is defensive and won't panic on unexpected data structures.
+fn parse_audio_effect(effect: &Effect) -> Option<AudioEffectOutput> {
+    // Get Resolve_OTIO metadata
+    let resolve_data = effect.metadata.resolve_otio.as_ref()?;
+    let parameters = resolve_data.parameters.as_ref()?;
+
+    // Look for volume or gain parameters
+    for param in parameters {
+        if let Some(param_id) = param.parameter_id() {
+            if param_id == "volume" {
+                let gain_value = match &param {
+                    ResolveOTIOParameter::Double(v) => v.parameter_value,
+                    _ => None,
+                };
+                if let Some(gain) = gain_value {
+                    return Some(AudioEffectOutput {
+                        gain: Some(gain),
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Parse Resolve_OTIO text transformation parameters.
+/// Returns default values if parameters are not found.
+/// This function is defensive and won't panic on unexpected data structures.
+fn parse_text_effect(effect: &Effect) -> TextEffectParams {
+    let mut result = TextEffectParams {
+        position: [0.5, 0.5],
+        zoom_x: 1.0,
+        zoom_y: 1.0,
+        rotation: 0.0,
+    };
+
+    // Get Resolve_OTIO metadata
+    let resolve_data = match &effect.metadata.resolve_otio {
+        Some(d) => d,
+        None => return result,
+    };
+
+    let parameters = match resolve_data.parameters.as_ref() {
+        Some(p) => p,
+        None => return result,
+    };
+
+    // Parse parameters
+    for param in parameters {
+        match param.parameter_id().and_then(|id| Some(id.as_str())) {
+            Some("position") => {
+                match &param {
+                    ResolveOTIOParameter::PointF(v) => {
+                        if let Some(arr) = v.parameter_value {
+                            result.position = arr;
+                        }
+                    }
+                    ResolveOTIOParameter::Unknown(v) => {
+                        if let Some(val) = &v.parameter_value {
+                            if let Some(arr) = val.as_array() {
+                                if arr.len() >= 2 {
+                                    if let (Some(x), Some(y)) = (arr[0].as_f64(), arr[1].as_f64()) {
+                                        result.position = [x, y];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Some("transformationZoomX") => {
+                if let ResolveOTIOParameter::Double(v) = &param {
+                    if let Some(num) = v.parameter_value {
+                        result.zoom_x = num;
+                    }
+                }
+            }
+            Some("transformationZoomY") => {
+                if let ResolveOTIOParameter::Double(v) = &param {
+                    if let Some(num) = v.parameter_value {
+                        result.zoom_y = num;
+                    }
+                }
+            }
+            Some("transformationRotationAngle") => {
+                if let ResolveOTIOParameter::Double(v) = &param {
+                    if let Some(num) = v.parameter_value {
+                        result.rotation = num;
+                    }
+                }
+            }
+            _ => {
+                // Ignore unknown parameters
+            }
+        }
+    }
+
+    result
+}
+
 // Test-only helper functions
 fn get_video_effect_output(clip: &Clip) -> VideoEffectOutput {
     for effect in &clip.effects {
-        if let Some(output) = effect.parse_video_effect() {
+        if let Some(output) = parse_video_effect(effect) {
             return output;
         }
     }
@@ -1063,7 +1268,7 @@ fn get_video_effect_output(clip: &Clip) -> VideoEffectOutput {
 
 fn get_audio_effect_output(clip: &Clip) -> Option<AudioEffectOutput> {
     for effect in &clip.effects {
-        if let Some(output) = effect.parse_audio_effect() {
+        if let Some(output) = parse_audio_effect(effect) {
             return Some(output);
         }
     }

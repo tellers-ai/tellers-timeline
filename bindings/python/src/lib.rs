@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Effect, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    validate_timeline, Clip, Effect, EffectMetadata, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -145,11 +145,14 @@ impl PyEffect {
             metadata = serde_json::Value::Object(serde_json::Map::new());
         }
 
+        let metadata_typed: EffectMetadata = serde_json::from_value(metadata)
+            .unwrap_or_else(|_| EffectMetadata::default());
+
         let inner = Effect {
             otio_schema: "Effect.1".to_string(),
             name: name.unwrap_or_default(),
             effect_name: effect_name.unwrap_or_default(),
-            metadata,
+            metadata: metadata_typed,
         };
 
         Ok(Self { inner })
@@ -184,7 +187,9 @@ impl PyEffect {
         } else {
             v
         };
-        self.inner.metadata = coerced;
+        let metadata_typed: EffectMetadata = serde_json::from_value(coerced)
+            .unwrap_or_else(|_| EffectMetadata::default());
+        self.inner.metadata = metadata_typed;
         Ok(())
     }
 
