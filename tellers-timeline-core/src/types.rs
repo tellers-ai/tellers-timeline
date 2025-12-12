@@ -1191,6 +1191,126 @@ impl MediaReference {
             }
         }
     }
+
+    /// Get the Rich Text Title HTML from a GeneratorReference
+    /// Returns None if this is not a GeneratorReference or if the Rich Text effect is not found
+    pub fn get_rich_text(&self) -> Option<String> {
+        if let MediaReference::GeneratorReference { parameters, .. } = self {
+            if let Some(resolve_otio_effects) = &parameters.resolve_otio {
+                // Find the "Rich Text" effect (Type 24)
+                for effect in resolve_otio_effects {
+                    if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
+                        // Find the "title blob" parameter
+                        for parameter in &effect.parameters {
+                            if let ResolveOTIOParameter::Unknown(param) = parameter {
+                                if param.parameter_id == "title blob" {
+                                    return param.title_html.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Set the Rich Text Title HTML and optionally the position for a GeneratorReference
+    /// If position is None and no position parameter exists, sets a default position of [0.5, 0.5]
+    pub fn set_rich_text(&mut self, title_html: String, position: Option<[f64; 2]>) {
+        if let MediaReference::GeneratorReference { parameters, .. } = self {
+            let resolve_otio_effects = parameters.resolve_otio.get_or_insert_with(Vec::new);
+
+            // Find or create the "Rich Text" effect (Type 24)
+            let mut rich_text_effect: Option<&mut ResolveOTIOEffect> = None;
+            for effect in resolve_otio_effects.iter_mut() {
+                if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
+                    rich_text_effect = Some(effect);
+                    break;
+                }
+            }
+
+            let effect = if let Some(effect) = rich_text_effect {
+                effect
+            } else {
+                // Create new Rich Text effect if it doesn't exist
+                resolve_otio_effects.push(ResolveOTIOEffect {
+                    effect_name: "Rich Text".to_string(),
+                    enabled: true,
+                    name: "Rich Text".to_string(),
+                    parameters: Vec::new(),
+                    effect_type: 24,
+                });
+                resolve_otio_effects.last_mut().unwrap()
+            };
+
+            // Find or create the "title blob" parameter
+            let mut found_title_blob = false;
+            for parameter in &mut effect.parameters {
+                if let ResolveOTIOParameter::Unknown(param) = parameter {
+                    if param.parameter_id == "title blob" {
+                        param.title_html = Some(title_html.clone());
+                        found_title_blob = true;
+                        break;
+                    }
+                }
+            }
+
+            if !found_title_blob {
+                // Create new title blob parameter
+                effect.parameters.push(ResolveOTIOParameter::Unknown(ResolveOTIOParameterUnknown {
+                    parameter_id: "title blob".to_string(),
+                    parameter_value: None,
+                    default_parameter_value: None,
+                    key_frames: None,
+                    title_html: Some(title_html.clone()),
+                }));
+            }
+
+            // Handle position parameter
+            let mut found_position = false;
+
+            // Check if position parameter already exists
+            for parameter in &effect.parameters {
+                if let ResolveOTIOParameter::PointF(param) = parameter {
+                    if param.parameter_id == "position" {
+                        found_position = true;
+                        break;
+                    }
+                }
+            }
+
+            // If position is provided, update or create it
+            if let Some(pos) = position {
+                // Update existing position parameter
+                for parameter in &mut effect.parameters {
+                    if let ResolveOTIOParameter::PointF(param) = parameter {
+                        if param.parameter_id == "position" {
+                            param.parameter_value = Some(pos);
+                            return;
+                        }
+                    }
+                }
+                // Create new position parameter if it doesn't exist
+                effect.parameters.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
+                    variant_type: "POINTF".to_string(),
+                    parameter_id: "position".to_string(),
+                    parameter_value: Some(pos),
+                    default_parameter_value: Some([0.5, 0.5]),
+                    key_frames: None,
+                }));
+            } else if !found_position {
+                // Position not provided and doesn't exist, create with default
+                effect.parameters.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
+                    variant_type: "POINTF".to_string(),
+                    parameter_id: "position".to_string(),
+                    parameter_value: Some([0.5, 0.5]),
+                    default_parameter_value: Some([0.5, 0.5]),
+                    key_frames: None,
+                }));
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
