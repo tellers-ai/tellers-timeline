@@ -107,6 +107,29 @@ impl PyMediaReference {
     fn set_media_duration(&mut self, value: Option<f64>) {
         self.inner.set_media_duration(value);
     }
+    fn get_rich_text(&self) -> Option<String> {
+        self.inner.get_rich_text()
+    }
+    #[pyo3(signature = (title_html, position=None))]
+    fn set_rich_text(&mut self, title_html: String, position: Option<[f64; 2]>) -> PyResult<()> {
+        match &mut self.inner {
+            MediaReference::GeneratorReference { .. } => {
+                self.inner.set_rich_text(title_html, position);
+                Ok(())
+            }
+            MediaReference::ExternalReference { .. } => {
+                Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "set_rich_text can only be called on GeneratorReference"
+                ))
+            }
+        }
+    }
+    #[staticmethod]
+    fn parse_json(s: &str) -> PyResult<Self> {
+        let media_ref: MediaReference = serde_json::from_str(s)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(Self { inner: media_ref })
+    }
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
