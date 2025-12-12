@@ -645,6 +645,26 @@ impl Clip {
             }
         }
     }
+
+    pub fn get_volume(&self) -> f64 {
+        for effect in &self.effects {
+            if effect.effect_name == "Resolve Effect" {
+                if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_ref() {
+                    if resolve_otio_effect.name == "Volume" {
+                        for parameter in &resolve_otio_effect.parameters {
+                            if let ResolveOTIOParameter::Double(param) = parameter {
+                                if param.parameter_id == "volume" {
+                                    return param.parameter_value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return 0.0;
+    }
+
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
