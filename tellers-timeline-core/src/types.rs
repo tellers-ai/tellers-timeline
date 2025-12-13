@@ -436,12 +436,10 @@ impl Clip {
         // Case 1: GeneratorReference - uses "position" (PointF) for x/y coordinates
         if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
             if let Some(resolve_otio_effects) = parameters.resolve_otio.as_mut() {
-                // Remove any existing Transform effects first
                 resolve_otio_effects.retain(|effect| {
                     effect.effect_name != "Transform"
                 });
 
-                // Create a new Transform effect with all position parameters
                 resolve_otio_effects.push(ResolveOTIOEffect {
                     effect_name: "Transform".to_string(),
                     enabled: true,
@@ -482,7 +480,6 @@ impl Clip {
                     effect_type: 2,
                 });
             } else {
-                // Create resolve_otio if it doesn't exist
                 parameters.resolve_otio = Some(vec![ResolveOTIOEffect {
                     effect_name: "Transform".to_string(),
                     enabled: true,
@@ -525,7 +522,6 @@ impl Clip {
             }
         } else {
             // Case 2: ExternalReference - uses "transformationPan" and "transformationTilt" (Double) for x/y coordinates
-            // Remove any existing Transform effects first, then create a new one
             self.effects.retain(|effect| {
                 if effect.effect_name == "Resolve Effect" {
                     if let Some(resolve_otio_effect) = &effect.metadata.resolve_otio {
@@ -538,7 +534,6 @@ impl Clip {
                 true
             });
 
-            // Create a new Transform effect
             let transform_effect = ResolveOTIOEffect {
                 effect_name: "Transform".to_string(),
                 enabled: true,
@@ -588,7 +583,6 @@ impl Clip {
                 effect_type: 2,
             };
 
-            // Push a new Resolve Effect with Transform (Transform effects were already removed above)
             self.effects.push(Effect {
                 otio_schema: default_effect_schema(),
                 name: "".to_string(),
@@ -622,7 +616,6 @@ impl Clip {
     }
 
     pub fn set_volume(&mut self, volume: f64) {
-        // Remove any existing Volume effects first, then create a new one
         self.effects.retain(|effect| {
             if effect.effect_name == "Resolve Effect" {
                 if let Some(resolve_otio_effect) = &effect.metadata.resolve_otio {
@@ -635,7 +628,6 @@ impl Clip {
             true
         });
 
-        // Create a new Volume effect
         let volume_effect = ResolveOTIOEffect {
             effect_name: "Fairlight Clip Volume and Fades".to_string(),
             enabled: true,
@@ -653,7 +645,6 @@ impl Clip {
             effect_type: 62,
         };
 
-        // Push a new Resolve Effect with Volume (Volume effects were already removed above)
         self.effects.push(Effect {
             otio_schema: default_effect_schema(),
             name: "".to_string(),
