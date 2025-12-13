@@ -270,6 +270,34 @@ impl Item {
             Item::Gap(g) => g.effects = effects,
         }
     }
+    pub fn get_position(&self) -> MediaReferencePosition {
+        match self {
+            Item::Clip(c) => c.get_position(),
+            Item::Gap(_g) => MediaReferencePosition {
+                x: 0.5,
+                y: 0.5,
+                rotation: 0.0,
+                zoom_x: 1.0,
+                zoom_y: 1.0,
+            },
+        }
+    }
+    pub fn set_position(&mut self, position: MediaReferencePosition) {
+        if let Item::Clip(c) = self {
+            c.set_position(position);
+        }
+    }
+    pub fn get_volume(&self) -> f64 {
+        match self {
+            Item::Clip(c) => c.get_volume(),
+            Item::Gap(_g) => 1.0,
+        }
+    }
+    pub fn set_volume(&mut self, volume: f64) {
+        if let Item::Clip(c) = self {
+            c.set_volume(volume);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]

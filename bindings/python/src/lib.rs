@@ -609,6 +609,19 @@ impl PyItem {
     fn set_effects(&mut self, effects: Vec<PyEffect>) {
         self.inner.set_effects(effects.into_iter().map(|e| e.inner).collect());
     }
+    fn get_position(&self, py: Python<'_>) -> Py<PyMediaReferencePosition> {
+        let pos = self.inner.get_position();
+        Py::new(py, PyMediaReferencePosition { inner: pos }).unwrap()
+    }
+    fn set_position(&mut self, position: PyRef<PyMediaReferencePosition>) {
+        self.inner.set_position(position.inner.clone());
+    }
+    fn get_volume(&self) -> f64 {
+        self.inner.get_volume()
+    }
+    fn set_volume(&mut self, volume: f64) {
+        self.inner.set_volume(volume);
+    }
 }
 
 #[pyclass(name = "Track")]
