@@ -274,8 +274,8 @@ impl Item {
         match self {
             Item::Clip(c) => c.get_position(),
             Item::Gap(_g) => MediaReferencePosition {
-                x: 0.5,
-                y: 0.5,
+                x: 0.0,
+                y: 0.0,
                 rotation: 0.0,
                 zoom_x: 1.0,
                 zoom_y: 1.0,
@@ -361,8 +361,8 @@ impl Clip {
 
     pub fn get_position(&self) -> MediaReferencePosition {
         let active_media_reference = self.media_references.get(self.active_media_reference_key.as_ref().unwrap()).unwrap();
-        let mut x = 0.5;
-        let mut y = 0.5;
+        let mut x = 0.0;
+        let mut y = 0.0;
         let mut rotation = 0.0;
         let mut zoom_x = 1.0;
         let mut zoom_y = 1.0;
@@ -449,7 +449,7 @@ impl Clip {
                             variant_type: "POINTF".to_string(),
                             parameter_id: "position".to_string(),
                             parameter_value: Some([position.x, position.y]),
-                            default_parameter_value: Some([0.5, 0.5]),
+                            default_parameter_value: Some([0.0, 0.0]),
                             key_frames: None,
                         }),
                         ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
@@ -489,7 +489,7 @@ impl Clip {
                             variant_type: "POINTF".to_string(),
                             parameter_id: "position".to_string(),
                             parameter_value: Some([position.x, position.y]),
-                            default_parameter_value: Some([0.5, 0.5]),
+                            default_parameter_value: Some([0.0, 0.0]),
                             key_frames: None,
                         }),
                         ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
@@ -1123,7 +1123,6 @@ impl MediaReference {
     }
 
     /// Set the Rich Text Title HTML and optionally the position for a GeneratorReference
-    /// If position is None and no position parameter exists, sets a default position of [0.5, 0.5]
     pub fn set_rich_text(&mut self, title_html: String, position: Option<[f64; 2]>) {
         if let MediaReference::GeneratorReference { parameters, .. } = self {
             let resolve_otio_effects = parameters.resolve_otio.get_or_insert_with(Vec::new);
@@ -1203,7 +1202,7 @@ impl MediaReference {
                     variant_type: "POINTF".to_string(),
                     parameter_id: "position".to_string(),
                     parameter_value: Some(pos),
-                    default_parameter_value: Some([0.5, 0.5]),
+                    default_parameter_value: Some([0.0, 0.0]),
                     key_frames: None,
                 }));
             } else if !found_position {
@@ -1211,8 +1210,8 @@ impl MediaReference {
                 effect.parameters.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
                     variant_type: "POINTF".to_string(),
                     parameter_id: "position".to_string(),
-                    parameter_value: Some([0.5, 0.5]),
-                    default_parameter_value: Some([0.5, 0.5]),
+                    parameter_value: Some([0.0, 0.0]),
+                    default_parameter_value: Some([0.0, 0.0]),
                     key_frames: None,
                 }));
             }
