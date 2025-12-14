@@ -452,12 +452,10 @@ impl Clip {
 
             if let Some(resolve_otio_effects) = parameters.resolve_otio.as_mut() {
                 if is_rich_text {
-                    // For Rich Text, update position in the "Rich Text" effect (Type 24)
                     let mut found_rich_text_effect = false;
                     for effect in resolve_otio_effects.iter_mut() {
                         if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
                             found_rich_text_effect = true;
-                            // Update position parameter in Rich Text effect
                             let mut found_position = false;
                             for parameter in &mut effect.parameters {
                                 if let ResolveOTIOParameter::PointF(param) = parameter {
@@ -481,7 +479,6 @@ impl Clip {
                         }
                     }
                     if !found_rich_text_effect {
-                        // Create Rich Text effect if it doesn't exist
                         resolve_otio_effects.push(ResolveOTIOEffect {
                             effect_name: "Rich Text".to_string(),
                             enabled: true,
@@ -500,15 +497,12 @@ impl Clip {
                     }
                 }
 
-                // Remove Transform effects and create new one for zoom/rotation
                 resolve_otio_effects.retain(|effect| {
                     effect.effect_name != "Transform"
                 });
 
-                // Create Transform effect for zoom/rotation (and position for non-Rich Text)
                 let mut transform_params = vec![];
                 if !is_rich_text {
-                    // For non-Rich Text, position goes in Transform effect
                     transform_params.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
                         variant_type: "POINTF".to_string(),
                         parameter_id: "position".to_string(),
@@ -517,7 +511,6 @@ impl Clip {
                         key_frames: None,
                     }));
                 }
-                // Zoom and rotation always go in Transform effect
                 transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
                     variant_type: "Double".to_string(),
                     parameter_id: "transformationZoomX".to_string(),
@@ -551,10 +544,8 @@ impl Clip {
                     effect_type: 2,
                 });
             } else {
-                // No resolve_otio exists yet
                 let mut transform_params = vec![];
                 if !is_rich_text {
-                    // For non-Rich Text, position goes in Transform effect
                     transform_params.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
                         variant_type: "POINTF".to_string(),
                         parameter_id: "position".to_string(),
@@ -563,7 +554,6 @@ impl Clip {
                         key_frames: None,
                     }));
                 }
-                // Zoom and rotation always go in Transform effect
                 transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
                     variant_type: "Double".to_string(),
                     parameter_id: "transformationZoomX".to_string(),
@@ -1181,10 +1171,8 @@ impl MediaReference {
     pub fn get_rich_text(&self) -> Option<String> {
         if let MediaReference::GeneratorReference { parameters, .. } = self {
             if let Some(resolve_otio_effects) = &parameters.resolve_otio {
-                // Find the "Rich Text" effect (Type 24)
                 for effect in resolve_otio_effects {
                     if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
-                        // Find the "title blob" parameter
                         for parameter in &effect.parameters {
                             if let ResolveOTIOParameter::Unknown(param) = parameter {
                                 if param.parameter_id == "title blob" {
@@ -1201,13 +1189,11 @@ impl MediaReference {
 
     /// Create a Rich Text GeneratorReference with the given Title HTML and default position
     pub fn create_rich_text_reference(title_html: String) -> MediaReference {
-        // Create metadata with Resolve_OTIO Generator Type
         let mut metadata = serde_json::Map::new();
         let mut resolve_otio = serde_json::Map::new();
         resolve_otio.insert("Generator Type".to_string(), serde_json::Value::String("Rich".to_string()));
         metadata.insert("Resolve_OTIO".to_string(), serde_json::Value::Object(resolve_otio));
 
-        // Create Rich Text effect with title blob and transformation parameters
         let rich_text_effect = ResolveOTIOEffect {
             effect_name: "Rich Text".to_string(),
             enabled: true,
@@ -1261,7 +1247,6 @@ impl MediaReference {
             effect_type: 24,
         };
 
-        // Create GeneratorParameters with the Rich Text effect
         let parameters = GeneratorParameters {
             resolve_otio: Some(vec![rich_text_effect]),
             other: serde_json::Map::new(),
