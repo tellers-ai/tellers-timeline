@@ -86,120 +86,30 @@ fn test_get_rich_text_external_reference() {
 }
 
 #[test]
-fn test_set_rich_text() {
-    // Test setting rich text on a GeneratorReference
-    let json_generator_ref = r##"
-    {
-        "OTIO_SCHEMA": "GeneratorReference.1",
-        "metadata": {
-            "Resolve_OTIO": {
-                "Generator Type": "Rich"
-            }
-        },
-        "name": "Text",
-        "available_range": null,
-        "available_image_bounds": null,
-        "generator_kind": "Rich",
-        "parameters": {
-            "Resolve_OTIO": []
-        }
-    }
-    "##;
+fn test_create_rich_text_reference() {
+    // Test creating rich text GeneratorReference
+    let media_ref = MediaReference::create_rich_text_reference("<p>New HTML Content</p>".to_string());
 
-    let mut media_ref: MediaReference = serde_json::from_str(json_generator_ref)
-        .expect("Failed to parse GeneratorReference");
+    // Verify it's a GeneratorReference
+    assert!(matches!(media_ref, MediaReference::GeneratorReference { .. }));
 
-    // Set rich text
-    media_ref.set_rich_text("<p>New HTML Content</p>".to_string(), None);
-
-    // Verify it was set
+    // Verify HTML was set
     let html = media_ref.get_rich_text();
     assert!(html.is_some());
     assert_eq!(html.unwrap(), "<p>New HTML Content</p>");
 }
 
 #[test]
-fn test_set_rich_text_with_position() {
-    // Test setting rich text with position
-    let json_generator_ref = r##"
-    {
-        "OTIO_SCHEMA": "GeneratorReference.1",
-        "metadata": {
-            "Resolve_OTIO": {
-                "Generator Type": "Rich"
-            }
-        },
-        "name": "Text",
-        "available_range": null,
-        "available_image_bounds": null,
-        "generator_kind": "Rich",
-        "parameters": {
-            "Resolve_OTIO": []
-        }
-    }
-    "##;
-
-    let mut media_ref: MediaReference = serde_json::from_str(json_generator_ref)
-        .expect("Failed to parse GeneratorReference");
-
-    // Set rich text with position
-    media_ref.set_rich_text("<p>HTML with Position</p>".to_string(), Some([0.3, 0.7]));
+fn test_create_rich_text_reference_default_position() {
+    // Test that default position [0.0, 0.0] is set
+    let media_ref = MediaReference::create_rich_text_reference("<p>HTML with Default Position</p>".to_string());
 
     // Verify HTML was set
     let html = media_ref.get_rich_text();
     assert!(html.is_some());
-    assert_eq!(html.unwrap(), "<p>HTML with Position</p>");
+    assert_eq!(html.unwrap(), "<p>HTML with Default Position</p>");
 
-    // Verify position was set by checking the parameters
-    if let MediaReference::GeneratorReference { parameters, .. } = &media_ref {
-        if let Some(resolve_otio_effects) = &parameters.resolve_otio {
-            for effect in resolve_otio_effects {
-                if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
-                    for parameter in &effect.parameters {
-                        if let tellers_timeline_core::types::ResolveOTIOParameter::PointF(param) = parameter {
-                            if param.parameter_id == "position" {
-                                assert_eq!(param.parameter_value, Some([0.3, 0.7]));
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        panic!("Position parameter not found");
-    } else {
-        panic!("Expected GeneratorReference");
-    }
-}
-
-#[test]
-fn test_set_rich_text_default_position() {
-    // Test that default position is set when position is None and no position exists
-    let json_generator_ref = r##"
-    {
-        "OTIO_SCHEMA": "GeneratorReference.1",
-        "metadata": {
-            "Resolve_OTIO": {
-                "Generator Type": "Rich"
-            }
-        },
-        "name": "Text",
-        "available_range": null,
-        "available_image_bounds": null,
-        "generator_kind": "Rich",
-        "parameters": {
-            "Resolve_OTIO": []
-        }
-    }
-    "##;
-
-    let mut media_ref: MediaReference = serde_json::from_str(json_generator_ref)
-        .expect("Failed to parse GeneratorReference");
-
-    // Set rich text without position (should create default position)
-    media_ref.set_rich_text("<p>HTML with Default Position</p>".to_string(), None);
-
-    // Verify position was set to default
+    // Verify position was set to default [0.5, 0.5]
     if let MediaReference::GeneratorReference { parameters, .. } = &media_ref {
         if let Some(resolve_otio_effects) = &parameters.resolve_otio {
             for effect in resolve_otio_effects {
@@ -221,78 +131,22 @@ fn test_set_rich_text_default_position() {
     }
 }
 
+
 #[test]
-fn test_set_rich_text_update_existing() {
-    // Test updating existing rich text
-    let json_generator_ref = r##"
-    {
-        "OTIO_SCHEMA": "GeneratorReference.1",
-        "metadata": {
-            "Resolve_OTIO": {
-                "Generator Type": "Rich"
-            }
-        },
-        "name": "Text",
-        "available_range": null,
-        "available_image_bounds": null,
-        "generator_kind": "Rich",
-        "parameters": {
-            "Resolve_OTIO": [
-                {
-                    "Effect Name": "Rich Text",
-                    "Enabled": true,
-                    "Name": "Rich Text",
-                    "Parameters": [
-                        {
-                            "Parameter ID": "title blob",
-                            "Title HTML": "<p>Old HTML</p>"
-                        }
-                    ],
-                    "Type": 24
-                }
-            ]
-        }
-    }
-    "##;
+fn test_create_rich_text_reference_creates_new() {
+    // Test that create_rich_text_reference creates a new GeneratorReference
+    let media_ref = MediaReference::create_rich_text_reference("<p>New HTML</p>".to_string());
 
-    let mut media_ref: MediaReference = serde_json::from_str(json_generator_ref)
-        .expect("Failed to parse GeneratorReference");
-
-    // Update rich text
-    media_ref.set_rich_text("<p>Updated HTML</p>".to_string(), None);
-
-    // Verify it was updated
+    // Verify it creates a new one with the HTML
     let html = media_ref.get_rich_text();
     assert!(html.is_some());
-    assert_eq!(html.unwrap(), "<p>Updated HTML</p>");
+    assert_eq!(html.unwrap(), "<p>New HTML</p>");
 }
 
 #[test]
 fn test_rich_text_roundtrip() {
     // Test that rich text survives JSON serialization/deserialization
-    let json_generator_ref = r##"
-    {
-        "OTIO_SCHEMA": "GeneratorReference.1",
-        "metadata": {
-            "Resolve_OTIO": {
-                "Generator Type": "Rich"
-            }
-        },
-        "name": "Text",
-        "available_range": null,
-        "available_image_bounds": null,
-        "generator_kind": "Rich",
-        "parameters": {
-            "Resolve_OTIO": []
-        }
-    }
-    "##;
-
-    let mut media_ref: MediaReference = serde_json::from_str(json_generator_ref)
-        .expect("Failed to parse GeneratorReference");
-
-    // Set rich text
-    media_ref.set_rich_text("<p>Roundtrip Test</p>".to_string(), Some([0.25, 0.75]));
+    let media_ref = MediaReference::create_rich_text_reference("<p>Roundtrip Test</p>".to_string());
 
     // Serialize to JSON
     let json_str = serde_json::to_string(&media_ref).expect("Failed to serialize");

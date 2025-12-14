@@ -110,19 +110,10 @@ impl PyMediaReference {
     fn get_rich_text(&self) -> Option<String> {
         self.inner.get_rich_text()
     }
-    #[pyo3(signature = (title_html, position=None))]
-    fn set_rich_text(&mut self, title_html: String, position: Option<PyRef<PyMediaReferencePosition>>) -> PyResult<()> {
-        match &mut self.inner {
-            MediaReference::GeneratorReference { .. } => {
-                let position_array = position.map(|pos| [pos.inner.x, pos.inner.y]);
-                self.inner.set_rich_text(title_html, position_array);
-                Ok(())
-            }
-            MediaReference::ExternalReference { .. } => {
-                Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                    "set_rich_text can only be called on GeneratorReference"
-                ))
-            }
+    #[staticmethod]
+    fn create_rich_text_reference(title_html: String) -> Self {
+        Self {
+            inner: MediaReference::create_rich_text_reference(title_html),
         }
     }
     #[staticmethod]
