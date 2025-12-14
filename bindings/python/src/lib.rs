@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Effect, Gap, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    validate_timeline, Clip, Effect, EffectMetadata, Gap, Item, MediaReference, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -43,8 +43,7 @@ impl PyMediaReference {
             metadata = serde_json::Value::Object(serde_json::Map::new());
         }
 
-        let mut inner = MediaReference {
-            otio_schema: "ExternalReference.1".to_string(),
+        let mut inner = MediaReference::ExternalReference {
             target_url: url,
             available_range: None,
             name: Some(name.unwrap_or_default()),
@@ -61,14 +60,28 @@ impl PyMediaReference {
 
         Ok(Self { inner })
     }
-    fn get_url(&self) -> String {
-        self.inner.target_url.clone()
+    fn get_url(&self) -> PyResult<String> {
+        self.inner.target_url()
+            .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "MediaReference is not an ExternalReference (no target_url)"
+            ))
+            .map(|s| s.clone())
     }
-    fn set_url(&mut self, url: String) {
-        self.inner.target_url = url;
+    fn set_url(&mut self, url: String) -> PyResult<()> {
+        match &mut self.inner {
+            MediaReference::ExternalReference { target_url, .. } => {
+                *target_url = url;
+                Ok(())
+            }
+            MediaReference::GeneratorReference { .. } => {
+                Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Cannot set target_url on GeneratorReference"
+                ))
+            }
+        }
     }
     fn get_metadata_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner.metadata)
+        serde_json::to_string(self.inner.metadata())
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
     fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
@@ -79,7 +92,7 @@ impl PyMediaReference {
         } else {
             v
         };
-        self.inner.metadata = coerced;
+        *self.inner.metadata_mut() = coerced;
         Ok(())
     }
     fn get_media_start(&self) -> f64 {
@@ -93,6 +106,21 @@ impl PyMediaReference {
     }
     fn set_media_duration(&mut self, value: Option<f64>) {
         self.inner.set_media_duration(value);
+    }
+    fn get_rich_text(&self) -> Option<String> {
+        self.inner.get_rich_text()
+    }
+    #[staticmethod]
+    fn create_rich_text_reference(title_html: String) -> Self {
+        Self {
+            inner: MediaReference::create_rich_text_reference(title_html),
+        }
+    }
+    #[staticmethod]
+    fn parse_json(s: &str) -> PyResult<Self> {
+        let media_ref: MediaReference = serde_json::from_str(s)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(Self { inner: media_ref })
     }
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
@@ -132,11 +160,14 @@ impl PyEffect {
             metadata = serde_json::Value::Object(serde_json::Map::new());
         }
 
+        let metadata_typed: EffectMetadata = serde_json::from_value(metadata)
+            .unwrap_or_else(|_| EffectMetadata::default());
+
         let inner = Effect {
             otio_schema: "Effect.1".to_string(),
             name: name.unwrap_or_default(),
             effect_name: effect_name.unwrap_or_default(),
-            metadata,
+            metadata: metadata_typed,
         };
 
         Ok(Self { inner })
@@ -171,13 +202,68 @@ impl PyEffect {
         } else {
             v
         };
-        self.inner.metadata = coerced;
+        let metadata_typed: EffectMetadata = serde_json::from_value(coerced)
+            .unwrap_or_else(|_| EffectMetadata::default());
+        self.inner.metadata = metadata_typed;
         Ok(())
     }
 
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+}
+
+#[pyclass(name = "MediaReferencePosition")]
+#[derive(Clone)]
+struct PyMediaReferencePosition {
+    inner: MediaReferencePosition,
+}
+
+#[pymethods]
+impl PyMediaReferencePosition {
+    #[new]
+    #[pyo3(signature = (x=0.5, y=0.5, rotation=0.0, zoom_x=1.0, zoom_y=1.0))]
+    fn new(x: f64, y: f64, rotation: f64, zoom_x: f64, zoom_y: f64) -> Self {
+        Self {
+            inner: MediaReferencePosition {
+                x,
+                y,
+                rotation,
+                zoom_x,
+                zoom_y,
+            },
+        }
+    }
+    fn get_x(&self) -> f64 {
+        self.inner.x
+    }
+    fn set_x(&mut self, x: f64) {
+        self.inner.x = x;
+    }
+    fn get_y(&self) -> f64 {
+        self.inner.y
+    }
+    fn set_y(&mut self, y: f64) {
+        self.inner.y = y;
+    }
+    fn get_rotation(&self) -> f64 {
+        self.inner.rotation
+    }
+    fn set_rotation(&mut self, rotation: f64) {
+        self.inner.rotation = rotation;
+    }
+    fn get_zoom_x(&self) -> f64 {
+        self.inner.zoom_x
+    }
+    fn set_zoom_x(&mut self, zoom_x: f64) {
+        self.inner.zoom_x = zoom_x;
+    }
+    fn get_zoom_y(&self) -> f64 {
+        self.inner.zoom_y
+    }
+    fn set_zoom_y(&mut self, zoom_y: f64) {
+        self.inner.zoom_y = zoom_y;
     }
 }
 
@@ -312,6 +398,29 @@ impl PyClip {
     }
     fn set_effects(&mut self, effects: Vec<PyEffect>) {
         self.inner.effects = effects.into_iter().map(|e| e.inner).collect();
+    }
+    fn get_position(&self, py: Python<'_>) -> Py<PyMediaReferencePosition> {
+        let pos = self.inner.get_position();
+        Py::new(py, PyMediaReferencePosition { inner: pos }).unwrap()
+    }
+    fn set_position(&mut self, position: PyRef<PyMediaReferencePosition>) {
+        self.inner.set_position(position.inner.clone());
+    }
+    fn get_volume(&self) -> f64 {
+        self.inner.get_volume()
+    }
+    fn set_volume(&mut self, volume: f64) {
+        self.inner.set_volume(volume);
+    }
+    #[staticmethod]
+    fn parse_json(s: &str) -> PyResult<Self> {
+        let clip: Clip = serde_json::from_str(s)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(Self { inner: clip })
+    }
+    fn to_json(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
 }
 
@@ -491,6 +600,19 @@ impl PyItem {
     }
     fn set_effects(&mut self, effects: Vec<PyEffect>) {
         self.inner.set_effects(effects.into_iter().map(|e| e.inner).collect());
+    }
+    fn get_position(&self, py: Python<'_>) -> Py<PyMediaReferencePosition> {
+        let pos = self.inner.get_position();
+        Py::new(py, PyMediaReferencePosition { inner: pos }).unwrap()
+    }
+    fn set_position(&mut self, position: PyRef<PyMediaReferencePosition>) {
+        self.inner.set_position(position.inner.clone());
+    }
+    fn get_volume(&self) -> f64 {
+        self.inner.get_volume()
+    }
+    fn set_volume(&mut self, volume: f64) {
+        self.inner.set_volume(volume);
     }
 }
 
@@ -950,6 +1072,7 @@ impl PyTimeline {
 #[pymodule]
 fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyMediaReference>()?;
+    m.add_class::<PyMediaReferencePosition>()?;
     m.add_class::<PyEffect>()?;
     m.add_class::<PyClip>()?;
     m.add_class::<PyGap>()?;

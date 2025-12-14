@@ -172,17 +172,17 @@ impl MetadataExt for Gap {
 
 impl MetadataExt for MediaReference {
     fn get_metadata(&self) -> &serde_json::Value {
-        &self.metadata
+        self.metadata()
     }
     fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
-        &mut self.metadata
+        self.metadata_mut()
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
         let mut v = metadata;
         if v.as_object().is_none() {
             v = serde_json::Value::Object(serde_json::Map::new());
         }
-        self.metadata = v;
+        *self.metadata_mut() = v;
     }
 }
 
