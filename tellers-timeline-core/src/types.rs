@@ -366,34 +366,30 @@ impl Clip {
         let mut rotation = 0.0;
         let mut zoom_x = 1.0;
         let mut zoom_y = 1.0;
-        if let MediaReference::GeneratorReference { parameters, generator_kind, .. } = active_media_reference {
-            let is_rich_text = generator_kind == "Rich";
+        if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
             if let Some(resolve_otio_effects) = parameters.resolve_otio.as_ref() {
                 for effect in resolve_otio_effects {
-                    for parameter in &effect.parameters {
-                        match parameter {
-                            ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
-                                if let Some([x_val, y_val]) = param.parameter_value {
-                                    // Rich Text uses [0, 1] coordinate system, MediaReferencePosition uses [-0.5, +0.5]
-                                    if is_rich_text {
+                    if effect.effect_name == "Rich Text" {
+                        for parameter in &effect.parameters {
+                            match parameter {
+                                ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
+                                    if let Some([x_val, y_val]) = param.parameter_value {
+                                        // Rich Text uses [0, 1] coordinate system, MediaReferencePosition uses [-0.5, +0.5]
                                         x = x_val - 0.5;
                                         y = y_val - 0.5;
-                                    } else {
-                                        x = x_val;
-                                        y = y_val;
                                     }
                                 }
+                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                                    zoom_x = param.parameter_value;
+                                }
+                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
+                                    zoom_y = param.parameter_value;
+                                }
+                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                                    rotation = param.parameter_value;
+                                }
+                                _ => {}
                             }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
-                                zoom_x = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
-                                zoom_y = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
-                                rotation = param.parameter_value;
-                            }
-                            _ => {}
                         }
                     }
                 }
