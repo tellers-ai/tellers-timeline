@@ -366,34 +366,30 @@ impl Clip {
         let mut rotation = 0.0;
         let mut zoom_x = 1.0;
         let mut zoom_y = 1.0;
-        if let MediaReference::GeneratorReference { parameters, generator_kind, .. } = active_media_reference {
-            let is_rich_text = generator_kind == "Rich";
+        if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
             if let Some(resolve_otio_effects) = parameters.resolve_otio.as_ref() {
                 for effect in resolve_otio_effects {
-                    for parameter in &effect.parameters {
-                        match parameter {
-                            ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
-                                if let Some([x_val, y_val]) = param.parameter_value {
-                                    // Rich Text uses [0, 1] coordinate system, MediaReferencePosition uses [-0.5, +0.5]
-                                    if is_rich_text {
+                    if effect.effect_name == "Rich Text" {
+                        for parameter in &effect.parameters {
+                            match parameter {
+                                ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
+                                    if let Some([x_val, y_val]) = param.parameter_value {
+                                        // Rich Text uses [0, 1] coordinate system, MediaReferencePosition uses [-0.5, +0.5]
                                         x = x_val - 0.5;
                                         y = y_val - 0.5;
-                                    } else {
-                                        x = x_val;
-                                        y = y_val;
                                     }
                                 }
+                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                                    zoom_x = param.parameter_value;
+                                }
+                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
+                                    zoom_y = param.parameter_value;
+                                }
+                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                                    rotation = param.parameter_value;
+                                }
+                                _ => {}
                             }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
-                                zoom_x = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
-                                zoom_y = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
-                                rotation = param.parameter_value;
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -441,150 +437,143 @@ impl Clip {
         let active_media_reference = self.media_references.get_mut(self.active_media_reference_key.as_ref().unwrap()).unwrap();
 
         // Case 1: GeneratorReference - uses "position" (PointF) for x/y coordinates
-        if let MediaReference::GeneratorReference { parameters, generator_kind, .. } = active_media_reference {
-            let is_rich_text = generator_kind == "Rich";
-            // Rich Text uses [0, 1] coordinate system, MediaReferencePosition uses [-0.5, +0.5]
-            let (rich_x, rich_y) = if is_rich_text {
-                (position.x + 0.5, position.y + 0.5)
-            } else {
-                (position.x, position.y)
-            };
+        if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
+            let (rich_x, rich_y) = (position.x + 0.5, position.y + 0.5);
 
             if let Some(resolve_otio_effects) = parameters.resolve_otio.as_mut() {
-                if is_rich_text {
-                    let mut found_rich_text_effect = false;
-                    for effect in resolve_otio_effects.iter_mut() {
-                        if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
-                            found_rich_text_effect = true;
-                            let mut found_position = false;
-                            for parameter in &mut effect.parameters {
-                                if let ResolveOTIOParameter::PointF(param) = parameter {
-                                    if param.parameter_id == "position" {
-                                        param.parameter_value = Some([rich_x, rich_y]);
-                                        found_position = true;
-                                        break;
-                                    }
-                                }
+                let mut found_rich_text_effect = false;
+                for effect in resolve_otio_effects.iter_mut() {
+                    if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
+                        found_rich_text_effect = true;
+
+                        effect.parameters.retain(|param| {
+                            match param {
+                                ResolveOTIOParameter::PointF(p) if p.parameter_id == "position" => false,
+                                ResolveOTIOParameter::Double(p) if p.parameter_id == "transformationZoomX" => false,
+                                ResolveOTIOParameter::Double(p) if p.parameter_id == "transformationZoomY" => false,
+                                ResolveOTIOParameter::Double(p) if p.parameter_id == "transformationRotationAngle" => false,
+                                _ => true,
                             }
-                            if !found_position {
-                                effect.parameters.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
-                                    variant_type: "POINTF".to_string(),
-                                    parameter_id: "position".to_string(),
-                                    parameter_value: Some([rich_x, rich_y]),
-                                    default_parameter_value: Some([0.5, 0.5]),
-                                    key_frames: None,
-                                }));
-                            }
-                            break;
-                        }
-                    }
-                    if !found_rich_text_effect {
-                        resolve_otio_effects.push(ResolveOTIOEffect {
-                            effect_name: "Rich Text".to_string(),
-                            enabled: true,
-                            name: "Rich Text".to_string(),
-                            parameters: vec![
-                                ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
-                                    variant_type: "POINTF".to_string(),
-                                    parameter_id: "position".to_string(),
-                                    parameter_value: Some([rich_x, rich_y]),
-                                    default_parameter_value: Some([0.5, 0.5]),
-                                    key_frames: None,
-                                }),
-                            ],
-                            effect_type: 24,
                         });
+
+                        effect.parameters.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
+                            variant_type: "POINTF".to_string(),
+                            parameter_id: "position".to_string(),
+                            parameter_value: Some([rich_x, rich_y]),
+                            default_parameter_value: Some([0.5, 0.5]),
+                            key_frames: None,
+                        }));
+                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomX".to_string(),
+                            parameter_value: position.zoom_x,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }));
+                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomY".to_string(),
+                            parameter_value: position.zoom_y,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }));
+                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationRotationAngle".to_string(),
+                            parameter_value: position.rotation,
+                            default_parameter_value: Some(0.0),
+                            max_value: Some(100000.0),
+                            min_value: Some(-100000.0),
+                        }));
+                        break;
                     }
+                }
+                if !found_rich_text_effect {
+                    resolve_otio_effects.push(ResolveOTIOEffect {
+                        effect_name: "Rich Text".to_string(),
+                        enabled: true,
+                        name: "Rich Text".to_string(),
+                        parameters: vec![
+                            ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
+                                variant_type: "POINTF".to_string(),
+                                parameter_id: "position".to_string(),
+                                parameter_value: Some([rich_x, rich_y]),
+                                default_parameter_value: Some([0.5, 0.5]),
+                                key_frames: None,
+                            }),
+                            ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                                variant_type: "Double".to_string(),
+                                parameter_id: "transformationZoomX".to_string(),
+                                parameter_value: position.zoom_x,
+                                default_parameter_value: Some(1.0),
+                                max_value: Some(100.0),
+                                min_value: Some(0.0),
+                            }),
+                            ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                                variant_type: "Double".to_string(),
+                                parameter_id: "transformationZoomY".to_string(),
+                                parameter_value: position.zoom_y,
+                                default_parameter_value: Some(1.0),
+                                max_value: Some(100.0),
+                                min_value: Some(0.0),
+                            }),
+                            ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                                variant_type: "Double".to_string(),
+                                parameter_id: "transformationRotationAngle".to_string(),
+                                parameter_value: position.rotation,
+                                default_parameter_value: Some(0.0),
+                                max_value: Some(100000.0),
+                                min_value: Some(-100000.0),
+                            }),
+                        ],
+                        effect_type: 24,
+                    });
                 }
 
                 resolve_otio_effects.retain(|effect| {
                     effect.effect_name != "Transform"
                 });
-
-                let mut transform_params = vec![];
-                if !is_rich_text {
-                    transform_params.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
-                        variant_type: "POINTF".to_string(),
-                        parameter_id: "position".to_string(),
-                        parameter_value: Some([rich_x, rich_y]),
-                        default_parameter_value: Some([0.0, 0.0]),
-                        key_frames: None,
-                    }));
-                }
-                transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                    variant_type: "Double".to_string(),
-                    parameter_id: "transformationZoomX".to_string(),
-                    parameter_value: position.zoom_x,
-                    default_parameter_value: Some(1.0),
-                    max_value: Some(100.0),
-                    min_value: Some(0.0),
-                }));
-                transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                    variant_type: "Double".to_string(),
-                    parameter_id: "transformationZoomY".to_string(),
-                    parameter_value: position.zoom_y,
-                    default_parameter_value: Some(1.0),
-                    max_value: Some(100.0),
-                    min_value: Some(0.0),
-                }));
-                transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                    variant_type: "Double".to_string(),
-                    parameter_id: "transformationRotationAngle".to_string(),
-                    parameter_value: position.rotation,
-                    default_parameter_value: Some(0.0),
-                    max_value: Some(100000.0),
-                    min_value: Some(-100000.0),
-                }));
-
-                resolve_otio_effects.push(ResolveOTIOEffect {
-                    effect_name: "Transform".to_string(),
-                    enabled: true,
-                    name: "Transform".to_string(),
-                    parameters: transform_params,
-                    effect_type: 2,
-                });
             } else {
-                let mut transform_params = vec![];
-                if !is_rich_text {
-                    transform_params.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
-                        variant_type: "POINTF".to_string(),
-                        parameter_id: "position".to_string(),
-                        parameter_value: Some([rich_x, rich_y]),
-                        default_parameter_value: Some([0.0, 0.0]),
-                        key_frames: None,
-                    }));
-                }
-                transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                    variant_type: "Double".to_string(),
-                    parameter_id: "transformationZoomX".to_string(),
-                    parameter_value: position.zoom_x,
-                    default_parameter_value: Some(1.0),
-                    max_value: Some(100.0),
-                    min_value: Some(0.0),
-                }));
-                transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                    variant_type: "Double".to_string(),
-                    parameter_id: "transformationZoomY".to_string(),
-                    parameter_value: position.zoom_y,
-                    default_parameter_value: Some(1.0),
-                    max_value: Some(100.0),
-                    min_value: Some(0.0),
-                }));
-                transform_params.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                    variant_type: "Double".to_string(),
-                    parameter_id: "transformationRotationAngle".to_string(),
-                    parameter_value: position.rotation,
-                    default_parameter_value: Some(0.0),
-                    max_value: Some(100000.0),
-                    min_value: Some(-100000.0),
-                }));
-
                 parameters.resolve_otio = Some(vec![ResolveOTIOEffect {
-                    effect_name: "Transform".to_string(),
+                    effect_name: "Rich Text".to_string(),
                     enabled: true,
-                    name: "Transform".to_string(),
-                    parameters: transform_params,
-                    effect_type: 2,
+                    name: "Rich Text".to_string(),
+                    parameters: vec![
+                        ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
+                            variant_type: "POINTF".to_string(),
+                            parameter_id: "position".to_string(),
+                            parameter_value: Some([rich_x, rich_y]),
+                            default_parameter_value: Some([0.5, 0.5]),
+                            key_frames: None,
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomX".to_string(),
+                            parameter_value: position.zoom_x,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationZoomY".to_string(),
+                            parameter_value: position.zoom_y,
+                            default_parameter_value: Some(1.0),
+                            max_value: Some(100.0),
+                            min_value: Some(0.0),
+                        }),
+                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                            variant_type: "Double".to_string(),
+                            parameter_id: "transformationRotationAngle".to_string(),
+                            parameter_value: position.rotation,
+                            default_parameter_value: Some(0.0),
+                            max_value: Some(100000.0),
+                            min_value: Some(-100000.0),
+                        }),
+                    ],
+                    effect_type: 24,
                 }]);
             }
         } else {
