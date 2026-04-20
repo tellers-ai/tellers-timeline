@@ -58,19 +58,16 @@ fn split_clip_basic() {
 }
 
 #[test]
-fn split_gap_basic() {
+fn split_gap_is_noop() {
     let mut track = Track::default();
     track.append(Item::Gap(Gap::make_gap(5.0)));
 
     track.split_at_time(2.0);
 
-    assert_eq!(track.items.len(), 2);
-    match (&track.items[0], &track.items[1]) {
-        (Item::Gap(g0), Item::Gap(g1)) => {
-            assert_eq!(g0.source_range.duration.value, 2.0);
-            assert_eq!(g1.source_range.duration.value, 3.0);
-        }
-        _ => panic!("expected two gaps after split"),
+    assert_eq!(track.items.len(), 1);
+    match &track.items[0] {
+        Item::Gap(g) => assert_eq!(g.source_range.duration.value, 5.0),
+        _ => panic!("expected gap to be unchanged"),
     }
 }
 

@@ -47,48 +47,8 @@ impl Track {
                 self.items.insert(item_index, crate::Item::Clip(left_clip));
                 self.items.insert(item_index + 1, crate::Item::Clip(clip));
             }
-            crate::Item::Gap(mut gap) => {
-                let total = gap.source_range.duration.value.max(0.0);
-                if local_offset >= total - EPS {
-                    // Nothing to split, put the original back
-                    self.items.insert(item_index, crate::Item::Gap(gap));
-                    return;
-                }
-
-                let left_duration = local_offset.max(0.0);
-                let right_duration = (total - local_offset).max(0.0);
-
-                let left_gap = crate::types::Gap {
-                    otio_schema: gap.otio_schema.clone(),
-                    name: gap.name.clone(),
-                    source_range: crate::types::TimeRange {
-                        otio_schema: gap.source_range.otio_schema.clone(),
-                        duration: crate::types::RationalTime {
-                            otio_schema: gap.source_range.duration.otio_schema.clone(),
-                            rate: gap.source_range.duration.rate,
-                            value: left_duration,
-                        },
-                        start_time: crate::types::RationalTime {
-                            otio_schema: gap.source_range.start_time.otio_schema.clone(),
-                            rate: gap.source_range.start_time.rate,
-                            value: gap.source_range.start_time.value,
-                        },
-                    },
-                    metadata: gap.metadata.clone(),
-                    effects: gap.effects.clone(),
-                };
-
-                gap.source_range.duration.value = right_duration;
-                gap.source_range.start_time.value += left_duration;
-
-                // Ensure the right-hand piece receives a fresh unique id
-                crate::metadata::IdMetadataExt::set_id(
-                    &mut gap,
-                    Some(crate::types::gen_hex_id_12()),
-                );
-
-                self.items.insert(item_index, crate::Item::Gap(left_gap));
-                self.items.insert(item_index + 1, crate::Item::Gap(gap));
+            crate::Item::Gap(gap) => {
+                self.items.insert(item_index, crate::Item::Gap(gap));
             }
         }
     }
