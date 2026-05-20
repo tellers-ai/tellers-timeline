@@ -30,6 +30,7 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
     );
     Item::Clip(Clip {
         otio_schema: "Clip.2".to_string(),
+        enabled: true,
         name: None,
         source_range: sr,
         media_references: refs,

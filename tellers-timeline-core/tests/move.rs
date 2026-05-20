@@ -20,6 +20,7 @@ fn make_clip_with_id(duration: Seconds, id: &str) -> Item {
     );
     let mut it = Item::Clip(Clip {
         otio_schema: "Clip.2".to_string(),
+        enabled: true,
         name: Some("c".to_string()),
         source_range: TimeRange { otio_schema: "TimeRange.1".to_string(), duration: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: duration }, start_time: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: 0.0 } },
         media_references: refs,

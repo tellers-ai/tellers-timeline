@@ -50,6 +50,10 @@
               "type": "number",
               "format": "double"
             },
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
             "metadata": {
               "default": null
             },
@@ -181,6 +185,10 @@
           "items": {
             "$ref": "#/definitions/Item"
           }
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
         },
         "kind": {
           "$ref": "#/definitions/TrackKind"
