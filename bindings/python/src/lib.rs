@@ -333,6 +333,12 @@ impl PyClip {
     fn set_name(&mut self, name: Option<String>) {
         self.inner.name = name;
     }
+    fn get_enabled(&self) -> bool {
+        self.inner.enabled
+    }
+    fn set_enabled(&mut self, enabled: bool) {
+        self.inner.enabled = enabled;
+    }
     fn get_duration(&self) -> f64 {
         self.inner.source_range.duration.value
     }
@@ -548,6 +554,12 @@ impl PyItem {
     fn set_duration(&mut self, dur: f64) {
         self.inner.set_duration(dur);
     }
+    fn get_enabled(&self) -> bool {
+        self.inner.get_enabled()
+    }
+    fn set_enabled(&mut self, enabled: bool) {
+        self.inner.set_enabled(enabled);
+    }
     fn get_id(&self) -> Option<String> {
         self.inner.get_id()
     }
@@ -655,9 +667,19 @@ impl PyTrack {
     fn set_name(&mut self, name: Option<String>) {
         self.inner.name = name;
     }
+    fn get_enabled(&self) -> bool {
+        self.inner.enabled
+    }
+    fn set_enabled(&mut self, enabled: bool) {
+        self.inner.enabled = enabled;
+    }
     #[new]
     #[pyo3(signature = (kind=None, id=None, children=None))]
-    fn new(kind: Option<String>, id: Option<String>, children: Option<Vec<PyItem>>) -> Self {
+    fn new(
+        kind: Option<String>,
+        id: Option<String>,
+        children: Option<Vec<PyItem>>,
+    ) -> Self {
         let k = kind
             .map(|s| track_kind_from_str(&s))
             .unwrap_or(TrackKind::Video);

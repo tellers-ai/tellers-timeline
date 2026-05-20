@@ -28,6 +28,9 @@ fn default_rational_time_schema() -> String {
 fn default_effect_schema() -> String {
     "Effect.1".to_string()
 }
+fn default_enabled() -> bool {
+    true
+}
 
 pub(crate) fn gen_hex_id_12() -> String {
     use rand::RngCore;
@@ -147,6 +150,8 @@ pub struct Timeline {
 pub struct Track {
     #[serde(rename = "OTIO_SCHEMA", default = "default_track_schema")]
     pub otio_schema: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     #[serde(deserialize_with = "deserialize_track_kind_case_insensitive")]
     pub kind: TrackKind,
     #[serde(default)]
@@ -222,6 +227,17 @@ impl Item {
         match self {
             Item::Clip(c) => c.source_range.duration.value = dur,
             Item::Gap(g) => g.source_range.duration.value = dur,
+        }
+    }
+    pub fn get_enabled(&self) -> bool {
+        match self {
+            Item::Clip(c) => c.enabled,
+            Item::Gap(_g) => true,
+        }
+    }
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if let Item::Clip(c) = self {
+            c.enabled = enabled;
         }
     }
     pub fn get_source_range(&self) -> TimeRange {
@@ -304,6 +320,8 @@ impl Item {
 pub struct Clip {
     #[serde(rename = "OTIO_SCHEMA", default = "default_clip_schema")]
     pub otio_schema: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     #[serde(default)]
     pub name: Option<String>,
     pub source_range: TimeRange,
@@ -328,6 +346,7 @@ impl Clip {
         refs.insert("DEFAULT_MEDIA".to_string(), reference);
         let mut c = Clip {
             otio_schema: default_clip_schema(),
+            enabled: true,
             name,
             source_range,
             media_references: refs,
@@ -348,6 +367,7 @@ impl Clip {
     ) -> Self {
         let mut c = Clip {
             otio_schema: default_clip_schema(),
+            enabled: true,
             name,
             source_range,
             media_references,
@@ -1361,6 +1381,7 @@ impl Track {
     pub fn new(kind: TrackKind, id: Option<String>) -> Self {
         let mut t = Track {
             otio_schema: default_track_schema(),
+            enabled: true,
             kind,
             name: None,
             items: vec![],
