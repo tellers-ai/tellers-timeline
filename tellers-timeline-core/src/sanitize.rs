@@ -1,10 +1,9 @@
-use crate::{Item, Timeline, Track};
+use crate::{IdMetadataExt, Item, Stack, Timeline, Track};
+use std::collections::HashSet;
 
 impl Timeline {
     pub fn sanitize(&mut self) {
-        for track in &mut self.tracks.children {
-            track.sanitize();
-        }
+        self.tracks.sanitize();
     }
 }
 
@@ -44,10 +43,40 @@ impl Track {
     }
 }
 
-impl crate::Stack {
+impl Stack {
     pub fn sanitize(&mut self) {
         for t in &mut self.children {
             t.sanitize();
+        }
+        self.ensure_unique_timeline_ids();
+    }
+
+    fn ensure_unique_timeline_ids(&mut self) {
+        let mut used_ids = HashSet::new();
+        for track in &mut self.children {
+            ensure_unique_timeline_id(track, &mut used_ids);
+            for item in &mut track.items {
+                ensure_unique_timeline_id(item, &mut used_ids);
+            }
+        }
+    }
+}
+
+fn ensure_unique_timeline_id<T: IdMetadataExt>(value: &mut T, used_ids: &mut HashSet<String>) {
+    if let Some(id) = value.get_id().filter(|id| !id.is_empty()) {
+        if used_ids.insert(id) {
+            return;
+        }
+    }
+
+    value.set_id(Some(new_unused_timeline_id(used_ids)));
+}
+
+fn new_unused_timeline_id(used_ids: &mut HashSet<String>) -> String {
+    loop {
+        let id = crate::types::gen_hex_id_12();
+        if used_ids.insert(id.clone()) {
+            return id;
         }
     }
 }

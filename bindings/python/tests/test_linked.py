@@ -1,0 +1,567 @@
+import json
+
+from tellers_timeline import Clip, Gap, Item, MediaReference, Stack, Track
+
+
+def link_group_id(item):
+    metadata = json.loads(item.get_metadata_json())
+    return metadata["Resolve_OTIO"]["Link Group ID"]
+
+
+def maybe_link_group_id(item):
+    metadata = json.loads(item.get_metadata_json())
+    return metadata.get("Resolve_OTIO", {}).get("Link Group ID")
+
+
+def assert_type_error_message(fn, message):
+    try:
+        fn()
+    except TypeError as exc:
+        assert message in str(exc)
+    else:
+        raise AssertionError("expected TypeError")
+
+
+def test_insert_item_at_time_returns_linked_ids_and_preserves_media_id():
+    stack = Stack([Track(kind="video")])
+    primary = Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary")
+    audio_ref = MediaReference(
+        "file:///audio.wav",
+        metadata_json=json.dumps(
+            {"media_id": "asset-1", "tellers.ai": {"media_id": "asset-1"}}
+        ),
+    )
+    audio = Clip(2.0, {"DEFAULT_MEDIA": audio_ref}, id="audio")
+
+    result = stack.insert_item_at_time(
+        0, 1.0, primary, "override", "split_and_insert", [audio]
+    )
+
+    assert result is not None
+    assert result["primary_clip_id"] == "primary"
+    assert len(result["audio_clips"]) == 1
+    assert result["audio_clips"][0][1] == 1
+    assert result["linked_video_clip_id"] is None
+    assert result["created_track_indices"] == [1]
+
+    tracks = stack.tracks()
+    primary_item = next(item for item in tracks[0].items() if item.is_clip())
+    audio_item = next(item for item in tracks[result["audio_clips"][0][1]].items() if item.is_clip())
+
+    assert link_group_id(primary_item) == result["link_group_id"]
+    assert link_group_id(audio_item) == result["link_group_id"]
+
+    media = audio_item.get_media_references()["DEFAULT_MEDIA"]
+    media_metadata = json.loads(media.get_metadata_json())
+    assert media_metadata["media_id"] == "asset-1"
+    assert media_metadata["tellers.ai"]["media_id"] == "asset-1"
+
+
+def test_delete_item_can_delete_linked_clips():
+    stack = Stack([Track(kind="video")])
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+
+    removed = stack.delete_item("primary", True)
+
+    assert len(removed) == 2
+    for track in stack.tracks():
+        assert all(item.is_gap() for item in track.items())
+
+
+def test_delete_item_removes_video_asset_linked_to_audio_primary():
+    stack = Stack([Track(kind="audio")])
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio"),
+        "override",
+        "split_and_insert",
+        None,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
+    )
+
+    removed = stack.delete_item("audio", True)
+
+    assert len(removed) == 2
+    assert stack.get_item("audio") is None
+    assert stack.get_item("video") is None
+    for track in stack.tracks():
+        assert all(item.is_gap() for item in track.items())
+
+
+def test_delete_item_keeps_empty_linked_tracks():
+    stack = Stack([Track(kind="video")])
+    stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+
+    removed = stack.delete_item("primary", True)
+
+    assert len(removed) == 2
+    assert len(stack.tracks()) == 2
+    for track in stack.tracks():
+        assert all(item.is_gap() for item in track.items())
+
+
+def test_delete_track_cleans_singleton_link_group_left_behind():
+    stack = Stack([Track(kind="video", id="v"), Track(kind="audio", id="a")])
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    audio_id = result["audio_clips"][0][0]
+
+    removed = stack.delete_track("v")
+
+    assert removed is not None
+    assert removed.get_id() == "v"
+    assert len(stack.tracks()) == 1
+    assert stack.tracks()[0].get_id() == "a"
+    assert maybe_link_group_id(stack.get_item(audio_id)[2]) is None
+
+
+def test_track_timeline_ids_returns_child_item_ids_in_order():
+    track = Track(
+        kind="video",
+        id="track",
+        children=[
+            Item.from_clip(
+                Clip(
+                    1.0,
+                    {"DEFAULT_MEDIA": MediaReference("file:///one.mov")},
+                    id="clip-1",
+                )
+            ),
+            Item.from_gap(Gap(1.0, id="gap-1")),
+            Item.from_clip(
+                Clip(
+                    1.0,
+                    {"DEFAULT_MEDIA": MediaReference("file:///two.mov")},
+                    id="clip-2",
+                )
+            ),
+        ],
+    )
+
+    assert track.timeline_ids() == ["clip-1", "gap-1", "clip-2"]
+
+
+def test_unlink_item_accepts_multiple_ids_and_cleans_singletons():
+    stack = Stack([Track(kind="video"), Track(kind="audio"), Track(kind="audio")])
+    first = stack.insert_item_at_time(
+        0,
+        1.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    second = stack.insert_item_at_time(
+        0,
+        5.0,
+        Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///video-2.mov")}, id="primary-2"),
+        "override",
+        "split_and_insert",
+        [Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///audio-2.wav")})],
+    )
+
+    assert stack.unlink_item(["primary", "primary-2"]) == 4
+    assert maybe_link_group_id(stack.get_item("primary")[2]) is None
+    assert maybe_link_group_id(stack.get_item(first["audio_clips"][0][0])[2]) is None
+    assert maybe_link_group_id(stack.get_item("primary-2")[2]) is None
+    assert maybe_link_group_id(stack.get_item(second["audio_clips"][0][0])[2]) is None
+
+
+def test_replace_item_updates_linked_group_duration_and_preserves_identity():
+    stack = Stack([Track(kind="video"), Track(kind="audio")])
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    audio_id = result["audio_clips"][0][0]
+
+    assert stack.replace_item(
+        "primary",
+        Clip(
+            5.0,
+            {"DEFAULT_MEDIA": MediaReference("file:///replacement.mov")},
+            id="replacement",
+        ),
+    )
+
+    primary = stack.get_item("primary")[2]
+    audio = stack.get_item(audio_id)[2]
+    assert primary.get_id() == "primary"
+    assert primary.duration() == 5.0
+    assert audio.duration() == 5.0
+    assert maybe_link_group_id(primary) == result["link_group_id"]
+    assert maybe_link_group_id(audio) == result["link_group_id"]
+    assert stack.get_item("replacement") is None
+
+
+def test_replace_item_can_add_linked_audio_clip():
+    stack = Stack(
+        [
+            Track(
+                kind="video",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            3.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///video.mov")},
+                            id="primary",
+                        )
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert stack.replace_item(
+        "primary",
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.mov")}),
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio")],
+    )
+
+    assert len(stack.tracks()) == 2
+    assert stack.tracks()[1].kind == "audio"
+    primary = stack.get_item("primary")[2]
+    audio = stack.get_item("audio")[2]
+    assert maybe_link_group_id(primary) == maybe_link_group_id(audio)
+    assert maybe_link_group_id(primary) is not None
+
+
+def test_replace_item_removes_replacement_from_linked_audio_clips():
+    stack = Stack(
+        [
+            Track(
+                kind="video",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            3.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///video.mov")},
+                            id="primary",
+                        )
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert stack.replace_item(
+        "primary",
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.mov")}, id="replacement"),
+        [
+            Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio"),
+            Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///same.mov")}, id="replacement"),
+        ],
+    )
+
+    assert stack.get_item("replacement") is None
+    assert stack.get_item("audio") is not None
+    audio_items = [item for item in stack.tracks()[1].items() if item.is_clip()]
+    assert len(audio_items) == 1
+
+
+def test_replace_item_rejects_linked_audio_with_different_duration():
+    stack = Stack(
+        [
+            Track(
+                kind="video",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            3.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///video.mov")},
+                            id="primary",
+                        )
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert not stack.replace_item(
+        "primary",
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.mov")}),
+        [Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio")],
+    )
+    assert len(stack.tracks()) == 1
+    assert stack.get_item("primary")[2].duration() == 3.0
+    assert stack.get_item("audio") is None
+
+
+def test_replace_item_rejects_linked_video_with_different_duration():
+    stack = Stack(
+        [
+            Track(
+                kind="audio",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            4.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")},
+                            id="audio",
+                        )
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert not stack.replace_item(
+        "audio",
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.wav")}),
+        None,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
+    )
+    assert len(stack.tracks()) == 1
+    assert stack.tracks()[0].kind == "audio"
+    assert stack.get_item("audio")[2].duration() == 4.0
+    assert stack.get_item("video") is None
+
+
+def test_replace_item_can_add_linked_video_clip_for_audio():
+    stack = Stack(
+        [
+            Track(
+                kind="audio",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            4.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")},
+                            id="audio",
+                        )
+                    )
+                ],
+            )
+        ]
+    )
+
+    assert stack.replace_item(
+        "audio",
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.wav")}),
+        None,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
+    )
+
+    assert stack.tracks()[0].kind == "video"
+    assert stack.tracks()[1].kind == "audio"
+    audio = stack.get_item("audio")[2]
+    video = stack.get_item("video")[2]
+    assert maybe_link_group_id(audio) == maybe_link_group_id(video)
+    assert maybe_link_group_id(audio) is not None
+
+
+def test_link_item_links_arbitrary_existing_clips_with_new_group():
+    primary = Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary")
+    audio = Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio")
+    stack = Stack(
+        [
+            Track(kind="video", children=[Item.from_clip(primary)]),
+            Track(kind="audio", children=[Item.from_clip(audio)]),
+        ]
+    )
+
+    group = stack.link_item(["primary", "audio"])
+
+    assert group is not None
+    assert maybe_link_group_id(stack.get_item("primary")[2]) == group
+    assert maybe_link_group_id(stack.get_item("audio")[2]) == group
+
+
+def test_link_item_rejects_items_with_different_boundaries():
+    primary = Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary")
+    audio = Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio")
+    stack = Stack(
+        [
+            Track(kind="video", children=[Item.from_clip(primary)]),
+            Track(kind="audio", children=[Item.from_gap(Gap(1.0)), Item.from_clip(audio)]),
+        ]
+    )
+
+    assert stack.link_item(["primary", "audio"]) is None
+    assert maybe_link_group_id(stack.get_item("primary")[2]) is None
+    assert maybe_link_group_id(stack.get_item("audio")[2]) is None
+
+
+def test_linked_insert_uses_normal_primary_insert_on_video_conflict():
+    existing = Clip(5.0, {"DEFAULT_MEDIA": MediaReference("file:///existing.mov")}, id="existing")
+    stack = Stack([Track(kind="video", children=[Item.from_clip(existing)])])
+
+    result = stack.insert_item_at_time(
+        0,
+        1.0,
+        Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///new.mov")}),
+        "override",
+        "split_and_insert",
+        [],
+    )
+
+    assert result is not None
+    items = stack.tracks()[0].items()
+    assert len(items) == 3
+    assert [item.duration() for item in items] == [1.0, 2.0, 2.0]
+    assert items[2].get_id() is not None
+
+
+def test_insert_linked_clip_clamps_against_available_range():
+    stack = Stack([Track(kind="video")])
+    primary_ref = MediaReference("file:///video.mov", media_start=0.0, media_duration=5.0)
+    primary = Clip(10.0, {"DEFAULT_MEDIA": primary_ref})
+
+    result = stack.insert_item_at_time(0, 0.0, primary, "override", "split_and_insert", [])
+
+    assert result is not None
+    assert result["link_group_id"] is None
+    item = next(item for item in stack.tracks()[0].items() if item.is_clip())
+    assert maybe_link_group_id(item) is None
+    assert item.duration() == 5.0
+
+
+def test_insert_item_at_time_can_link_video_clip_for_audio_primary():
+    stack = Stack([Track(kind="audio")])
+
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio"),
+        "override",
+        "split_and_insert",
+        None,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
+    )
+
+    assert result is not None
+    assert result["primary_clip_id"] == "audio"
+    assert result["linked_video_clip_id"] == "video"
+    assert result["created_track_indices"] == [0]
+    assert stack.tracks()[0].kind == "video"
+    assert stack.tracks()[1].kind == "audio"
+    assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
+    assert maybe_link_group_id(stack.get_item("video")[2]) == result["link_group_id"]
+
+
+def test_insert_item_at_index_returns_linked_ids():
+    stack = Stack([Track(kind="video", id="v", children=[Item.from_gap(Gap(5.0))])])
+
+    result = stack.insert_item_at_index(
+        "v",
+        0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio")],
+    )
+
+    assert result is not None
+    assert result["primary_clip_id"] == "primary"
+    assert len(result["audio_clips"]) == 1
+    assert result["created_track_indices"] == [1]
+    assert maybe_link_group_id(stack.get_item("primary")[2]) == result["link_group_id"]
+    assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
+
+
+def test_insert_item_at_time_removes_primary_from_linked_audio_clips():
+    stack = Stack([Track(kind="video")])
+
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///same.mov")}, id="primary")],
+    )
+
+    assert result is not None
+    assert result["audio_clips"] == []
+    assert result["link_group_id"] is None
+    assert len(stack.tracks()) == 1
+    assert stack.get_item("primary") is not None
+
+
+def test_insert_item_at_time_rejects_linked_audio_with_different_duration():
+    stack = Stack([Track(kind="video")])
+
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio")],
+    )
+
+    assert result is None
+    assert len(stack.tracks()) == 1
+    assert stack.get_item("primary") is None
+    assert stack.get_item("audio") is None
+
+
+def test_insert_item_at_time_rejects_linked_video_with_different_duration():
+    stack = Stack([Track(kind="audio")])
+
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio"),
+        "override",
+        "split_and_insert",
+        None,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
+    )
+
+    assert result is None
+    assert len(stack.tracks()) == 1
+    assert stack.tracks()[0].kind == "audio"
+    assert stack.get_item("audio") is None
+    assert stack.get_item("video") is None
+
+
+def test_linked_video_clip_requires_clip_item():
+    stack = Stack([Track(kind="audio", children=[Item.from_gap(Gap(3.0, id="gap"))])])
+
+    assert_type_error_message(
+        lambda: stack.insert_item_at_time(
+            0,
+            0.0,
+            Gap(3.0),
+            "override",
+            "split_and_insert",
+            None,
+            Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}),
+        ),
+        "linked_video_clip can only be used when item is a Clip",
+    )
+
+    assert_type_error_message(
+        lambda: stack.replace_item(
+            "gap",
+            Gap(3.0),
+            None,
+            Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}),
+        ),
+        "linked_video_clip can only be used when item is a Clip",
+    )

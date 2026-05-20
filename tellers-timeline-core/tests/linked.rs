@@ -1,0 +1,999 @@
+use tellers_timeline_core::{
+    Clip, Gap, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, LinkedInsertResult,
+    MediaReference, OverlapPolicy, RationalTime, Stack, TimeRange, Track, TrackKind,
+};
+
+fn range(duration: f64) -> TimeRange {
+    TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: 0.0,
+        },
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: duration,
+        },
+    }
+}
+
+fn media_ref(url: &str, media_id: Option<&str>) -> MediaReference {
+    let metadata = media_id
+        .map(|id| {
+            serde_json::json!({
+                "media_id": id,
+                "tellers.ai": {
+                    "media_id": id
+                }
+            })
+        })
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    MediaReference::ExternalReference {
+        target_url: url.to_string(),
+        available_range: Some(range(100.0)),
+        name: None,
+        available_image_bounds: Some(serde_json::Value::Null),
+        metadata,
+    }
+}
+
+fn clip(duration: f64, id: Option<&str>) -> Clip {
+    Clip::new_single_media_reference(
+        range(duration),
+        media_ref("file:///video.mov", Some("shared-media")),
+        None,
+        id.map(|s| s.to_string()),
+    )
+}
+
+fn audio_clip(duration: f64, url: &str, media_id: Option<&str>) -> Item {
+    Item::Clip(Clip::new_single_media_reference(
+        range(duration),
+        media_ref(url, media_id),
+        None,
+        None,
+    ))
+}
+
+fn clip_with_media_range(
+    duration: f64,
+    source_start: f64,
+    media_start: f64,
+    media_duration: f64,
+) -> Clip {
+    let mut c = clip(duration, None);
+    c.source_range.start_time.value = source_start;
+    c.media_references.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "file:///ranged.mov".to_string(),
+            available_range: Some(TimeRange {
+                otio_schema: "TimeRange.1".to_string(),
+                start_time: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: media_start,
+                },
+                duration: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: media_duration,
+                },
+            }),
+            name: None,
+            available_image_bounds: Some(serde_json::Value::Null),
+            metadata: serde_json::json!({}),
+        },
+    );
+    c
+}
+
+fn link_group_id(item: &Item) -> Option<i64> {
+    match item {
+        Item::Clip(clip) => clip
+            .metadata
+            .get("Resolve_OTIO")
+            .and_then(|v| v.get("Link Group ID"))
+            .and_then(|v| v.as_i64()),
+        Item::Gap(_) => None,
+    }
+}
+
+fn insert_with_audio(
+    stack: &mut Stack,
+    dest_track_index: usize,
+    dest_time: f64,
+    clip: Clip,
+    linked_audio_clips: Vec<Item>,
+) -> Option<LinkedInsertResult> {
+    match stack.insert_item_at_time(
+        dest_track_index,
+        dest_time,
+        Item::Clip(clip),
+        OverlapPolicy::Override,
+        InsertPolicy::InsertBefore,
+        Some(linked_audio_clips),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => Some(result),
+        _ => None,
+    }
+}
+
+#[test]
+fn linked_insert_adds_primary_and_audio_tracks_without_touching_clips() {
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut audio = Track::new(TrackKind::Audio, Some("audio-track".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        2.0,
+        clip(4.0, Some("primary-id")),
+        vec![
+            audio_clip(4.0, "file:///a1.wav", Some("same-media")),
+            audio_clip(4.0, "file:///a2.wav", Some("same-media")),
+        ],
+    )
+    .expect("linked insert should succeed");
+
+    assert_eq!(result.primary_clip_id, "primary-id");
+    assert_eq!(result.audio_clips.len(), 2);
+    assert_eq!(
+        result
+            .audio_clips
+            .iter()
+            .map(|(_, track_index)| *track_index)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert_eq!(result.created_track_indices, vec![2]);
+    assert_eq!(stack.children.len(), 3);
+    assert_eq!(stack.children[2].kind, TrackKind::Audio);
+
+    let primary = stack.get_item("primary-id").unwrap().2;
+    assert_eq!(primary.duration(), 4.0);
+    assert_eq!(link_group_id(primary), result.link_group_id);
+
+    for (audio_id, _track_index) in result.audio_clips {
+        let item = stack.get_item(&audio_id).unwrap().2;
+        assert_eq!(item.duration(), 4.0);
+        assert_eq!(link_group_id(item), result.link_group_id);
+    }
+}
+
+#[test]
+fn linked_insert_creates_audio_track_before_unlinked_boundary_clip() {
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut blocked_audio = Track::new(TrackKind::Audio, Some("blocked-audio".to_string()));
+    blocked_audio.items.push(audio_clip(4.0, "file:///existing.wav", None));
+
+    let mut later_audio = Track::new(TrackKind::Audio, Some("later-audio".to_string()));
+    later_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    stack.children.push(blocked_audio);
+    stack.children.push(later_audio);
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///linked.wav", None)],
+    )
+    .expect("linked insert should create a track before the unlinked clip");
+
+    assert_eq!(result.created_track_indices, vec![1]);
+    assert_eq!(result.audio_clips[0].1, 1);
+    assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    assert_eq!(
+        stack.children[2].get_id().as_deref(),
+        Some("blocked-audio")
+    );
+    assert_eq!(stack.children[3].get_id().as_deref(), Some("later-audio"));
+}
+
+#[test]
+fn linked_insert_regenerates_colliding_timeline_ids_and_preserves_media_id() {
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    let existing = clip(1.0, Some("duplicate-id"));
+    video.items.push(Item::Clip(existing));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        1.0,
+        clip(2.0, Some("duplicate-id")),
+        vec![audio_clip(2.0, "file:///a1.wav", Some("shared-media"))],
+    )
+    .expect("linked insert should create an audio track");
+
+    assert_ne!(result.primary_clip_id, "duplicate-id");
+    assert_eq!(
+        stack.children[0].items[0].get_id().as_deref(),
+        Some("duplicate-id")
+    );
+
+    let audio_item = stack.children[result.audio_clips[0].1]
+        .items
+        .iter()
+        .find(|item| matches!(item, Item::Clip(_)))
+        .expect("expected audio clip");
+    let Item::Clip(audio_clip) = audio_item else {
+        panic!("expected audio clip");
+    };
+    let media = audio_clip.media_references.get("DEFAULT_MEDIA").unwrap();
+    assert_eq!(
+        media
+            .metadata()
+            .get("tellers.ai")
+            .and_then(|v| v.get("media_id"))
+            .and_then(|v| v.as_str()),
+        Some("shared-media")
+    );
+    assert_eq!(
+        media.metadata().get("media_id").and_then(|v| v.as_str()),
+        Some("shared-media")
+    );
+}
+
+#[test]
+fn linked_insert_uses_normal_primary_insert_on_video_conflict() {
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Clip(clip(5.0, Some("existing"))));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+
+    let result = insert_with_audio(&mut stack, 0, 1.0, clip(2.0, None), vec![]);
+
+    assert!(result.is_some());
+    assert_eq!(stack.children[0].items.len(), 2);
+    assert_eq!(stack.children[0].items[0].duration(), 2.0);
+    assert_eq!(stack.children[0].items[1].duration(), 3.0);
+    assert!(stack.children[0].items[1].get_id().is_some());
+}
+
+#[test]
+fn insert_into_linked_clip_adds_spacer_gap_on_same_link_group_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+    let first = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("primary")),
+        vec![audio_clip(4.0, "file:///audio.wav", None)],
+    )
+    .unwrap();
+
+    let result = stack.insert_item_at_time(
+        0,
+        1.0,
+        Item::Clip(clip(1.0, Some("inserted"))),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+        None,
+        None,
+    );
+
+    assert!(matches!(result, Some(InsertItemAtTimeResult::Linked(_))));
+    assert_eq!(stack.get_item("inserted").unwrap().0, 0);
+    let audio_track = &stack.children[first.audio_clips[0].1];
+    let spacer_index = audio_track.get_item_at_time(1.0).unwrap();
+    assert!(matches!(audio_track.items[spacer_index], Item::Gap(_)));
+    assert_eq!(audio_track.items[spacer_index].duration(), 1.0);
+}
+
+#[test]
+fn insert_into_linked_clip_replaces_same_link_group_spacer_with_new_linked_audio() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("primary")),
+        vec![audio_clip(4.0, "file:///audio.wav", None)],
+    )
+    .unwrap();
+
+    let result = match stack.insert_item_at_time(
+        0,
+        1.0,
+        Item::Clip(clip(1.0, Some("inserted"))),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+        Some(vec![audio_clip(1.0, "file:///new-audio.wav", None)]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("expected linked result"),
+    };
+
+    let (audio_id, audio_track_index) = &result.audio_clips[0];
+    assert_eq!(stack.get_item(audio_id).unwrap().0, *audio_track_index);
+    let audio_track = &stack.children[*audio_track_index];
+    let audio_index = audio_track.get_item_at_time(1.0).unwrap();
+    assert_eq!(audio_track.items[audio_index].get_id().as_ref(), Some(audio_id));
+    assert_eq!(audio_track.items[audio_index].duration(), 1.0);
+    assert_eq!(
+        link_group_id(&audio_track.items[audio_index]),
+        result.link_group_id
+    );
+}
+
+#[test]
+fn linked_insert_clamps_primary_clip_to_active_available_range() {
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip_with_media_range(10.0, 2.0, 0.0, 5.0),
+        vec![],
+    )
+    .expect("insert should clamp and succeed");
+
+    let item = stack.children[0]
+        .items
+        .iter()
+        .find(|item| matches!(item, Item::Clip(_)))
+        .unwrap();
+    let Item::Clip(clip) = item else {
+        panic!("expected clip");
+    };
+    assert_eq!(result.primary_clip_id, clip.get_id().unwrap());
+    assert_eq!(clip.source_range.start_time.value, 2.0);
+    assert_eq!(clip.source_range.duration.value, 3.0);
+    assert_eq!(result.link_group_id, None);
+    assert_eq!(link_group_id(item), None);
+}
+
+#[test]
+fn linked_insert_rejects_linked_audio_with_different_duration() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let original = stack.clone();
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(8.0, Some("primary")),
+        vec![Item::Clip(Clip::new_single_media_reference(
+            range(8.0),
+            MediaReference::ExternalReference {
+                target_url: "file:///short-audio.wav".to_string(),
+                available_range: Some(range(3.0)),
+                name: None,
+                available_image_bounds: Some(serde_json::Value::Null),
+                metadata: serde_json::json!({}),
+            },
+            None,
+            None,
+        ))],
+    )
+    .is_none();
+
+    assert!(result);
+    assert_eq!(stack.children, original.children);
+}
+
+#[test]
+fn linked_insert_rejects_linked_video_with_different_duration() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+    let original = stack.clone();
+
+    let result = stack.insert_item_at_time(
+        0,
+        0.0,
+        audio_clip(4.0, "file:///audio.wav", None),
+        OverlapPolicy::Override,
+        InsertPolicy::InsertBefore,
+        None,
+        Some(Item::Clip(clip(3.0, Some("video")))),
+    );
+
+    assert!(result.is_none());
+    assert_eq!(stack.children, original.children);
+}
+
+#[test]
+fn linked_insert_can_add_video_for_audio_primary() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+
+    let result = match stack.insert_item_at_time(
+        0,
+        0.0,
+        audio_clip(4.0, "file:///audio.wav", None),
+        OverlapPolicy::Override,
+        InsertPolicy::InsertBefore,
+        None,
+        Some(Item::Clip(clip(4.0, Some("video")))),
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("linked insert should succeed"),
+    };
+
+    assert_eq!(result.linked_video_clip_id.as_deref(), Some("video"));
+    assert_eq!(result.created_track_indices, vec![0]);
+    assert_eq!(stack.children[0].kind, TrackKind::Video);
+    assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    assert_eq!(
+        link_group_id(stack.get_item(&result.primary_clip_id).unwrap().2),
+        result.link_group_id
+    );
+    assert_eq!(
+        link_group_id(stack.get_item("video").unwrap().2),
+        result.link_group_id
+    );
+}
+
+#[test]
+fn linked_insert_at_index_adds_audio_companion() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(5.0)));
+    stack.children.push(video);
+
+    let result = match stack.insert_item_at_index(
+        "v",
+        0,
+        Item::Clip(clip(3.0, Some("primary"))),
+        OverlapPolicy::Override,
+        Some(vec![audio_clip(3.0, "file:///audio.wav", None)]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("linked index insert should succeed"),
+    };
+
+    assert_eq!(result.primary_clip_id, "primary");
+    assert_eq!(result.audio_clips.len(), 1);
+    assert_eq!(result.created_track_indices, vec![1]);
+    assert_eq!(
+        link_group_id(stack.get_item("primary").unwrap().2),
+        result.link_group_id
+    );
+    assert_eq!(
+        link_group_id(stack.get_item(&result.audio_clips[0].0).unwrap().2),
+        result.link_group_id
+    );
+}
+
+#[test]
+fn linked_insert_removes_primary_from_linked_audio_inputs() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", Some("media"))],
+    )
+    .unwrap();
+
+    // Sanity check helper still creates a companion when the id is distinct.
+    assert_eq!(result.audio_clips.len(), 1);
+
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![Item::Clip(clip(3.0, Some("primary")))],
+    )
+    .unwrap();
+
+    assert!(result.audio_clips.is_empty());
+    assert_eq!(result.link_group_id, None);
+    assert_eq!(stack.children.len(), 1);
+}
+
+#[test]
+fn linked_insert_fails_when_available_range_leaves_zero_duration() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+    stack.children.push(video.clone());
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip_with_media_range(2.0, 10.0, 0.0, 5.0),
+        vec![],
+    );
+
+    assert!(result.is_none());
+    assert_eq!(stack.children, vec![video]);
+}
+
+#[test]
+fn linked_delete_can_remove_entire_link_group() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+
+    let removed = stack.delete_item("primary", true);
+    assert_eq!(removed.len(), 2);
+    assert!(stack.children[0]
+        .items
+        .iter()
+        .all(|item| matches!(item, Item::Gap(_))));
+    assert!(stack.children[result.audio_clips[0].1]
+        .items
+        .iter()
+        .all(|item| matches!(item, Item::Gap(_))));
+
+    let gap_ids: Vec<_> = stack
+        .children
+        .iter()
+        .flat_map(|track| track.items.iter())
+        .filter_map(|item| item.get_id())
+        .collect();
+    let unique: std::collections::HashSet<_> = gap_ids.iter().collect();
+    assert_eq!(gap_ids.len(), unique.len());
+}
+
+#[test]
+fn linked_delete_removes_video_asset_linked_to_audio_primary() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+
+    let result = match stack.insert_item_at_time(
+        0,
+        0.0,
+        audio_clip(4.0, "file:///audio.wav", None),
+        OverlapPolicy::Override,
+        InsertPolicy::InsertBefore,
+        None,
+        Some(Item::Clip(clip(4.0, Some("video")))),
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("linked insert should succeed"),
+    };
+
+    let removed = stack.delete_item(&result.primary_clip_id, true);
+
+    assert_eq!(removed.len(), 2);
+    assert!(stack.get_item(&result.primary_clip_id).is_none());
+    assert!(stack.get_item("video").is_none());
+    assert!(stack
+        .children
+        .iter()
+        .all(|track| track.items.iter().all(|item| matches!(item, Item::Gap(_)))));
+}
+
+#[test]
+fn linked_delete_keeps_touched_tracks_without_remaining_clips() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+
+    let removed = stack.delete_item("primary", true);
+
+    assert_eq!(removed.len(), 2);
+    assert_eq!(stack.children.len(), 2);
+    assert!(stack
+        .children
+        .iter()
+        .all(|track| track.items.iter().all(|item| matches!(item, Item::Gap(_)))));
+}
+
+#[test]
+fn delete_track_cleans_singleton_link_group_left_behind() {
+    let mut stack = Stack::default();
+    let video = Track::new(TrackKind::Video, Some("v".to_string()));
+    let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    let removed = stack.delete_track("v").unwrap();
+
+    assert_eq!(removed.get_id().as_deref(), Some("v"));
+    assert_eq!(stack.children.len(), 1);
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("a"));
+    assert_eq!(link_group_id(stack.get_item(&audio_id).unwrap().2), None);
+}
+
+#[test]
+fn track_timeline_ids_returns_child_item_ids_in_order() {
+    let mut track = Track::new(TrackKind::Video, Some("track".to_string()));
+    track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));
+    track
+        .items
+        .push(Item::Gap(Gap::new(1.0, Some("gap-1".to_string()))));
+    track.items.push(Item::Clip(clip(1.0, Some("clip-2"))));
+
+    assert_eq!(track.timeline_ids(), vec!["clip-1", "gap-1", "clip-2"]);
+}
+
+#[test]
+fn replace_item_updates_linked_group_duration_and_preserves_identity() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.replace_item(
+        "primary",
+        Item::Clip(clip(5.0, Some("replacement"))),
+        None,
+        None,
+    ));
+
+    let primary = stack.get_item("primary").unwrap().2;
+    let audio = stack.get_item(&audio_id).unwrap().2;
+    assert_eq!(primary.get_id().as_deref(), Some("primary"));
+    assert_eq!(primary.duration(), 5.0);
+    assert_eq!(audio.duration(), 5.0);
+    assert_eq!(link_group_id(primary), result.link_group_id);
+    assert_eq!(link_group_id(audio), result.link_group_id);
+    assert!(stack.get_item("replacement").is_none());
+}
+
+#[test]
+fn replace_item_can_add_linked_audio_clip() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    assert!(
+        stack.replace_item(
+            "primary",
+            Item::Clip(clip(3.0, Some("replacement"))),
+            Some(vec![audio_clip(3.0, "file:///a1.wav", None)]),
+            None,
+        ) == false
+    );
+
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("primary"))));
+
+    assert!(stack.replace_item(
+        "primary",
+        Item::Clip(clip(3.0, Some("replacement"))),
+        Some(vec![audio_clip(3.0, "file:///a1.wav", None)]),
+        None,
+    ));
+
+    let primary = stack.get_item("primary").unwrap().2;
+    let group = link_group_id(primary);
+    assert!(group.is_some());
+    assert_eq!(stack.children.len(), 2);
+    assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    let audio = stack.children[1]
+        .items
+        .iter()
+        .find(|item| matches!(item, Item::Clip(_)))
+        .unwrap();
+    assert_eq!(audio.duration(), 3.0);
+    assert_eq!(link_group_id(audio), group);
+}
+
+#[test]
+fn replace_item_can_add_audio_past_same_link_clip() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(10.0)));
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let first_audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.replace_item(
+        "primary",
+        Item::Clip(clip(3.0, Some("replacement"))),
+        Some(vec![audio_clip(3.0, "file:///a2.wav", None)]),
+        None,
+    ));
+
+    assert_eq!(stack.get_item(&first_audio_id).unwrap().0, 1);
+    assert_eq!(stack.children.len(), 3);
+    assert_eq!(stack.children[2].kind, TrackKind::Audio);
+    assert_eq!(
+        stack.children[2]
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::Clip(_)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn replace_item_removes_replacement_from_linked_audio_inputs() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("primary"))));
+
+    assert!(stack.replace_item(
+        "primary",
+        Item::Clip(clip(3.0, Some("replacement"))),
+        Some(vec![audio_clip(3.0, "file:///a1.wav", None), Item::Clip(clip(3.0, Some("replacement")))]),
+        None,
+    ));
+
+    assert_eq!(stack.children.len(), 2);
+    assert!(stack.get_item("replacement").is_none());
+    assert_eq!(
+        stack.children[1]
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::Clip(_)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn replace_item_rejects_linked_audio_with_different_duration() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("primary"))));
+    let original = stack.clone();
+
+    assert!(!stack.replace_item(
+        "primary",
+        Item::Clip(clip(3.0, Some("replacement"))),
+        Some(vec![audio_clip(2.0, "file:///a1.wav", None)]),
+        None,
+    ));
+    assert_eq!(stack.children, original.children);
+}
+
+#[test]
+fn replace_item_rejects_linked_video_with_different_duration() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+    stack.children[0]
+        .items
+        .push(audio_clip(4.0, "file:///audio.wav", None));
+    stack.children[0].items[0].set_id(Some("audio".to_string()));
+    let original = stack.clone();
+
+    assert!(!stack.replace_item(
+        "audio",
+        audio_clip(4.0, "file:///replacement.wav", None),
+        None,
+        Some(Item::Clip(clip(3.0, Some("video")))),
+    ));
+    assert_eq!(stack.children, original.children);
+}
+
+#[test]
+fn replace_item_can_add_linked_video_clip_for_audio() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+    stack.children[0]
+        .items
+        .push(audio_clip(4.0, "file:///audio.wav", None));
+    stack.children[0].items[0].set_id(Some("audio".to_string()));
+
+    assert!(stack.replace_item(
+        "audio",
+        audio_clip(4.0, "file:///replacement.wav", None),
+        None,
+        Some(Item::Clip(clip(4.0, Some("video")))),
+    ));
+
+    assert_eq!(stack.children[0].kind, TrackKind::Video);
+    assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    let audio = stack.get_item("audio").unwrap().2;
+    let video = stack.get_item("video").unwrap().2;
+    assert_eq!(link_group_id(audio), link_group_id(video));
+    assert!(link_group_id(audio).is_some());
+}
+
+#[test]
+fn unlink_item_accepts_multiple_ids_and_cleans_singletons() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+    let mut audio_one = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio_one.items.push(Item::Gap(Gap::make_gap(10.0)));
+    let mut audio_two = Track::new(TrackKind::Audio, Some("a2".to_string()));
+    audio_two.items.push(Item::Gap(Gap::make_gap(10.0)));
+    stack.children.push(video);
+    stack.children.push(audio_one);
+    stack.children.push(audio_two);
+
+    let first = insert_with_audio(
+        &mut stack,
+        0,
+        1.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let second = insert_with_audio(
+        &mut stack,
+        0,
+        5.0,
+        clip(2.0, Some("primary-2")),
+        vec![audio_clip(2.0, "file:///a2.wav", None)],
+    )
+    .unwrap();
+
+    assert_eq!(
+        stack.unlink_item(&["primary".to_string(), "primary-2".to_string()]),
+        4
+    );
+
+    assert_eq!(link_group_id(stack.get_item("primary").unwrap().2), None);
+    assert_eq!(
+        link_group_id(stack.get_item(&first.audio_clips[0].0).unwrap().2),
+        None
+    );
+    assert_eq!(link_group_id(stack.get_item("primary-2").unwrap().2), None);
+    assert_eq!(
+        link_group_id(stack.get_item(&second.audio_clips[0].0).unwrap().2),
+        None
+    );
+}
+
+#[test]
+fn link_item_links_arbitrary_existing_clips_with_new_group() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(3.0, Some("primary"))));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio.items.push(Item::Clip(clip(3.0, Some("audio"))));
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    let group = stack
+        .link_item(&["primary".to_string(), "audio".to_string()])
+        .unwrap();
+
+    assert_eq!(
+        link_group_id(stack.get_item("primary").unwrap().2),
+        Some(group)
+    );
+    assert_eq!(
+        link_group_id(stack.get_item("audio").unwrap().2),
+        Some(group)
+    );
+}
+
+#[test]
+fn link_item_rejects_items_with_different_boundaries() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(3.0, Some("primary"))));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(1.0)));
+    audio.items.push(Item::Clip(clip(3.0, Some("audio"))));
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    assert_eq!(
+        stack.link_item(&["primary".to_string(), "audio".to_string()]),
+        None
+    );
+    assert_eq!(link_group_id(stack.get_item("primary").unwrap().2), None);
+    assert_eq!(link_group_id(stack.get_item("audio").unwrap().2), None);
+}

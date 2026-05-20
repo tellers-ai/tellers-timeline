@@ -1,0 +1,61 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Run tests (current file)",
+      "command": "${workspaceFolder}/.vscode/run-test.sh ${relativeFile}",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Rust: linked integration tests",
+      "command": "cargo test -p tellers-timeline-core --test linked -- --nocapture",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Examples: linked insert at time",
+      "command": "${workspaceFolder}/.vscode/run-linked-examples.sh insert-time",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Examples: linked insert at index",
+      "command": "${workspaceFolder}/.vscode/run-linked-examples.sh insert-index",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Examples: linked replace",
+      "command": "${workspaceFolder}/.vscode/run-linked-examples.sh replace",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Examples: all linked clip flows",
+      "command": "${workspaceFolder}/.vscode/run-linked-examples.sh all",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "Rust: all core tests",
+      "command": "cargo test -p tellers-timeline-core -- --nocapture",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
+      "name": "All tests (just test-all)",
+      "command": "just test-all",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
