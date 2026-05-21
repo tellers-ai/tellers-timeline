@@ -20,6 +20,30 @@ pub enum InsertItemAtTimeResult {
     Linked(LinkedInsertResult),
 }
 
+#[derive(Debug, Clone)]
+struct LinkedInputs {
+    audio: Vec<Item>,
+    video: Option<Item>,
+}
+
+#[derive(Debug, Clone)]
+struct LinkedMoveItem {
+    track_index: usize,
+    item_index: usize,
+    item: Item,
+    is_selected: bool,
+}
+
+enum LinkedMovePlacement {
+    Time {
+        dest_time: Seconds,
+        insert_policy: InsertPolicy,
+    },
+    Index {
+        dest_index: usize,
+    },
+}
+
 fn clamp_insertion_index(len: usize, index: isize) -> usize {
     if index < 0 {
         let pos = len as isize + index;
@@ -384,12 +408,8 @@ impl Stack {
         (duration > EPS).then_some(duration)
     }
 
-    fn linked_inputs_match_duration(
-        duration: Seconds,
-        linked_audio_clips: &[Item],
-        linked_video_clip: &Option<Item>,
-    ) -> bool {
-        if let Some(video_item) = linked_video_clip {
+    fn linked_inputs_match_duration(duration: Seconds, inputs: &LinkedInputs) -> bool {
+        if let Some(video_item) = &inputs.video {
             let Some(video_duration) = Self::sanitized_clip_duration(video_item) else {
                 return false;
             };
@@ -398,7 +418,7 @@ impl Stack {
             }
         }
 
-        for audio_item in linked_audio_clips {
+        for audio_item in &inputs.audio {
             let Some(audio_duration) = Self::sanitized_clip_duration(audio_item) else {
                 return false;
             };
@@ -410,23 +430,40 @@ impl Stack {
         true
     }
 
-    fn remove_item_id_from_linked_inputs(
-        item_id: &Option<String>,
+    fn same_item_content_ignoring_timeline_id(left: &Item, right: &Item) -> bool {
+        let mut left = left.clone();
+        let mut right = right.clone();
+        left.set_id(None);
+        right.set_id(None);
+        left == right
+    }
+
+    fn remove_item_from_linked_inputs(
+        item: &Item,
         linked_audio_clips: &mut Vec<Item>,
         linked_video_clip: &mut Option<Item>,
     ) {
-        let Some(item_id) = item_id.as_deref().filter(|id| !id.is_empty()) else {
-            return;
-        };
-        linked_audio_clips.retain(|item| item.get_id().as_deref() != Some(item_id));
+        linked_audio_clips
+            .retain(|linked_item| !Self::same_item_content_ignoring_timeline_id(item, linked_item));
         if linked_video_clip
             .as_ref()
-            .and_then(|item| item.get_id())
-            .as_deref()
-            == Some(item_id)
+            .is_some_and(|linked_item| Self::same_item_content_ignoring_timeline_id(item, linked_item))
         {
             *linked_video_clip = None;
         }
+    }
+
+    fn normalize_linked_inputs(
+        item: &Item,
+        linked_audio_clips: Option<Vec<Item>>,
+        linked_video_clip: Option<Item>,
+    ) -> LinkedInputs {
+        let mut inputs = LinkedInputs {
+            audio: linked_audio_clips.unwrap_or_default(),
+            video: linked_video_clip,
+        };
+        Self::remove_item_from_linked_inputs(item, &mut inputs.audio, &mut inputs.video);
+        inputs
     }
 
     fn has_linked_inputs(
@@ -581,32 +618,23 @@ impl Stack {
         linked_audio_clips: Option<Vec<Item>>,
         linked_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
-        let primary_id = item.get_id();
+        let primary_item = item.clone();
         let Item::Clip(mut primary_clip) = item else {
             return None;
         };
-        let mut linked_audio_clips = linked_audio_clips.unwrap_or_default();
-        let mut linked_video_clip = linked_video_clip;
-        Self::remove_item_id_from_linked_inputs(
-            &primary_id,
-            &mut linked_audio_clips,
-            &mut linked_video_clip,
-        );
+        let linked_inputs =
+            Self::normalize_linked_inputs(&primary_item, linked_audio_clips, linked_video_clip);
         clamp_clip_to_active_available_range(&mut primary_clip);
         let modified_duration = primary_clip.source_range.duration.value.max(0.0);
         if modified_duration <= EPS {
             return None;
         }
 
-        if !Self::linked_inputs_match_duration(
-            modified_duration,
-            &linked_audio_clips,
-            &linked_video_clip,
-        ) {
+        if !Self::linked_inputs_match_duration(modified_duration, &linked_inputs) {
             return None;
         }
 
-        if linked_video_clip.is_some()
+        if linked_inputs.video.is_some()
             && self.children[dest_track_index].kind != TrackKind::Audio
         {
             return None;
@@ -627,7 +655,7 @@ impl Stack {
 
         let backup = self.clone();
         let mut used_ids = self.collect_timeline_ids();
-        let has_linked_clips = !linked_audio_clips.is_empty() || linked_video_clip.is_some();
+        let has_linked_clips = !linked_inputs.audio.is_empty() || linked_inputs.video.is_some();
         let link_group_id = has_linked_clips.then(|| self.next_link_group_id());
         primary_clip.source_range.duration.value = modified_duration;
         let (primary_item, primary_clip_id) = Self::prepare_linked_item(
@@ -675,7 +703,7 @@ impl Stack {
             );
         }
         let mut linked_video_clip_id = None;
-        if let Some(video_item) = linked_video_clip {
+        if let Some(video_item) = linked_inputs.video {
             let track_count_before_video = self.children.len();
             let mut used_existing_spacer = false;
             let video_track_index = if let Some(position) = spacer_track_indices
@@ -733,7 +761,7 @@ impl Stack {
             linked_video_clip_id = Some(_video_id);
         }
 
-        for audio_item in linked_audio_clips {
+        for audio_item in linked_inputs.audio {
             let used_audio_track_indices: Vec<_> = audio_clips
                 .iter()
                 .map(|(_, track_index)| *track_index)
@@ -911,22 +939,16 @@ impl Stack {
             Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
             Item::Gap(_) => None,
         };
-        let replacement_id = item.get_id();
-        let mut linked_audio_clips = linked_audio_clips.unwrap_or_default();
-        let mut linked_video_clip = linked_video_clip;
-        Self::remove_item_id_from_linked_inputs(
-            &replacement_id,
-            &mut linked_audio_clips,
-            &mut linked_video_clip,
-        );
-        if linked_video_clip.is_some()
+        let linked_inputs =
+            Self::normalize_linked_inputs(&item, linked_audio_clips, linked_video_clip);
+        if linked_inputs.video.is_some()
             && self.children[selected_track_index].kind != TrackKind::Audio
         {
             return false;
         }
         let should_link = selected_link_group.is_some()
-            || !linked_audio_clips.is_empty()
-            || linked_video_clip.is_some();
+            || !linked_inputs.audio.is_empty()
+            || linked_inputs.video.is_some();
         let link_group =
             selected_link_group.or_else(|| should_link.then(|| self.next_link_group_id()));
         let targets = selected_link_group
@@ -954,11 +976,7 @@ impl Stack {
         } else {
             replacement_item.duration().max(0.0)
         };
-        if !Self::linked_inputs_match_duration(
-            replacement_duration,
-            &linked_audio_clips,
-            &linked_video_clip,
-        ) {
+        if !Self::linked_inputs_match_duration(replacement_duration, &linked_inputs) {
             return false;
         }
 
@@ -1000,7 +1018,7 @@ impl Stack {
         let mut used_ids = self.collect_timeline_ids();
         let mut primary_track_index = selected_track_index;
         let mut created_track_indices = Vec::new();
-        if let Some(video_item) = linked_video_clip {
+        if let Some(video_item) = linked_inputs.video {
             let track_count_before_video = self.children.len();
             let Some(video_track_index) = self.find_or_create_video_track_for_audio(
                 primary_track_index,
@@ -1034,7 +1052,7 @@ impl Stack {
         }
 
         let mut inserted_audio_tracks = Vec::new();
-        for audio_item in linked_audio_clips {
+        for audio_item in linked_inputs.audio {
             let Some(audio_track_index) = self.find_or_create_audio_track(
                 primary_track_index,
                 selected_start,
@@ -1080,6 +1098,130 @@ impl Stack {
             }
         }
         None
+    }
+
+    fn remove_item_at_for_move(
+        &mut self,
+        track_index: usize,
+        item_index: usize,
+        replace_with_gap: bool,
+        used_ids: &mut HashSet<String>,
+    ) -> bool {
+        let Some(track) = self.children.get_mut(track_index) else {
+            return false;
+        };
+        if item_index >= track.items.len() {
+            return false;
+        }
+        let removed = track.items.remove(item_index);
+        let duration = removed.duration().max(0.0);
+        if replace_with_gap && duration > EPS {
+            let mut gap = Item::Gap(crate::Gap::make_gap(duration));
+            Self::ensure_unique_item_id(&mut gap, used_ids);
+            track.items.insert(item_index.min(track.items.len()), gap);
+            track.merge_adjacent_gaps();
+        }
+        true
+    }
+
+    fn linked_move_items(&self, item_id: &str) -> Option<Vec<LinkedMoveItem>> {
+        let (selected_track_index, selected_item_index, selected_item) = self.get_item(item_id)?;
+        let link_group_id = match selected_item {
+            Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
+            Item::Gap(_) => None,
+        }?;
+        let targets = self.linked_group_targets(link_group_id);
+        if targets.len() <= 1 {
+            return None;
+        }
+
+        let mut items = Vec::new();
+        for (track_index, item_index) in targets {
+            let item = self.children.get(track_index)?.items.get(item_index)?.clone();
+            let is_selected =
+                track_index == selected_track_index && item_index == selected_item_index;
+            items.push(LinkedMoveItem {
+                track_index,
+                item_index,
+                item,
+                is_selected,
+            });
+        }
+        Some(items)
+    }
+
+    fn move_linked_items(
+        &mut self,
+        items_to_move: Vec<LinkedMoveItem>,
+        dest_track_index: usize,
+        replace_with_gap: bool,
+        overlap_policy: OverlapPolicy,
+        placement: LinkedMovePlacement,
+    ) -> bool {
+        let backup = self.clone();
+        let Some(selected_item) = items_to_move.iter().find(|item| item.is_selected) else {
+            return false;
+        };
+        let Some(selected_id) = selected_item.item.get_id() else {
+            return false;
+        };
+
+        let mut used_ids = self.collect_timeline_ids();
+        let mut targets: Vec<_> = items_to_move
+            .iter()
+            .map(|item| (item.track_index, item.item_index))
+            .collect();
+        targets.sort_by(|a, b| b.cmp(a));
+        for (track_index, item_index) in targets {
+            if !self.remove_item_at_for_move(
+                track_index,
+                item_index,
+                replace_with_gap,
+                &mut used_ids,
+            ) {
+                *self = backup;
+                return false;
+            }
+        }
+
+        match placement {
+            LinkedMovePlacement::Time {
+                dest_time,
+                insert_policy,
+            } => self.children[dest_track_index].insert_at_time(
+                dest_time,
+                selected_item.item.clone(),
+                overlap_policy,
+                insert_policy,
+            ),
+            LinkedMovePlacement::Index { dest_index } => self.children[dest_track_index]
+                .insert_at_index(dest_index, selected_item.item.clone(), overlap_policy),
+        }
+        let Some((selected_track_index, selected_item_index, _)) = self.get_item(&selected_id)
+        else {
+            *self = backup;
+            return false;
+        };
+        let moved_start =
+            self.children[selected_track_index].start_time_of_item(selected_item_index);
+
+        for move_item in items_to_move {
+            if move_item.is_selected {
+                continue;
+            }
+            let Some(track) = self.children.get_mut(move_item.track_index) else {
+                *self = backup;
+                return false;
+            };
+            track.insert_at_time(
+                moved_start,
+                move_item.item,
+                overlap_policy,
+                InsertPolicy::SplitAndInsert,
+            );
+        }
+
+        true
     }
 
     /// Insert an item at a given time into the track at `dest_track_index`.
@@ -1196,6 +1338,18 @@ impl Stack {
             Some((i, _)) => i,
             None => return false,
         };
+        if let Some(items_to_move) = self.linked_move_items(item_id) {
+            return self.move_linked_items(
+                items_to_move,
+                dest_track_index,
+                replace_with_gap,
+                overlap_policy,
+                LinkedMovePlacement::Time {
+                    dest_time,
+                    insert_policy,
+                },
+            );
+        }
 
         let backup = self.clone();
         if self.delete_one_item(item_id, replace_with_gap).is_none() {
@@ -1237,6 +1391,20 @@ impl Stack {
         };
 
         let backup = self.clone();
+        let dest_track_index = match self.get_track_by_id(dest_track_id) {
+            Some((i, _)) => i,
+            None => return false,
+        };
+        if let Some(items_to_move) = self.linked_move_items(item_id) {
+            return self.move_linked_items(
+                items_to_move,
+                dest_track_index,
+                replace_with_gap,
+                overlap_policy,
+                LinkedMovePlacement::Index { dest_index },
+            );
+        }
+
         if self.delete_one_item(item_id, replace_with_gap).is_none() {
             return false;
         }
