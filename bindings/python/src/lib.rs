@@ -1088,6 +1088,9 @@ impl PyStack {
             .inner
             .move_item_at_index(item_id, dest_track_id, dest_index, replace_with_gap, op))
     }
+    fn split_item_at_time(&mut self, item_id: &str, split_time: f64) -> bool {
+        self.inner.split_item_at_time(item_id, split_time)
+    }
     #[pyo3(signature = (item_id, item, linked_audio_clips=None, linked_video_clip=None))]
     fn replace_item(
         &mut self,

@@ -247,6 +247,7 @@ class Stack:
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
     ) -> bool: ...
+    def split_item_at_time(self, item_id: str, split_time: float) -> bool: ...
     def replace_item(
         self,
         item_id: str,

@@ -421,6 +421,71 @@ def test_replace_item_removes_replacement_content_from_linked_inputs():
     assert stack.get_item("replacement") is None
 
 
+def test_split_item_at_time_splits_linked_group():
+    stack = Stack([Track(kind="video"), Track(kind="audio")])
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    audio_id = result["audio_clips"][0][0]
+
+    assert stack.split_item_at_time("primary", 2.0)
+
+    video_track, _, _ = stack.get_item("primary")
+    audio_track, _, _ = stack.get_item(audio_id)
+    assert len([item for item in stack.tracks()[video_track].items() if item.is_clip()]) == 2
+    assert len([item for item in stack.tracks()[audio_track].items() if item.is_clip()]) == 2
+    assert stack.tracks()[video_track].items()[0].duration() == 2.0
+    assert stack.tracks()[video_track].items()[1].duration() == 2.0
+    assert stack.tracks()[audio_track].items()[0].duration() == 2.0
+    assert stack.tracks()[audio_track].items()[1].duration() == 2.0
+    assert maybe_link_group_id(stack.tracks()[video_track].items()[0]) == result["link_group_id"]
+    assert maybe_link_group_id(stack.tracks()[video_track].items()[1]) == result["link_group_id"]
+    assert maybe_link_group_id(stack.tracks()[audio_track].items()[0]) == result["link_group_id"]
+    assert maybe_link_group_id(stack.tracks()[audio_track].items()[1]) == result["link_group_id"]
+
+
+def test_split_unlinked_item_only_splits_selected_track():
+    stack = Stack(
+        [
+            Track(
+                kind="video",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            4.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///video.mov")},
+                            id="primary",
+                        )
+                    )
+                ],
+            ),
+            Track(
+                kind="audio",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            4.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")},
+                            id="unlinked-audio",
+                        )
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert stack.split_item_at_time("primary", 2.0)
+
+    assert len([item for item in stack.tracks()[0].items() if item.is_clip()]) == 2
+    assert len([item for item in stack.tracks()[1].items() if item.is_clip()]) == 1
+    assert stack.get_item("unlinked-audio") is not None
+
+
 def test_replace_item_rejects_linked_audio_with_different_duration():
     stack = Stack(
         [
