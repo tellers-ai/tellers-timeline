@@ -42,6 +42,33 @@ fn all_stack_ids(stack: &Stack) -> Vec<String> {
 }
 
 #[test]
+fn track_sanitize_removes_trailing_gap_after_merging() {
+    let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
+    track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));
+    track.items.push(Item::Gap(Gap::make_gap(1.0)));
+    track.items.push(Item::Gap(Gap::make_gap(2.0)));
+
+    track.sanitize();
+
+    assert_eq!(track.items.len(), 1);
+    assert_eq!(track.items[0].get_id().as_deref(), Some("clip-1"));
+}
+
+#[test]
+fn track_sanitize_keeps_interior_gap() {
+    let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
+    track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));
+    track.items.push(Item::Gap(Gap::make_gap(2.0)));
+    track.items.push(Item::Clip(clip(1.0, Some("clip-2"))));
+
+    track.sanitize();
+
+    assert_eq!(track.items.len(), 3);
+    assert!(matches!(track.items[1], Item::Gap(_)));
+    assert_eq!(track.items[1].duration(), 2.0);
+}
+
+#[test]
 fn stack_sanitize_assigns_missing_timeline_ids_and_repairs_duplicates() {
     let mut first = Track::new(TrackKind::Video, Some("same-id".to_string()));
     first.set_id(None);

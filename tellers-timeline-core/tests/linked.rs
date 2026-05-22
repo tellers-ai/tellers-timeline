@@ -1656,7 +1656,7 @@ fn resize_linked_item_override_updates_linked_assets_of_trimmed_group() {
 }
 
 #[test]
-fn modify_item_right_shrink_leaves_gap_on_linked_group() {
+fn modify_item_right_shrink_removes_trailing_gap_on_linked_group() {
     let mut stack = Stack::default();
     stack
         .children
@@ -1680,14 +1680,7 @@ fn modify_item_right_shrink_leaves_gap_on_linked_group() {
             0.0
         );
         assert_eq!(item.duration(), 3.0);
-        assert!(matches!(
-            stack.children[track_index].items[item_index + 1],
-            Item::Gap(_)
-        ));
-        assert_eq!(
-            stack.children[track_index].items[item_index + 1].duration(),
-            2.0
-        );
+        assert_eq!(item_index + 1, stack.children[track_index].items.len());
     }
 }
 

@@ -12,6 +12,7 @@ impl Track {
         self.clamp_negative_durations();
         self.remove_zero_length_items();
         self.merge_adjacent_gaps();
+        self.remove_trailing_gap();
     }
 
     pub fn clamp_negative_durations(&mut self) {
@@ -40,6 +41,12 @@ impl Track {
             }
         }
         self.items = merged;
+    }
+
+    pub fn remove_trailing_gap(&mut self) {
+        if self.items.last().is_some_and(|item| matches!(item, Item::Gap(_))) {
+            self.items.pop();
+        }
     }
 }
 
