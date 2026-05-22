@@ -758,6 +758,7 @@ impl Stack {
             if !self.sync_link_group_by_delta(
                 link_group_id,
                 before_states,
+                modified_track_indices,
                 start_delta,
                 duration,
                 overlap_policy,
@@ -772,6 +773,7 @@ impl Stack {
         &mut self,
         link_group_id: i64,
         before_states: &HashMap<String, LinkedClipState>,
+        modified_track_indices: &[usize],
         start_delta: Seconds,
         duration: Seconds,
         overlap_policy: OverlapPolicy,
@@ -792,6 +794,9 @@ impl Stack {
             let Some(before) = before_states.get(&id) else {
                 continue;
             };
+            if modified_track_indices.contains(&before.track_index) {
+                continue;
+            }
             let mut item = item;
             item.set_duration(duration);
             items.push((id, before.track_index, before.start + start_delta, item));
