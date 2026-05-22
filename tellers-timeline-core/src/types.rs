@@ -217,6 +217,16 @@ pub enum Item {
 // No longer used; OTIO-only shape is parsed directly above
 
 impl Item {
+    pub fn bind_default_media_reference_when_needed(&mut self) {
+        if let Item::Clip(c) = self {
+            c.bind_default_media_reference_when_needed();
+        }
+    }
+    pub fn clamp_to_active_available_range(&mut self) {
+        if let Item::Clip(c) = self {
+            c.clamp_to_active_available_range();
+        }
+    }
     pub fn duration(&self) -> Seconds {
         match self {
             Item::Clip(c) => c.source_range.duration.value,
@@ -336,6 +346,56 @@ pub struct Clip {
 }
 
 impl Clip {
+    pub fn bind_default_media_reference_when_needed(&mut self) {
+        if self
+            .active_media_reference_key
+            .as_ref()
+            .is_some_and(|key| self.media_references.contains_key(key))
+        {
+            return;
+        }
+
+        self.active_media_reference_key = if self.media_references.contains_key("DEFAULT_MEDIA") {
+            Some("DEFAULT_MEDIA".to_string())
+        } else {
+            self.media_references.keys().next().cloned()
+        };
+    }
+
+    pub fn clamp_to_active_available_range(&mut self) {
+        let Some(active_key) = self
+            .active_media_reference_key
+            .as_deref()
+            .filter(|key| self.media_references.contains_key(*key))
+        else {
+            self.source_range.duration.value = self.source_range.duration.value.max(0.0);
+            return;
+        };
+
+        let Some(available_range) = self
+            .media_references
+            .get(active_key)
+            .and_then(|reference| reference.available_range().as_ref())
+        else {
+            self.source_range.duration.value = self.source_range.duration.value.max(0.0);
+            return;
+        };
+
+        let media_start = available_range.start_time.to_seconds().max(0.0);
+        let media_duration = available_range.duration.to_seconds().max(0.0);
+        let media_end = media_start + media_duration;
+        let source_start = self.source_range.start_time.to_seconds().max(media_start);
+        let requested_end =
+            (self.source_range.start_time.to_seconds() + self.source_range.duration.to_seconds())
+                .max(source_start);
+        let clamped_end = requested_end.min(media_end);
+
+        self.source_range.start_time.set_from_seconds(source_start);
+        self.source_range
+            .duration
+            .set_from_seconds((clamped_end - source_start).max(0.0));
+    }
+
     pub fn new_single_media_reference(
         source_range: TimeRange,
         reference: MediaReference,
@@ -1287,6 +1347,24 @@ impl Default for RationalTime {
             rate: 1.0,
             value: 0.0,
         }
+    }
+}
+
+impl RationalTime {
+    pub fn to_seconds(&self) -> Seconds {
+        if self.rate.abs() > f64::EPSILON {
+            self.value / self.rate
+        } else {
+            self.value
+        }
+    }
+
+    pub fn set_from_seconds(&mut self, seconds: Seconds) {
+        self.value = if self.rate.abs() > f64::EPSILON {
+            seconds * self.rate
+        } else {
+            seconds
+        };
     }
 }
 

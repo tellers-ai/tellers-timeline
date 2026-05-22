@@ -7,6 +7,8 @@ impl Track {
         if index >= self.items.len() {
             return false;
         }
+        let mut item = item;
+        item.clamp_to_active_available_range();
         self.items[index] = item;
         true
     }

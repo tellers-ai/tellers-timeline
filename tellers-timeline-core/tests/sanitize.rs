@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use tellers_timeline_core::{
-    Clip, Gap, IdMetadataExt, Item, MediaReference, Stack, Timeline, Track, TrackKind,
+    Clip, Gap, IdMetadataExt, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline, Track,
+    TrackKind,
 };
 
 fn clip(duration: f64, id: Option<&str>) -> Clip {
@@ -28,6 +29,45 @@ fn clip(duration: f64, id: Option<&str>) -> Clip {
         None,
         id.map(str::to_string),
     )
+}
+
+fn clip_with_missing_active_default_reference() -> Clip {
+    let mut clip = clip(5.0, Some("clip-1"));
+    clip.active_media_reference_key = None;
+    clip.source_range.duration.value = 5.0;
+    clip.media_references.insert(
+        "ALT".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "file:///alt.mov".to_string(),
+            available_range: None,
+            name: None,
+            available_image_bounds: Some(serde_json::Value::Null),
+            metadata: serde_json::json!({}),
+        },
+    );
+    clip.media_references.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "file:///media.mov".to_string(),
+            available_range: Some(TimeRange {
+                otio_schema: "TimeRange.1".to_string(),
+                start_time: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: 0.0,
+                },
+                duration: RationalTime {
+                    otio_schema: "RationalTime.1".to_string(),
+                    rate: 1.0,
+                    value: 3.0,
+                },
+            }),
+            name: None,
+            available_image_bounds: Some(serde_json::Value::Null),
+            metadata: serde_json::json!({}),
+        },
+    );
+    clip
 }
 
 fn all_stack_ids(stack: &Stack) -> Vec<String> {
@@ -66,6 +106,22 @@ fn track_sanitize_keeps_interior_gap() {
     assert_eq!(track.items.len(), 3);
     assert!(matches!(track.items[1], Item::Gap(_)));
     assert_eq!(track.items[1].duration(), 2.0);
+}
+
+#[test]
+fn track_sanitize_missing_active_key_does_not_clamp_to_default_media() {
+    let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
+    track.items.push(Item::Clip(clip_with_missing_active_default_reference()));
+
+    track.sanitize();
+
+    match &track.items[0] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.active_media_reference_key.as_deref(), None);
+            assert_eq!(clip.source_range.duration.value, 5.0);
+        }
+        _ => panic!("expected sanitized clip"),
+    }
 }
 
 #[test]

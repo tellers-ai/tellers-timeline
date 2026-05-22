@@ -1294,11 +1294,11 @@ impl Stack {
 
         let backup = self.clone();
         let mut replacement_item = item;
+        replacement_item.clamp_to_active_available_range();
         let replacement_duration = if should_link {
             let Item::Clip(clip) = &mut replacement_item else {
                 return false;
             };
-            clamp_clip_to_active_available_range(clip);
             let duration = clip.source_range.duration.value.max(0.0);
             if duration <= EPS {
                 return false;
@@ -1489,6 +1489,9 @@ impl Stack {
                 self.children[track_index].start_time_of_item(item_index) + start_delta;
             let mut item = item.clone();
             item.set_duration(effective_duration);
+            if clamp_to_media {
+                item.clamp_to_active_available_range();
+            }
             resized_items.push((track_index, target_start, item));
         }
 
@@ -2294,41 +2297,7 @@ fn split_gap_boundary(track: &mut Track, time: Seconds) {
 }
 
 fn clamp_clip_to_active_available_range(clip: &mut Clip) {
-    let active_key = clip
-        .active_media_reference_key
-        .as_deref()
-        .filter(|key| clip.media_references.contains_key(*key))
-        .or_else(|| {
-            clip.media_references
-                .contains_key("DEFAULT_MEDIA")
-                .then_some("DEFAULT_MEDIA")
-        })
-        .or_else(|| clip.media_references.keys().next().map(String::as_str));
-
-    let Some(active_key) = active_key else {
-        clip.source_range.duration.value = clip.source_range.duration.value.max(0.0);
-        return;
-    };
-
-    let Some(available_range) = clip
-        .media_references
-        .get(active_key)
-        .and_then(|reference| reference.available_range().as_ref())
-    else {
-        clip.source_range.duration.value = clip.source_range.duration.value.max(0.0);
-        return;
-    };
-
-    let media_start = available_range.start_time.value.max(0.0);
-    let media_duration = available_range.duration.value.max(0.0);
-    let media_end = media_start + media_duration;
-    let source_start = clip.source_range.start_time.value.max(media_start);
-    let requested_end =
-        (clip.source_range.start_time.value + clip.source_range.duration.value).max(source_start);
-    let clamped_end = requested_end.min(media_end);
-
-    clip.source_range.start_time.value = source_start;
-    clip.source_range.duration.value = (clamped_end - source_start).max(0.0);
+    clip.clamp_to_active_available_range();
 }
 
 fn resize_effective_duration(

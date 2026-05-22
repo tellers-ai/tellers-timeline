@@ -22,6 +22,18 @@ def assert_type_error_message(fn, message):
         raise AssertionError("expected TypeError")
 
 
+def test_clip_constructor_prefers_default_media_when_active_key_missing():
+    clip = Clip(
+        2.0,
+        {
+            "ALT": MediaReference("file:///alt.mov"),
+            "DEFAULT_MEDIA": MediaReference("file:///default.mov"),
+        },
+    )
+
+    assert clip.get_active_media_reference_key() == "DEFAULT_MEDIA"
+
+
 def test_insert_item_at_time_returns_linked_ids_and_preserves_media_id():
     stack = Stack([Track(kind="video")])
     primary = Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary")
