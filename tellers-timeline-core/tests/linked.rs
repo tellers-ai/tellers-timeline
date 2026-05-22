@@ -161,6 +161,10 @@ fn linked_insert_adds_primary_and_audio_tracks_without_touching_clips() {
     assert_eq!(stack.children.len(), 4);
     assert_eq!(stack.children[0].kind, TrackKind::Audio);
     assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[0].name.as_deref(), Some("A1"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("A2"));
+    assert_eq!(stack.children[1].name.as_deref(), Some("A2"));
     assert_eq!(stack.get_item("primary-id").unwrap().0, 2);
     assert_eq!(
         stack.children[3].get_id().as_deref(),
@@ -1059,6 +1063,32 @@ fn track_timeline_ids_returns_child_item_ids_in_order() {
 }
 
 #[test]
+fn created_link_tracks_use_numbered_names_without_colliding() {
+    let mut existing = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    existing.name = Some("A2".to_string());
+    existing.items.push(audio_clip(3.0, "file:///existing.wav", None));
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(existing);
+    stack.children.push(video);
+
+    let result = insert_with_audio(
+        &mut stack,
+        1,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+
+    let track = &stack.children[result.audio_clips[0].1];
+    assert_eq!(track.get_id().as_deref(), Some("A3"));
+    assert_eq!(track.name.as_deref(), Some("A3"));
+}
+
+#[test]
 fn replace_item_updates_linked_group_duration_and_preserves_identity() {
     let mut stack = Stack::default();
     stack
@@ -1319,6 +1349,8 @@ fn split_item_at_time_from_audio_splits_linked_video() {
 
     let (audio_track_index, _, _) = stack.get_item(&result.primary_clip_id).unwrap();
     let (video_track_index, _, _) = stack.get_item("video").unwrap();
+    assert_eq!(stack.children[video_track_index].get_id().as_deref(), Some("V1"));
+    assert_eq!(stack.children[video_track_index].name.as_deref(), Some("V1"));
     assert_eq!(stack.children[audio_track_index].items.len(), 2);
     assert_eq!(stack.children[video_track_index].items.len(), 2);
     assert_eq!(stack.children[audio_track_index].items[0].duration(), 1.5);

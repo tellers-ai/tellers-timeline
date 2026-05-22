@@ -45,6 +45,8 @@ def test_insert_item_at_time_returns_linked_ids_and_preserves_media_id():
     assert result["created_track_indices"] == [0]
 
     tracks = stack.tracks()
+    assert tracks[0].get_id() == "A1"
+    assert tracks[0].get_name() == "A1"
     primary_item = stack.get_item("primary")[2]
     audio_item = next(item for item in tracks[result["audio_clips"][0][1]].items() if item.is_clip())
 
@@ -699,6 +701,8 @@ def test_insert_item_at_time_can_link_video_clip_for_audio_primary():
     assert result["linked_video_clip_id"] == "video"
     assert result["created_track_indices"] == [0]
     assert stack.tracks()[0].kind == "video"
+    assert stack.tracks()[0].get_id() == "V1"
+    assert stack.tracks()[0].get_name() == "V1"
     assert stack.tracks()[1].kind == "audio"
     assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
     assert maybe_link_group_id(stack.get_item("video")[2]) == result["link_group_id"]

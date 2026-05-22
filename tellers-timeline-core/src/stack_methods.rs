@@ -209,14 +209,14 @@ impl Stack {
                     continue;
                 }
                 let insert_at = audio_index + 1;
-                self.children
-                    .insert(insert_at, Track::new(TrackKind::Audio, None));
+                let track = self.new_numbered_track(TrackKind::Audio);
+                self.children.insert(insert_at, track);
                 created_track_indices.push(insert_at);
                 return Some(insert_at);
             }
 
-            self.children
-                .insert(track_index, Track::new(TrackKind::Audio, None));
+            let track = self.new_numbered_track(TrackKind::Audio);
+            self.children.insert(track_index, track);
             created_track_indices.push(track_index);
             return Some(track_index);
         }
@@ -261,15 +261,15 @@ impl Stack {
                 index += 1;
                 continue;
             }
-            self.children
-                .insert(index, Track::new(TrackKind::Audio, None));
+            let track = self.new_numbered_track(TrackKind::Audio);
+            self.children.insert(index, track);
             created_track_indices.push(index);
             return Some(index);
         }
 
         let insert_at = index;
-        self.children
-            .insert(insert_at, Track::new(TrackKind::Audio, None));
+        let track = self.new_numbered_track(TrackKind::Audio);
+        self.children.insert(insert_at, track);
         created_track_indices.push(insert_at);
         Some(insert_at)
     }
@@ -312,8 +312,8 @@ impl Stack {
             }
         }
 
-        self.children
-            .insert(group_start, Track::new(TrackKind::Video, None));
+        let track = self.new_numbered_track(TrackKind::Video);
+        self.children.insert(group_start, track);
         created_track_indices.push(group_start);
         Some(group_start)
     }
@@ -437,6 +437,27 @@ impl Stack {
         } else {
             remove_resolve_link_group_id(&mut clip.metadata);
         }
+    }
+
+    fn new_numbered_track(&self, kind: TrackKind) -> Track {
+        let prefix = match kind {
+            TrackKind::Audio => "A",
+            TrackKind::Video => "V",
+            TrackKind::Other => "T",
+        };
+        let used: HashSet<_> = self
+            .children
+            .iter()
+            .flat_map(|track| [track.get_id(), track.name.clone()])
+            .flatten()
+            .collect();
+        let id = (1..=99)
+            .map(|index| format!("{prefix}{index}"))
+            .find(|candidate| !used.contains(candidate))
+            .unwrap_or_else(crate::types::gen_hex_id_12);
+        let mut track = Track::new(kind, Some(id.clone()));
+        track.name = Some(id);
+        track
     }
 
     fn prepare_linked_item(
