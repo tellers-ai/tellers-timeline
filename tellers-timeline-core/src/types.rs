@@ -1404,6 +1404,13 @@ impl Track {
     pub fn total_duration(&self) -> Seconds {
         self.items.iter().map(|it| it.duration().max(0.0)).sum()
     }
+
+    pub fn timeline_ids(&self) -> Vec<String> {
+        self.items
+            .iter()
+            .filter_map(crate::metadata::IdMetadataExt::get_id)
+            .collect()
+    }
 }
 
 impl Stack {

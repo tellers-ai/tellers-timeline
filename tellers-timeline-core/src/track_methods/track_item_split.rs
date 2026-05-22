@@ -47,8 +47,27 @@ impl Track {
                 self.items.insert(item_index, crate::Item::Clip(left_clip));
                 self.items.insert(item_index + 1, crate::Item::Clip(clip));
             }
-            crate::Item::Gap(gap) => {
-                self.items.insert(item_index, crate::Item::Gap(gap));
+            crate::Item::Gap(mut gap) => {
+                let total = gap.source_range.duration.value.max(0.0);
+                if local_offset >= total - EPS {
+                    self.items.insert(item_index, crate::Item::Gap(gap));
+                    return;
+                }
+
+                let left_duration = local_offset.max(0.0);
+                let right_duration = (total - left_duration).max(0.0);
+
+                let mut left_gap = gap.clone();
+                left_gap.source_range.duration.value = left_duration;
+
+                gap.source_range.duration.value = right_duration;
+                crate::metadata::IdMetadataExt::set_id(
+                    &mut gap,
+                    Some(crate::types::gen_hex_id_12()),
+                );
+
+                self.items.insert(item_index, crate::Item::Gap(left_gap));
+                self.items.insert(item_index + 1, crate::Item::Gap(gap));
             }
         }
     }

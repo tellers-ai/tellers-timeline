@@ -8,6 +8,7 @@ pub mod validate;
 
 pub use metadata::*;
 pub use serialize::*;
+pub use stack_methods::*;
 pub use track_methods::*;
 pub use types::*;
 pub use validate::*;

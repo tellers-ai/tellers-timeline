@@ -58,9 +58,10 @@ fn stack_get_and_remove_item() {
     assert_eq!(got.1, 0);
 
     // remove without gap
-    let removed = tl.tracks.delete_item(id1, false).expect("removed");
-    assert_eq!(removed.0, 0);
-    assert!(matches!(removed.1, Item::Clip(_)));
+    let removed = tl.tracks.delete_item(id1, false);
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].0, 0);
+    assert!(matches!(removed[0].1, Item::Clip(_)));
     assert!(tl.tracks.children[0].items.is_empty());
 }
 
