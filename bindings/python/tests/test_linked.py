@@ -40,14 +40,13 @@ def test_insert_item_at_time_returns_linked_ids_and_preserves_media_id():
     assert result is not None
     assert result["primary_clip_id"] == "primary"
     assert len(result["audio_clips"]) == 1
-    assert result["audio_clips"][0][1] == 1
+    assert result["audio_clips"][0][1] == 0
     assert result["linked_video_clip_id"] is None
-    assert result["created_track_indices"] == [1]
+    assert result["created_track_indices"] == [0]
 
     tracks = stack.tracks()
-    assert tracks[0].kind == "video"
-    assert tracks[1].get_id() == "A1"
-    assert tracks[1].get_name() == "A1"
+    assert tracks[0].get_id() == "A1"
+    assert tracks[0].get_name() == "A1"
     primary_item = stack.get_item("primary")[2]
     audio_item = next(item for item in tracks[result["audio_clips"][0][1]].items() if item.is_clip())
 
@@ -96,7 +95,7 @@ def test_insert_master_clip_with_multiple_linked_audio_clips():
     assert result["primary_clip_id"] == "master-video"
     assert len(result["audio_clips"]) == 3
     assert result["linked_video_clip_id"] is None
-    assert result["created_track_indices"] == [1, 2, 3]
+    assert result["created_track_indices"] == [0, 1, 2]
 
     tracks = stack.tracks()
     assert [tracks[index].get_id() for _, index in result["audio_clips"]] == [
@@ -270,7 +269,7 @@ def test_delete_track_removes_linked_assets_left_behind():
 
     assert removed is not None
     assert removed.get_id() == "v"
-    assert len(stack.tracks()) == 1
+    assert len(stack.tracks()) == 2
     assert any(track.get_id() == "a" for track in stack.tracks())
     assert stack.get_item(audio_id) is None
     assert any(
@@ -455,8 +454,7 @@ def test_replace_item_can_add_linked_audio_clip():
     )
 
     assert len(stack.tracks()) == 2
-    assert stack.tracks()[0].kind == "video"
-    assert stack.tracks()[1].kind == "audio"
+    assert stack.tracks()[0].kind == "audio"
     primary = stack.get_item("primary")[2]
     audio = stack.get_item("audio")[2]
     assert maybe_link_group_id(primary) == maybe_link_group_id(audio)
@@ -790,7 +788,7 @@ def test_insert_item_at_index_returns_linked_ids():
     assert result is not None
     assert result["primary_clip_id"] == "primary"
     assert len(result["audio_clips"]) == 1
-    assert result["created_track_indices"] == [1]
+    assert result["created_track_indices"] == [0]
     assert maybe_link_group_id(stack.get_item("primary")[2]) == result["link_group_id"]
     assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
 
