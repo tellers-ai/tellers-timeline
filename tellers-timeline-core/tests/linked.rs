@@ -1447,6 +1447,80 @@ fn resize_item_moves_linked_group_by_selected_delta() {
 }
 
 #[test]
+fn resize_item_push_updates_linked_assets_of_pushed_clip() {
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(2.0, Some("unlinked"))));
+    let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    stack.children.push(audio);
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        2.0,
+        clip(2.0, Some("linked-video")),
+        vec![audio_clip(2.0, "file:///linked-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.resize_item("unlinked", 0.0, 3.0, OverlapPolicy::Push, false));
+
+    let (video_track_index, video_item_index, video_item) =
+        stack.get_item("linked-video").unwrap();
+    let (audio_track_index, audio_item_index, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        3.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        3.0
+    );
+    assert_eq!(video_item.duration(), 2.0);
+    assert_eq!(audio_item.duration(), 2.0);
+}
+
+#[test]
+fn resize_item_override_updates_linked_assets_of_trimmed_clip() {
+    let video = Track::new(TrackKind::Video, Some("v".to_string()));
+    let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    stack.children.push(audio);
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(2.0, Some("linked-video")),
+        vec![audio_clip(2.0, "file:///linked-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(2.0, Some("unlinked"))));
+
+    assert!(stack.resize_item("unlinked", 1.0, 2.0, OverlapPolicy::Override, false));
+
+    let (video_track_index, video_item_index, video_item) =
+        stack.get_item("linked-video").unwrap();
+    let (audio_track_index, audio_item_index, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        0.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        0.0
+    );
+    assert_eq!(video_item.duration(), 1.0);
+    assert_eq!(audio_item.duration(), 1.0);
+}
+
+#[test]
 fn replace_item_rejects_linked_audio_with_different_duration() {
     let mut stack = Stack::default();
     stack

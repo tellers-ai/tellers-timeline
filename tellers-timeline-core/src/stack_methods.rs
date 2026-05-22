@@ -1,7 +1,7 @@
 use crate::{
     Clip, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track, TrackKind,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const EPS: Seconds = 1e-9;
 
@@ -32,6 +32,14 @@ struct LinkedMoveItem {
     item_index: usize,
     item: Item,
     is_selected: bool,
+}
+
+#[derive(Debug, Clone)]
+struct LinkedClipState {
+    track_index: usize,
+    start: Seconds,
+    duration: Seconds,
+    link_group_id: i64,
 }
 
 enum LinkedMovePlacement {
@@ -401,6 +409,33 @@ impl Stack {
         targets
     }
 
+    fn linked_clip_states(&self) -> HashMap<String, LinkedClipState> {
+        let mut states = HashMap::new();
+        for (track_index, track) in self.children.iter().enumerate() {
+            for (item_index, item) in track.items.iter().enumerate() {
+                let Item::Clip(clip) = item else {
+                    continue;
+                };
+                let Some(link_group_id) = resolve_link_group_id(&clip.metadata) else {
+                    continue;
+                };
+                let Some(id) = item.get_id() else {
+                    continue;
+                };
+                states.insert(
+                    id,
+                    LinkedClipState {
+                        track_index,
+                        start: track.start_time_of_item(item_index),
+                        duration: item.duration().max(0.0),
+                        link_group_id,
+                    },
+                );
+            }
+        }
+        states
+    }
+
     fn cleanup_singleton_link_groups(&mut self, link_group_ids: &[i64]) -> usize {
         let mut count = 0;
         let mut seen = HashSet::new();
@@ -692,6 +727,102 @@ impl Stack {
             OverlapPolicy::Override,
             InsertPolicy::SplitAndInsert,
         );
+    }
+
+    fn sync_changed_link_groups_after_resize(
+        &mut self,
+        before_states: &HashMap<String, LinkedClipState>,
+        modified_track_indices: &[usize],
+        excluded_ids: &HashSet<String>,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let mut synced_groups = HashSet::new();
+        let mut changed_groups = Vec::new();
+        for (id, before) in before_states {
+            if excluded_ids.contains(id) || !modified_track_indices.contains(&before.track_index) {
+                continue;
+            }
+            let Some((track_index, item_index, item)) = self.get_item(id) else {
+                continue;
+            };
+            let start = self.children[track_index].start_time_of_item(item_index);
+            let duration = item.duration().max(0.0);
+            if ((start - before.start).abs() > EPS || (duration - before.duration).abs() > EPS)
+                && synced_groups.insert(before.link_group_id)
+            {
+                changed_groups.push((before.link_group_id, start - before.start, duration));
+            }
+        }
+
+        for (link_group_id, start_delta, duration) in changed_groups {
+            if !self.sync_link_group_by_delta(
+                link_group_id,
+                before_states,
+                start_delta,
+                duration,
+                overlap_policy,
+            ) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn sync_link_group_by_delta(
+        &mut self,
+        link_group_id: i64,
+        before_states: &HashMap<String, LinkedClipState>,
+        start_delta: Seconds,
+        duration: Seconds,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let mut items = Vec::new();
+        for (track_index, item_index) in self.linked_group_targets(link_group_id) {
+            let Some(item) = self
+                .children
+                .get(track_index)
+                .and_then(|track| track.items.get(item_index))
+                .cloned()
+            else {
+                return false;
+            };
+            let Some(id) = item.get_id() else {
+                return false;
+            };
+            let Some(before) = before_states.get(&id) else {
+                continue;
+            };
+            let mut item = item;
+            item.set_duration(duration);
+            items.push((id, before.track_index, before.start + start_delta, item));
+        }
+
+        for (id, _, _, _) in &items {
+            let Some((track_index, item_index, _)) = self.get_item(id) else {
+                return false;
+            };
+            let Some(track) = self.children.get_mut(track_index) else {
+                return false;
+            };
+            if item_index >= track.items.len() {
+                return false;
+            }
+            track.items.remove(item_index);
+            track.sanitize();
+        }
+
+        for (_, track_index, start, item) in items {
+            let Some(track) = self.children.get_mut(track_index) else {
+                return false;
+            };
+            track.insert_at_time(
+                start,
+                item,
+                overlap_policy,
+                InsertPolicy::SplitAndInsert,
+            );
+        }
+        true
     }
 
     fn insert_linked_item_at_time(
@@ -1213,6 +1344,7 @@ impl Stack {
         else {
             return false;
         };
+        let before_states = self.linked_clip_states();
         let target_ids: Vec<String> = match selected_item {
             Item::Clip(clip) => resolve_link_group_id(&clip.metadata)
                 .map(|link_group_id| {
@@ -1233,6 +1365,7 @@ impl Stack {
         if target_ids.is_empty() {
             return false;
         }
+        let excluded_ids: HashSet<_> = target_ids.iter().cloned().collect();
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
         let start_delta = new_start_time - selected_start;
@@ -1247,11 +1380,13 @@ impl Stack {
 
         let backup = self.clone();
         let mut resized_items = Vec::new();
+        let mut modified_track_indices = Vec::new();
         for id in &target_ids {
             let Some((track_index, item_index, item)) = self.get_item(id) else {
                 *self = backup;
                 return false;
             };
+            modified_track_indices.push(track_index);
             let target_start =
                 self.children[track_index].start_time_of_item(item_index) + start_delta;
             let mut item = item.clone();
@@ -1287,6 +1422,17 @@ impl Stack {
                 overlap_policy,
                 InsertPolicy::SplitAndInsert,
             );
+        }
+        modified_track_indices.sort_unstable();
+        modified_track_indices.dedup();
+        if !self.sync_changed_link_groups_after_resize(
+            &before_states,
+            &modified_track_indices,
+            &excluded_ids,
+            overlap_policy,
+        ) {
+            *self = backup;
+            return false;
         }
         true
     }
