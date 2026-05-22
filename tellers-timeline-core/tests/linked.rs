@@ -574,7 +574,7 @@ fn linked_insert_at_index_adds_audio_companion() {
 }
 
 #[test]
-fn linked_insert_removes_primary_content_from_linked_inputs() {
+fn linked_insert_keeps_same_content_audio_and_removes_same_content_video_input() {
     let mut stack = Stack::default();
     stack
         .children
@@ -605,9 +605,10 @@ fn linked_insert_removes_primary_content_from_linked_inputs() {
     )
     .unwrap();
 
-    assert!(result.audio_clips.is_empty());
-    assert_eq!(result.link_group_id, None);
-    assert_eq!(stack.children.len(), 1);
+    assert_eq!(result.audio_clips.len(), 1);
+    assert!(result.link_group_id.is_some());
+    assert_eq!(stack.children.len(), 2);
+    assert_eq!(stack.children[result.audio_clips[0].1].kind, TrackKind::Audio);
 
     let mut stack = Stack::default();
     stack
@@ -1065,7 +1066,7 @@ fn replace_item_can_add_audio_past_same_link_clip() {
 }
 
 #[test]
-fn replace_item_removes_replacement_content_from_linked_inputs() {
+fn replace_item_keeps_same_content_audio_and_removes_same_content_video_input() {
     let mut stack = Stack::default();
     stack
         .children
@@ -1084,16 +1085,16 @@ fn replace_item_removes_replacement_content_from_linked_inputs() {
         None,
     ));
 
-    assert_eq!(stack.children.len(), 2);
+    assert_eq!(stack.children.len(), 3);
     assert!(stack.get_item("replacement").is_none());
-    assert_eq!(
-        stack.children[1]
-            .items
-            .iter()
-            .filter(|item| matches!(item, Item::Clip(_)))
-            .count(),
-        1
-    );
+    let audio_clip_count = stack
+        .children
+        .iter()
+        .filter(|track| track.kind == TrackKind::Audio)
+        .flat_map(|track| track.items.iter())
+        .filter(|item| matches!(item, Item::Clip(_)))
+        .count();
+    assert_eq!(audio_clip_count, 2);
 
     let mut stack = Stack::default();
     stack

@@ -361,7 +361,7 @@ def test_replace_item_can_add_linked_audio_clip():
     assert maybe_link_group_id(primary) is not None
 
 
-def test_replace_item_removes_replacement_content_from_linked_inputs():
+def test_replace_item_keeps_same_content_audio_and_removes_same_content_video_input():
     stack = Stack(
         [
             Track(
@@ -390,8 +390,14 @@ def test_replace_item_removes_replacement_content_from_linked_inputs():
 
     assert stack.get_item("replacement") is None
     assert stack.get_item("audio") is not None
-    audio_items = [item for item in stack.tracks()[1].items() if item.is_clip()]
-    assert len(audio_items) == 1
+    audio_items = [
+        item
+        for track in stack.tracks()
+        if track.kind == "audio"
+        for item in track.items()
+        if item.is_clip()
+    ]
+    assert len(audio_items) == 2
 
     stack = Stack(
         [
@@ -685,7 +691,7 @@ def test_insert_item_at_index_returns_linked_ids():
     assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
 
 
-def test_insert_item_at_time_removes_primary_content_from_linked_inputs():
+def test_insert_item_at_time_keeps_same_content_audio_and_removes_same_content_video_input():
     stack = Stack([Track(kind="video")])
 
     result = stack.insert_item_at_time(
@@ -698,9 +704,9 @@ def test_insert_item_at_time_removes_primary_content_from_linked_inputs():
     )
 
     assert result is not None
-    assert result["audio_clips"] == []
-    assert result["link_group_id"] is None
-    assert len(stack.tracks()) == 1
+    assert len(result["audio_clips"]) == 1
+    assert result["link_group_id"] is not None
+    assert len(stack.tracks()) == 2
     assert stack.get_item("primary") is not None
 
     stack = Stack([Track(kind="video")])

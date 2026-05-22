@@ -438,13 +438,7 @@ impl Stack {
         left == right
     }
 
-    fn remove_item_from_linked_inputs(
-        item: &Item,
-        linked_audio_clips: &mut Vec<Item>,
-        linked_video_clip: &mut Option<Item>,
-    ) {
-        linked_audio_clips
-            .retain(|linked_item| !Self::same_item_content_ignoring_timeline_id(item, linked_item));
+    fn remove_item_from_linked_video_input(item: &Item, linked_video_clip: &mut Option<Item>) {
         if linked_video_clip
             .as_ref()
             .is_some_and(|linked_item| Self::same_item_content_ignoring_timeline_id(item, linked_item))
@@ -462,7 +456,7 @@ impl Stack {
             audio: linked_audio_clips.unwrap_or_default(),
             video: linked_video_clip,
         };
-        Self::remove_item_from_linked_inputs(item, &mut inputs.audio, &mut inputs.video);
+        Self::remove_item_from_linked_video_input(item, &mut inputs.video);
         inputs
     }
 
