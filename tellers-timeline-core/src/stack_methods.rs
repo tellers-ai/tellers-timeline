@@ -1126,6 +1126,92 @@ impl Stack {
         true
     }
 
+    pub fn resize_item(
+        &mut self,
+        item_id: &str,
+        new_start_time: Seconds,
+        new_duration: Seconds,
+        overlap_policy: OverlapPolicy,
+        clamp_to_media: bool,
+    ) -> bool {
+        let Some((selected_track_index, selected_item_index, selected_item)) =
+            self.get_item(item_id)
+        else {
+            return false;
+        };
+        let targets = match selected_item {
+            Item::Clip(clip) => resolve_link_group_id(&clip.metadata)
+                .map(|link_group_id| self.linked_group_targets(link_group_id))
+                .filter(|targets| targets.len() > 1)
+                .unwrap_or_else(|| vec![(selected_track_index, selected_item_index)]),
+            Item::Gap(_) => vec![(selected_track_index, selected_item_index)],
+        };
+
+        let effective_duration = targets
+            .iter()
+            .filter_map(|(track_index, item_index)| {
+                self.children
+                    .get(*track_index)
+                    .and_then(|track| track.items.get(*item_index))
+                    .map(|item| resize_effective_duration(item, new_duration, clamp_to_media))
+            })
+            .fold(new_duration.max(0.0), Seconds::min);
+
+        let backup = self.clone();
+        let target_ids: Vec<_> = targets
+            .iter()
+            .filter_map(|(track_index, item_index)| {
+                self.children
+                    .get(*track_index)
+                    .and_then(|track| track.items.get(*item_index))
+                    .and_then(Item::get_id)
+            })
+            .collect();
+        if target_ids.len() == targets.len() {
+            for item_id in target_ids {
+                let Some((track_index, item_index, _)) = self.get_item(&item_id) else {
+                    *self = backup;
+                    return false;
+                };
+                let Some(track) = self.children.get_mut(track_index) else {
+                    *self = backup;
+                    return false;
+                };
+                if !track.resize_item(
+                    item_index,
+                    new_start_time,
+                    effective_duration,
+                    overlap_policy,
+                    false,
+                ) {
+                    *self = backup;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        let mut fallback_targets = targets;
+        fallback_targets.sort_by(|a, b| b.cmp(a));
+        for (track_index, item_index) in fallback_targets {
+            let Some(track) = self.children.get_mut(track_index) else {
+                *self = backup;
+                return false;
+            };
+            if !track.resize_item(
+                item_index,
+                new_start_time,
+                effective_duration,
+                overlap_policy,
+                false,
+            ) {
+                *self = backup;
+                return false;
+            }
+        }
+        true
+    }
+
     pub fn split_item_at_time(&mut self, item_id: &str, split_time: Seconds) -> bool {
         let Some((selected_track_index, selected_item_index, selected_item)) =
             self.get_item(item_id)
@@ -1677,6 +1763,21 @@ fn clamp_clip_to_active_available_range(clip: &mut Clip) {
 
     clip.source_range.start_time.value = source_start;
     clip.source_range.duration.value = (clamped_end - source_start).max(0.0);
+}
+
+fn resize_effective_duration(
+    item: &Item,
+    requested_duration: Seconds,
+    clamp_to_media: bool,
+) -> Seconds {
+    let mut item = item.clone();
+    item.set_duration(requested_duration.max(0.0));
+    if clamp_to_media {
+        if let Item::Clip(clip) = &mut item {
+            clamp_clip_to_active_available_range(clip);
+        }
+    }
+    item.duration().max(0.0)
 }
 
 fn resolve_link_group_id(metadata: &serde_json::Value) -> Option<i64> {

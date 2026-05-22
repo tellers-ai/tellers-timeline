@@ -248,6 +248,14 @@ class Stack:
         insert_policy: InsertPolicy,
     ) -> bool: ...
     def split_item_at_time(self, item_id: str, split_time: float) -> bool: ...
+    def resize_item(
+        self,
+        item_id: str,
+        new_start_time: float,
+        new_duration: float,
+        overlap_policy: OverlapPolicy,
+        clamp_to_media: bool,
+    ) -> bool: ...
     def replace_item(
         self,
         item_id: str,

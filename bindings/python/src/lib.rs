@@ -1091,6 +1091,18 @@ impl PyStack {
     fn split_item_at_time(&mut self, item_id: &str, split_time: f64) -> bool {
         self.inner.split_item_at_time(item_id, split_time)
     }
+    fn resize_item(
+        &mut self,
+        item_id: &str,
+        new_start_time: f64,
+        new_duration: f64,
+        overlap_policy: &str,
+        clamp_to_media: bool,
+    ) -> bool {
+        let op = overlap_policy_from_str(overlap_policy);
+        self.inner
+            .resize_item(item_id, new_start_time, new_duration, op, clamp_to_media)
+    }
     #[pyo3(signature = (item_id, item, linked_audio_clips=None, linked_video_clip=None))]
     fn replace_item(
         &mut self,

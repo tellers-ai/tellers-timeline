@@ -898,3 +898,25 @@ def test_move_item_at_index_moves_linked_group():
     assert stack.tracks()[audio_track].start_time_of_item(audio_index) == 0.0
     assert maybe_link_group_id(video_item) == result["link_group_id"]
     assert maybe_link_group_id(audio_item) == result["link_group_id"]
+
+
+def test_resize_item_updates_linked_group():
+    stack = Stack([Track(kind="video", id="v")])
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    audio_id = result["audio_clips"][0][0]
+
+    assert stack.resize_item("primary", 1.0, 2.0, "override", False)
+
+    video_track, video_index, video_item = stack.get_item("primary")
+    audio_track, audio_index, audio_item = stack.get_item(audio_id)
+    assert stack.tracks()[video_track].start_time_of_item(video_index) == 1.0
+    assert stack.tracks()[audio_track].start_time_of_item(audio_index) == 1.0
+    assert video_item.duration() == 2.0
+    assert audio_item.duration() == 2.0

@@ -1257,6 +1257,38 @@ fn split_unlinked_item_only_splits_selected_track() {
 }
 
 #[test]
+fn resize_item_updates_linked_group() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("primary")),
+        vec![audio_clip(4.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.resize_item("primary", 1.0, 2.0, OverlapPolicy::Override, false));
+
+    let (video_track_index, video_item_index, video_item) = stack.get_item("primary").unwrap();
+    let (audio_track_index, audio_item_index, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        1.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        1.0
+    );
+    assert_eq!(video_item.duration(), 2.0);
+    assert_eq!(audio_item.duration(), 2.0);
+}
+
+#[test]
 fn replace_item_rejects_linked_audio_with_different_duration() {
     let mut stack = Stack::default();
     stack
