@@ -109,6 +109,20 @@ fn source_start(item: &Item) -> f64 {
     }
 }
 
+fn active_target_url(item: &Item) -> Option<&str> {
+    let Item::Clip(clip) = item else {
+        return None;
+    };
+    let key = clip
+        .active_media_reference_key
+        .as_deref()
+        .unwrap_or("DEFAULT_MEDIA");
+    clip.media_references
+        .get(key)
+        .and_then(MediaReference::target_url)
+        .map(String::as_str)
+}
+
 fn insert_with_audio(
     stack: &mut Stack,
     dest_track_index: usize,
@@ -1252,6 +1266,81 @@ fn replace_item_can_add_audio_past_same_link_clip() {
             .count(),
         1
     );
+}
+
+#[test]
+fn replace_item_on_linked_audio_replaces_audio_asset_and_keeps_video_link() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("video")),
+        vec![audio_clip(3.0, "file:///original-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.replace_item(
+        &audio_id,
+        audio_clip(4.0, "file:///replacement-audio.wav", None),
+        None,
+        None,
+    ));
+
+    let video = stack.get_item("video").unwrap().2;
+    let audio = stack.get_item(&audio_id).unwrap().2;
+    assert_eq!(video.duration(), 4.0);
+    assert_eq!(audio.duration(), 4.0);
+    assert_eq!(link_group_id(video), result.link_group_id);
+    assert_eq!(link_group_id(audio), result.link_group_id);
+    assert_eq!(active_target_url(video), Some("file:///video.mov"));
+    assert_eq!(active_target_url(audio), Some("file:///replacement-audio.wav"));
+}
+
+#[test]
+fn replace_item_on_linked_audio_can_add_extra_linked_video_asset() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("video")),
+        vec![audio_clip(4.0, "file:///audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.replace_item(
+        &audio_id,
+        audio_clip(4.0, "file:///replacement-audio.wav", None),
+        None,
+        Some(Item::Clip(clip(4.0, Some("extra-video")))),
+    ));
+
+    let audio = stack.get_item(&audio_id).unwrap().2;
+    let original_video = stack.get_item("video").unwrap().2;
+    let extra_video = stack.get_item("extra-video").unwrap().2;
+    assert_eq!(link_group_id(audio), result.link_group_id);
+    assert_eq!(link_group_id(original_video), result.link_group_id);
+    assert_eq!(link_group_id(extra_video), result.link_group_id);
+    assert_eq!(
+        stack
+            .children
+            .iter()
+            .filter(|track| track.kind == TrackKind::Video)
+            .flat_map(|track| track.items.iter())
+            .filter(|item| matches!(item, Item::Clip(_)))
+            .count(),
+        2
+    );
+    assert_eq!(active_target_url(audio), Some("file:///replacement-audio.wav"));
 }
 
 #[test]
