@@ -42,6 +42,20 @@ struct LinkedClipState {
     link_group_id: i64,
 }
 
+#[derive(Debug, Clone)]
+struct BoundarySegment {
+    track_index: usize,
+    start: Seconds,
+    end: Seconds,
+    link_group_id: Option<i64>,
+    is_gap: bool,
+}
+
+#[derive(Debug, Clone)]
+struct FlattenedBoundary {
+    segments: Vec<BoundarySegment>,
+}
+
 enum LinkedMovePlacement {
     Time {
         dest_time: Seconds,
@@ -585,31 +599,84 @@ impl Stack {
         linked_audio_clips.is_some() || linked_video_clip.is_some()
     }
 
+    fn flatten_track_segments(&self, track_index: usize) -> Vec<BoundarySegment> {
+        let Some(track) = self.children.get(track_index) else {
+            return Vec::new();
+        };
+        let mut segments = Vec::new();
+        let mut start = 0.0;
+        for item in &track.items {
+            let duration = item.duration().max(0.0);
+            let link_group_id = match item {
+                Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
+                Item::Gap(_) => None,
+            };
+            segments.push(BoundarySegment {
+                track_index,
+                start,
+                end: start + duration,
+                link_group_id,
+                is_gap: matches!(item, Item::Gap(_)),
+            });
+            start += duration;
+        }
+        segments
+    }
+
+    fn flatten_boundary_for_link_groups(
+        &self,
+        anchor_track_index: usize,
+        link_groups: &[i64],
+    ) -> FlattenedBoundary {
+        if anchor_track_index >= self.children.len() {
+            return FlattenedBoundary {
+                segments: Vec::new(),
+            };
+        }
+
+        let mut track_indices = vec![anchor_track_index];
+        for track_index in (0..anchor_track_index).rev() {
+            track_indices.push(track_index);
+            if track_is_empty_boundary(&self.children[track_index])
+                || track_blocks_link_boundary(&self.children[track_index], link_groups)
+            {
+                break;
+            }
+        }
+        track_indices.sort_unstable();
+
+        for track_index in anchor_track_index + 1..self.children.len() {
+            track_indices.push(track_index);
+            if track_is_empty_boundary(&self.children[track_index])
+                || track_blocks_link_boundary(&self.children[track_index], link_groups)
+            {
+                break;
+            }
+        }
+
+        let segments = track_indices
+            .iter()
+            .flat_map(|track_index| self.flatten_track_segments(*track_index))
+            .collect();
+        FlattenedBoundary { segments }
+    }
+
     fn linked_groups_overlapping_range(
         &self,
         track_index: usize,
         start: Seconds,
         duration: Seconds,
     ) -> Vec<i64> {
-        let Some(track) = self.children.get(track_index) else {
-            return Vec::new();
-        };
         let end = start + duration.max(0.0);
         let mut groups = Vec::new();
-        let mut pos = 0.0;
-        for item in &track.items {
-            let item_start = pos;
-            let item_end = pos + item.duration().max(0.0);
-            if item_end > start + EPS && item_start < end - EPS {
-                if let Item::Clip(clip) = item {
-                    if let Some(group) = resolve_link_group_id(&clip.metadata) {
-                        if !groups.contains(&group) {
-                            groups.push(group);
-                        }
+        for segment in self.flatten_track_segments(track_index) {
+            if segment.end > start + EPS && segment.start < end - EPS {
+                if let Some(group) = segment.link_group_id {
+                    if !groups.contains(&group) {
+                        groups.push(group);
                     }
                 }
             }
-            pos = item_end;
         }
         groups
     }
@@ -656,11 +723,7 @@ impl Stack {
         } else {
             duration
         };
-        self.linked_groups_overlapping_range(
-            track_index,
-            start,
-            affected_duration,
-        )
+        self.linked_groups_overlapping_range(track_index, start, affected_duration)
     }
 
     fn track_indices_for_link_groups(
@@ -669,25 +732,21 @@ impl Stack {
         excluded_track_index: usize,
     ) -> Vec<usize> {
         let mut track_indices = Vec::new();
-        for track_index in (0..excluded_track_index).rev() {
-            let Some(track) = self.children.get(track_index) else {
-                break;
-            };
-            if track_is_empty_boundary(track) {
-                break;
+        for segment in self
+            .flatten_boundary_for_link_groups(excluded_track_index, link_groups)
+            .segments
+        {
+            if segment.track_index == excluded_track_index || segment.is_gap {
+                continue;
             }
-            if track_contains_link_group(track, link_groups) {
-                track_indices.push(track_index);
+            if !segment
+                .link_group_id
+                .is_some_and(|group| link_groups.contains(&group))
+            {
+                continue;
             }
-        }
-        track_indices.reverse();
-        for track_index in excluded_track_index + 1..self.children.len() {
-            let track = &self.children[track_index];
-            if track_is_empty_boundary(track) {
-                break;
-            }
-            if track_contains_link_group(track, link_groups) {
-                track_indices.push(track_index);
+            if !track_indices.contains(&segment.track_index) {
+                track_indices.push(segment.track_index);
             }
         }
         track_indices
@@ -2127,10 +2186,10 @@ fn track_is_empty_boundary(track: &Track) -> bool {
     track.items.iter().all(|item| matches!(item, Item::Gap(_)))
 }
 
-fn track_contains_link_group(track: &Track, link_groups: &[i64]) -> bool {
+fn track_blocks_link_boundary(track: &Track, link_groups: &[i64]) -> bool {
     track.items.iter().any(|item| match item {
         Item::Clip(clip) => {
-            resolve_link_group_id(&clip.metadata).is_some_and(|group| link_groups.contains(&group))
+            !resolve_link_group_id(&clip.metadata).is_some_and(|group| link_groups.contains(&group))
         }
         Item::Gap(_) => false,
     })

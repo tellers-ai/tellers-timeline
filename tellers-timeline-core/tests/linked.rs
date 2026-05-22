@@ -1443,6 +1443,60 @@ fn move_unlinked_item_without_gap_pulls_later_linked_assets() {
 }
 
 #[test]
+fn move_unlinked_item_with_gap_and_split_target_updates_linked_assets() {
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(1.0, Some("unlinked"))));
+    let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    stack.children.push(audio);
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        1.0,
+        clip(2.0, Some("linked-video")),
+        vec![audio_clip(2.0, "file:///linked-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.move_item_at_time(
+        "unlinked",
+        "v",
+        2.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Push,
+    ));
+
+    let video_track_index = stack.get_track_by_id("v").unwrap().0;
+    let audio_track_index = stack.get_item(&audio_id).unwrap().0;
+    let video_items = &stack.children[video_track_index].items;
+    let audio_items = &stack.children[audio_track_index].items;
+
+    assert_eq!(video_items.len(), 4);
+    assert!(matches!(video_items[0], Item::Gap(_)));
+    assert_eq!(video_items[0].duration(), 1.0);
+    assert_eq!(link_group_id(&video_items[1]), result.link_group_id);
+    assert_eq!(video_items[1].duration(), 1.0);
+    assert_eq!(video_items[2].get_id().as_deref(), Some("unlinked"));
+    assert_eq!(video_items[2].duration(), 1.0);
+    assert_eq!(link_group_id(&video_items[3]), result.link_group_id);
+    assert_eq!(video_items[3].duration(), 1.0);
+
+    assert_eq!(audio_items.len(), 4);
+    assert!(matches!(audio_items[0], Item::Gap(_)));
+    assert_eq!(audio_items[0].duration(), 1.0);
+    assert_eq!(link_group_id(&audio_items[1]), result.link_group_id);
+    assert_eq!(audio_items[1].duration(), 1.0);
+    assert!(matches!(audio_items[2], Item::Gap(_)));
+    assert_eq!(audio_items[2].duration(), 1.0);
+    assert_eq!(link_group_id(&audio_items[3]), result.link_group_id);
+    assert_eq!(audio_items[3].duration(), 1.0);
+}
+
+#[test]
 fn track_timeline_ids_returns_child_item_ids_in_order() {
     let mut track = Track::new(TrackKind::Video, Some("track".to_string()));
     track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));
