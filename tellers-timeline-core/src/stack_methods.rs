@@ -860,7 +860,7 @@ impl Stack {
             let reused_empty_boundary_track =
                 self.children.len() == track_count_before_audio
                     && !used_existing_spacer
-                    && self.children[audio_track_index].items.is_empty();
+                    && track_is_empty_boundary(&self.children[audio_track_index]);
             if self.children.len() > track_count_before_audio
                 && audio_track_index <= modified_track_index
             {
@@ -1151,7 +1151,7 @@ impl Stack {
             };
             let reused_empty_boundary_track =
                 self.children.len() == track_count_before_audio
-                    && self.children[audio_track_index].items.is_empty();
+                    && track_is_empty_boundary(&self.children[audio_track_index]);
             if self.children.len() > track_count_before_audio
                 && audio_track_index <= primary_track_index
             {
@@ -1716,7 +1716,7 @@ fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
 }
 
 fn track_is_empty_boundary(track: &Track) -> bool {
-    track.items.is_empty()
+    track.items.iter().all(|item| matches!(item, Item::Gap(_)))
 }
 
 fn track_contains_link_group(track: &Track, link_groups: &[i64]) -> bool {

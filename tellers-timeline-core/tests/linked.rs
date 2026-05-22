@@ -254,7 +254,8 @@ fn linked_insert_places_audio_below_video_when_audio_track_exists_above() {
 fn linked_insert_does_not_cross_empty_audio_track_boundary() {
     let mut far_audio = Track::new(TrackKind::Audio, Some("far-audio".to_string()));
     far_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
-    let empty_audio = Track::new(TrackKind::Audio, Some("empty-audio".to_string()));
+    let mut empty_audio = Track::new(TrackKind::Audio, Some("empty-audio".to_string()));
+    empty_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
     let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
     video.items.push(Item::Gap(Gap::make_gap(10.0)));
 
@@ -451,9 +452,9 @@ fn insert_into_linked_clip_stops_at_empty_track_boundary() {
     )
     .unwrap();
     let audio_track_index = first.audio_clips[0].1;
-    stack
-        .children
-        .insert(audio_track_index + 1, Track::new(TrackKind::Audio, Some("empty".to_string())));
+    let mut empty = Track::new(TrackKind::Audio, Some("empty".to_string()));
+    empty.items.push(Item::Gap(Gap::make_gap(4.0)));
+    stack.children.insert(audio_track_index + 1, empty);
     let primary_track_index = stack.get_item("primary").unwrap().0;
 
     let result = stack.insert_item_at_time(
@@ -469,7 +470,11 @@ fn insert_into_linked_clip_stops_at_empty_track_boundary() {
     assert!(matches!(result, Some(InsertItemAtTimeResult::Linked(_))));
     assert_eq!(stack.children[audio_track_index].items.len(), 1);
     assert_eq!(stack.children[audio_track_index].items[0].duration(), 4.0);
-    assert!(stack.children[audio_track_index + 1].items.is_empty());
+    assert_eq!(stack.children[audio_track_index + 1].items.len(), 1);
+    assert!(matches!(
+        stack.children[audio_track_index + 1].items[0],
+        Item::Gap(_)
+    ));
 }
 
 #[test]
