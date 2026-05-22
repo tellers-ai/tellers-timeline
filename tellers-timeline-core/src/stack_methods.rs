@@ -1213,51 +1213,57 @@ impl Stack {
         else {
             return false;
         };
-        let mut targets = match selected_item {
+        let target_ids: Vec<String> = match selected_item {
             Item::Clip(clip) => resolve_link_group_id(&clip.metadata)
-                .map(|link_group_id| self.linked_group_targets(link_group_id))
-                .filter(|targets| targets.len() > 1)
-                .unwrap_or_else(|| vec![(selected_track_index, selected_item_index)]),
-            Item::Gap(_) => vec![(selected_track_index, selected_item_index)],
+                .map(|link_group_id| {
+                    self.linked_group_targets(link_group_id)
+                        .into_iter()
+                        .filter_map(|(track_index, item_index)| {
+                            self.children
+                                .get(track_index)
+                                .and_then(|track| track.items.get(item_index))
+                                .and_then(Item::get_id)
+                        })
+                        .collect()
+                })
+                .filter(|ids: &Vec<String>| ids.len() > 1)
+                .unwrap_or_else(|| vec![item_id.to_string()]),
+            Item::Gap(_) => vec![item_id.to_string()],
         };
-        if targets.is_empty() {
+        if target_ids.is_empty() {
             return false;
         }
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
         let start_delta = new_start_time - selected_start;
 
-        let effective_duration = targets
+        let effective_duration = target_ids
             .iter()
-            .filter_map(|(track_index, item_index)| {
-                self.children
-                    .get(*track_index)
-                    .and_then(|track| track.items.get(*item_index))
-                    .map(|item| resize_effective_duration(item, new_duration, clamp_to_media))
+            .filter_map(|id| {
+                self.get_item(id)
+                    .map(|(_, _, item)| resize_effective_duration(item, new_duration, clamp_to_media))
             })
             .fold(new_duration.max(0.0), Seconds::min);
 
         let backup = self.clone();
         let mut resized_items = Vec::new();
-        for (track_index, item_index) in &targets {
-            let Some(item) = self
-                .children
-                .get(*track_index)
-                .and_then(|track| track.items.get(*item_index))
-                .cloned()
-            else {
+        for id in &target_ids {
+            let Some((track_index, item_index, item)) = self.get_item(id) else {
                 *self = backup;
                 return false;
             };
-            let mut item = item;
-            item.set_duration(effective_duration);
             let target_start =
-                self.children[*track_index].start_time_of_item(*item_index) + start_delta;
-            resized_items.push((*track_index, *item_index, target_start, item));
+                self.children[track_index].start_time_of_item(item_index) + start_delta;
+            let mut item = item.clone();
+            item.set_duration(effective_duration);
+            resized_items.push((track_index, target_start, item));
         }
 
-        targets.sort_by(|a, b| b.cmp(a));
-        for (track_index, item_index) in targets {
+        for id in &target_ids {
+            let Some((track_index, item_index, _)) = self.get_item(id) else {
+                *self = backup;
+                return false;
+            };
             let Some(track) = self.children.get_mut(track_index) else {
                 *self = backup;
                 return false;
@@ -1270,7 +1276,7 @@ impl Stack {
             track.sanitize();
         }
 
-        for (track_index, _, target_start, item) in resized_items {
+        for (track_index, target_start, item) in resized_items {
             let Some(track) = self.children.get_mut(track_index) else {
                 *self = backup;
                 return false;
