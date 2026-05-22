@@ -76,6 +76,11 @@ def test_insert_master_clip_with_multiple_linked_audio_clips():
         {"DEFAULT_MEDIA": MediaReference("file:///master-audio-2.wav")},
         id="audio-two",
     )
+    audio_three = Clip(
+        4.0,
+        {"DEFAULT_MEDIA": MediaReference("file:///master-audio-3.wav")},
+        id="audio-three",
+    )
 
     result = stack.insert_item_at_time(
         0,
@@ -83,23 +88,31 @@ def test_insert_master_clip_with_multiple_linked_audio_clips():
         primary,
         "override",
         "split_and_insert",
-        [audio_one, audio_two],
+        [audio_one, audio_two, audio_three],
     )
 
     assert result is not None
     assert result["primary_clip_id"] == "master-video"
-    assert len(result["audio_clips"]) == 2
+    assert len(result["audio_clips"]) == 3
     assert result["linked_video_clip_id"] is None
-    assert result["created_track_indices"] == [0, 1]
+    assert result["created_track_indices"] == [0, 1, 2]
 
     tracks = stack.tracks()
-    assert [tracks[index].get_id() for _, index in result["audio_clips"]] == ["A1", "A2"]
+    assert [tracks[index].get_id() for _, index in result["audio_clips"]] == [
+        "A1",
+        "A2",
+        "A3",
+    ]
     primary_track, primary_index, primary_item = stack.get_item("master-video")
     assert tracks[primary_track].start_time_of_item(primary_index) == 2.0
     assert primary_item.duration() == 4.0
     assert maybe_link_group_id(primary_item) == result["link_group_id"]
 
-    expected_urls = ["file:///master-audio-1.wav", "file:///master-audio-2.wav"]
+    expected_urls = [
+        "file:///master-audio-1.wav",
+        "file:///master-audio-2.wav",
+        "file:///master-audio-3.wav",
+    ]
     for (audio_id, track_index), expected_url in zip(result["audio_clips"], expected_urls):
         actual_track, item_index, audio_item = stack.get_item(audio_id)
         assert actual_track == track_index

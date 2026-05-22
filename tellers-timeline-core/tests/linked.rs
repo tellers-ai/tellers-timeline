@@ -164,30 +164,34 @@ fn linked_insert_adds_primary_and_audio_tracks_without_touching_clips() {
         vec![
             audio_clip(4.0, "file:///a1.wav", Some("same-media")),
             audio_clip(4.0, "file:///a2.wav", Some("same-media")),
+            audio_clip(4.0, "file:///a3.wav", Some("same-media")),
         ],
     )
     .expect("linked insert should succeed");
 
     assert_eq!(result.primary_clip_id, "primary-id");
-    assert_eq!(result.audio_clips.len(), 2);
+    assert_eq!(result.audio_clips.len(), 3);
     assert_eq!(
         result
             .audio_clips
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![0, 1]
+        vec![0, 1, 2]
     );
-    assert_eq!(result.created_track_indices, vec![0, 1]);
-    assert_eq!(stack.children.len(), 4);
+    assert_eq!(result.created_track_indices, vec![0, 1, 2]);
+    assert_eq!(stack.children.len(), 5);
     assert_eq!(stack.children[0].kind, TrackKind::Audio);
     assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    assert_eq!(stack.children[2].kind, TrackKind::Audio);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
     assert_eq!(stack.children[0].name.as_deref(), Some("A1"));
     assert_eq!(stack.children[1].get_id().as_deref(), Some("A2"));
     assert_eq!(stack.children[1].name.as_deref(), Some("A2"));
-    assert_eq!(stack.get_item("primary-id").unwrap().0, 2);
-    assert_eq!(stack.children[3].get_id().as_deref(), Some("audio-track"));
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("A3"));
+    assert_eq!(stack.children[2].name.as_deref(), Some("A3"));
+    assert_eq!(stack.get_item("primary-id").unwrap().0, 3);
+    assert_eq!(stack.children[4].get_id().as_deref(), Some("audio-track"));
 
     let primary = stack.get_item("primary-id").unwrap().2;
     assert_eq!(primary.duration(), 4.0);
@@ -224,6 +228,7 @@ fn linked_insert_master_clip_with_multiple_audio_clips_at_time() {
         Some(vec![
             audio_clip(4.0, "file:///master-audio-1.wav", Some("master-media")),
             audio_clip(4.0, "file:///master-audio-2.wav", Some("master-media")),
+            audio_clip(4.0, "file:///master-audio-3.wav", Some("master-media")),
         ]),
         None,
     ) {
@@ -232,8 +237,8 @@ fn linked_insert_master_clip_with_multiple_audio_clips_at_time() {
     };
 
     assert_eq!(result.primary_clip_id, "master-video");
-    assert_eq!(result.audio_clips.len(), 2);
-    assert_eq!(result.created_track_indices, vec![0, 1]);
+    assert_eq!(result.audio_clips.len(), 3);
+    assert_eq!(result.created_track_indices, vec![0, 1, 2]);
     let (primary_track_index, primary_item_index, primary_item) =
         stack.get_item("master-video").unwrap();
     assert_eq!(
