@@ -58,6 +58,21 @@ fn audio_clip(duration: f64, url: &str, media_id: Option<&str>) -> Item {
     ))
 }
 
+fn audio_clip_with_available_duration(duration: f64, url: &str, available_duration: f64) -> Item {
+    Item::Clip(Clip::new_single_media_reference(
+        range(duration),
+        MediaReference::ExternalReference {
+            target_url: url.to_string(),
+            available_range: Some(range(available_duration)),
+            name: None,
+            available_image_bounds: Some(serde_json::Value::Null),
+            metadata: serde_json::json!({}),
+        },
+        None,
+        None,
+    ))
+}
+
 fn clip_with_media_range(
     duration: f64,
     source_start: f64,
@@ -803,6 +818,48 @@ fn insert_linked_clip_at_index_after_linked_clip_uses_same_audio_track() {
     assert_eq!(stack.children[first_audio_track].items.len(), 2);
     assert_eq!(stack.children[first_audio_track].items[0].duration(), 2.0);
     assert_eq!(stack.children[first_audio_track].items[1].duration(), 3.0);
+}
+
+#[test]
+fn append_linked_clip_at_index_with_override_uses_same_audio_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let first = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(2.0, Some("first-video")),
+        vec![audio_clip(2.0, "file:///first-audio.wav", None)],
+    )
+    .unwrap();
+    let first_audio_track = first.audio_clips[0].1;
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+    let video_track_id = stack.children[video_track_index].get_id().unwrap();
+    let dest_index = stack.children[video_track_index].items.len();
+
+    let second = match stack.insert_item_at_index(
+        &video_track_id,
+        dest_index,
+        Item::Clip(clip_with_media_range(219.2, 0.0, 0.0, 300.0)),
+        OverlapPolicy::Override,
+        Some(vec![audio_clip_with_available_duration(
+            219.2,
+            "file:///second-audio.wav",
+            300.0,
+        )]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("linked index append with override should stay linked"),
+    };
+
+    assert_eq!(second.audio_clips[0].1, first_audio_track);
+    assert_eq!(stack.children.iter().filter(|t| t.kind == TrackKind::Audio).count(), 1);
+    assert_eq!(stack.children[first_audio_track].items.len(), 2);
+    assert_eq!(stack.children[first_audio_track].items[0].duration(), 2.0);
+    assert_eq!(stack.children[first_audio_track].items[1].duration(), 219.2);
 }
 
 #[test]
