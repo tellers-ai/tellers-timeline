@@ -199,7 +199,8 @@ impl Stack {
     ) -> Option<usize> {
         let end_time = dest_time + duration;
         if self.children.get(track_index)?.kind == TrackKind::Video {
-            let mut index = track_index + 1;
+            let video_track_index = self.move_empty_audio_tracks_after_video(track_index)?;
+            let mut index = video_track_index + 1;
             let mut passed_used_boundary = false;
             while index < self.children.len() && self.children[index].kind == TrackKind::Audio {
                 if used_audio_indices.contains(&index) {
@@ -281,6 +282,34 @@ impl Stack {
         self.children.insert(insert_at, track);
         created_track_indices.push(insert_at);
         Some(insert_at)
+    }
+
+    fn move_empty_audio_tracks_after_video(&mut self, video_track_index: usize) -> Option<usize> {
+        if self.children.get(video_track_index)?.kind != TrackKind::Video {
+            return None;
+        }
+
+        let mut empty_start = video_track_index;
+        while empty_start > 0
+            && self.children[empty_start - 1].kind == TrackKind::Audio
+            && track_is_empty_boundary(&self.children[empty_start - 1])
+        {
+            empty_start -= 1;
+        }
+        if empty_start == video_track_index {
+            return Some(video_track_index);
+        }
+
+        let moved_tracks: Vec<_> = self.children.drain(empty_start..video_track_index).collect();
+        let new_video_index = empty_start;
+        let mut insert_at = new_video_index + 1;
+        while insert_at < self.children.len() && self.children[insert_at].kind == TrackKind::Audio {
+            insert_at += 1;
+        }
+        for track in moved_tracks.into_iter().rev() {
+            self.children.insert(insert_at, track);
+        }
+        Some(new_video_index)
     }
 
     fn find_or_create_video_track_for_audio(
@@ -995,6 +1024,21 @@ impl Stack {
 
         let mut audio_clips = Vec::new();
         let mut created_track_indices = Vec::new();
+        if self.children[modified_track_index].kind == TrackKind::Video
+            && !linked_inputs.audio.is_empty()
+        {
+            self.move_empty_audio_tracks_after_video(modified_track_index)?;
+            let Some((track_index, item_index, _)) = self.get_item(&primary_clip_id) else {
+                *self = backup;
+                return None;
+            };
+            modified_track_index = track_index;
+            let actual_modified_start = self.children[track_index].start_time_of_item(item_index);
+            if (actual_modified_start - modified_start).abs() > EPS {
+                *self = backup;
+                return None;
+            }
+        }
         let mut spacer_track_indices =
             self.track_indices_for_link_groups(&touched_link_groups, modified_track_index);
         for track_index in spacer_track_indices.iter().copied() {

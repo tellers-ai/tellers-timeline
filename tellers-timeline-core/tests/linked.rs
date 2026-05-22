@@ -335,6 +335,40 @@ fn linked_insert_places_audio_below_video_when_audio_track_exists_above() {
 }
 
 #[test]
+fn linked_insert_moves_empty_audio_track_above_video_into_link_block() {
+    let mut empty_audio = Track::new(TrackKind::Audio, Some("empty-audio".to_string()));
+    empty_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(empty_audio);
+    stack.children.push(video);
+
+    let result = match stack.insert_item_at_time(
+        1,
+        5.0,
+        Item::Clip(clip(2.0, Some("primary"))),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+        Some(vec![audio_clip(2.0, "file:///linked.wav", None)]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("linked insert should reuse the empty audio track below video"),
+    };
+
+    assert_eq!(stack.children.len(), 2);
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("video-track"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("empty-audio"));
+    assert_eq!(result.audio_clips[0].1, 1);
+    assert_eq!(result.created_track_indices, Vec::<usize>::new());
+    assert_eq!(stack.get_item("primary").unwrap().0, 0);
+    assert_eq!(stack.get_item(&result.audio_clips[0].0).unwrap().0, 1);
+}
+
+#[test]
 fn linked_insert_does_not_cross_empty_audio_track_boundary() {
     let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
     video.items.push(Item::Gap(Gap::make_gap(10.0)));
