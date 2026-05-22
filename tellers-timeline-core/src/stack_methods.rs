@@ -199,48 +199,38 @@ impl Stack {
     ) -> Option<usize> {
         let end_time = dest_time + duration;
         if self.children.get(track_index)?.kind == TrackKind::Video {
-            let mut index = track_index;
-            while index > 0 && self.children[index - 1].kind == TrackKind::Audio {
-                index -= 1;
-                if track_is_empty_boundary(&self.children[index])
-                    || used_audio_boundary_indices.contains(&index)
-                {
+            let mut index = track_index + 1;
+            let mut passed_used_boundary = false;
+            while index < self.children.len() && self.children[index].kind == TrackKind::Audio {
+                if used_audio_indices.contains(&index) {
+                    if used_audio_boundary_indices.contains(&index) {
+                        passed_used_boundary = true;
+                    }
+                    index += 1;
+                    continue;
+                }
+                if passed_used_boundary {
                     break;
                 }
-            }
-            for audio_index in (index..track_index).rev() {
-                if used_audio_indices.contains(&audio_index) {
-                    if used_audio_boundary_indices.contains(&audio_index) {
-                        break;
-                    }
-                    continue;
+                if range_is_gap_backed(&self.children[index], dest_time, end_time) {
+                    return Some(index);
                 }
-                if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
-                    return Some(audio_index);
-                }
-                let has_blocking_clip = range_has_blocking_clip(
-                    &self.children[audio_index],
-                    dest_time,
-                    end_time,
-                    link_group_id,
-                );
+                let has_blocking_clip =
+                    range_has_blocking_clip(&self.children[index], dest_time, end_time, link_group_id);
                 if !has_blocking_clip {
                     if use_link_backed_track {
-                        return Some(audio_index);
+                        return Some(index);
                     }
+                    index += 1;
                     continue;
                 }
-                let insert_at = audio_index + 1;
-                let track = self.new_numbered_track(TrackKind::Audio);
-                self.children.insert(insert_at, track);
-                created_track_indices.push(insert_at);
-                return Some(insert_at);
+                break;
             }
 
             let track = self.new_numbered_track(TrackKind::Audio);
-            self.children.insert(track_index, track);
-            created_track_indices.push(track_index);
-            return Some(track_index);
+            self.children.insert(index, track);
+            created_track_indices.push(index);
+            return Some(index);
         }
 
         let mut index = match self.children.get(track_index)?.kind {
@@ -262,6 +252,7 @@ impl Stack {
         while index < self.children.len() && self.children[index].kind == TrackKind::Audio {
             if used_audio_indices.contains(&index) {
                 if used_audio_boundary_indices.contains(&index) {
+                    index += 1;
                     break;
                 }
                 index += 1;
@@ -326,7 +317,9 @@ impl Stack {
                 end_time,
                 link_group_id,
             ) {
-                return use_link_backed_track.then_some(group_start);
+                if use_link_backed_track {
+                    return Some(group_start);
+                }
             }
         }
 
@@ -634,24 +627,53 @@ impl Stack {
             };
         }
 
-        let mut track_indices = vec![anchor_track_index];
-        for track_index in (0..anchor_track_index).rev() {
-            track_indices.push(track_index);
-            if track_is_empty_boundary(&self.children[track_index])
-                || track_blocks_link_boundary(&self.children[track_index], link_groups)
-            {
-                break;
+        let mut track_indices = Vec::new();
+        match self.children[anchor_track_index].kind {
+            TrackKind::Video => {
+                track_indices.push(anchor_track_index);
+                for track_index in anchor_track_index + 1..self.children.len() {
+                    if self.children[track_index].kind != TrackKind::Audio {
+                        break;
+                    }
+                    track_indices.push(track_index);
+                    if track_is_empty_boundary(&self.children[track_index])
+                        || track_blocks_link_boundary(&self.children[track_index], link_groups)
+                    {
+                        break;
+                    }
+                }
             }
-        }
-        track_indices.sort_unstable();
-
-        for track_index in anchor_track_index + 1..self.children.len() {
-            track_indices.push(track_index);
-            if track_is_empty_boundary(&self.children[track_index])
-                || track_blocks_link_boundary(&self.children[track_index], link_groups)
-            {
-                break;
+            TrackKind::Audio => {
+                let mut audio_start = anchor_track_index;
+                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
+                    let previous = audio_start - 1;
+                    if track_is_empty_boundary(&self.children[previous])
+                        || track_blocks_link_boundary(&self.children[previous], link_groups)
+                    {
+                        break;
+                    }
+                    audio_start = previous;
+                }
+                if audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Video {
+                    let video_index = audio_start - 1;
+                    if !track_blocks_link_boundary(&self.children[video_index], link_groups) {
+                        track_indices.push(video_index);
+                    }
+                }
+                for track_index in audio_start..self.children.len() {
+                    if self.children[track_index].kind != TrackKind::Audio {
+                        break;
+                    }
+                    track_indices.push(track_index);
+                    if track_index != anchor_track_index
+                        && (track_is_empty_boundary(&self.children[track_index])
+                            || track_blocks_link_boundary(&self.children[track_index], link_groups))
+                    {
+                        break;
+                    }
+                }
             }
+            TrackKind::Other => track_indices.push(anchor_track_index),
         }
 
         let segments = track_indices
