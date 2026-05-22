@@ -620,18 +620,15 @@ impl Stack {
         dest_time: Seconds,
         duration: Seconds,
         overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
     ) -> Vec<i64> {
         let Some(track) = self.children.get(track_index) else {
             return Vec::new();
         };
-        let total = track.total_duration();
-        let mut start = dest_time;
-        if start < 0.0 {
-            start = total - start;
-        }
-        if start < 0.0 || start >= total - EPS {
+        let Some(start) = insertion_start_for_policy(track, dest_time, insert_policy) else {
             return Vec::new();
-        }
+        };
+        let total = track.total_duration();
         let affected_duration = if overlap_policy == OverlapPolicy::Push {
             total - start
         } else {
@@ -876,6 +873,7 @@ impl Stack {
                 dest_time,
                 modified_duration,
                 overlap_policy,
+                insert_policy,
             )
         };
 
@@ -1872,6 +1870,7 @@ impl Stack {
                     dest_time,
                     item.duration(),
                     overlap_policy,
+                    insert_policy,
                 )
                 .is_empty();
         if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
@@ -2259,6 +2258,40 @@ fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
             gap.source_range.start_time.value = source_start_time;
         }
     }
+}
+
+fn insertion_start_for_policy(
+    track: &Track,
+    insert_time: Seconds,
+    insert_policy: InsertPolicy,
+) -> Option<Seconds> {
+    let total = track.total_duration();
+    let mut effective_time = insert_time;
+    if effective_time < 0.0 {
+        effective_time = total - effective_time;
+    }
+    if effective_time < 0.0 || effective_time >= total - EPS {
+        return None;
+    }
+
+    let item_index = track.get_item_at_time(effective_time)?;
+    let item_start = track.start_time_of_item(item_index);
+    let item_end = item_start + track.items[item_index].duration().max(0.0);
+    let start = match insert_policy {
+        InsertPolicy::SplitAndInsert => effective_time,
+        InsertPolicy::InsertBefore => item_start,
+        InsertPolicy::InsertAfter => item_end,
+        InsertPolicy::InsertBeforeOrAfter => {
+            let d_start = (effective_time - item_start).abs();
+            let d_end = (item_end - effective_time).abs();
+            if d_start <= d_end {
+                item_start
+            } else {
+                item_end
+            }
+        }
+    };
+    (start < total - EPS).then_some(start)
 }
 
 fn resolve_link_group_id(metadata: &serde_json::Value) -> Option<i64> {

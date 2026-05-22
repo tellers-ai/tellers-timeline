@@ -549,6 +549,129 @@ fn insert_unlinked_clip_at_index_with_push_moves_later_linked_assets() {
 }
 
 #[test]
+fn insert_unlinked_clip_before_policy_pushes_linked_assets_from_boundary() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        2.0,
+        clip(2.0, Some("linked-video")),
+        vec![audio_clip(2.0, "file:///linked-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    let primary_track_index = stack.get_item("linked-video").unwrap().0;
+
+    let insert_result = stack.insert_item_at_time(
+        primary_track_index,
+        3.0,
+        Item::Clip(clip(1.0, Some("inserted"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBefore,
+        None,
+        None,
+    );
+
+    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::Linked(_))));
+    let (video_track_index, video_item_index, _) = stack.get_item("linked-video").unwrap();
+    let (audio_track_index, audio_item_index, _) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        3.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        3.0
+    );
+}
+
+#[test]
+fn insert_unlinked_clip_after_policy_does_not_touch_linked_assets() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        2.0,
+        clip(2.0, Some("linked-video")),
+        vec![audio_clip(2.0, "file:///linked-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    let primary_track_index = stack.get_item("linked-video").unwrap().0;
+
+    let insert_result = stack.insert_item_at_time(
+        primary_track_index,
+        3.0,
+        Item::Clip(clip(1.0, Some("inserted"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertAfter,
+        None,
+        None,
+    );
+
+    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
+    let (video_track_index, video_item_index, _) = stack.get_item("linked-video").unwrap();
+    let (audio_track_index, audio_item_index, _) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        2.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        2.0
+    );
+}
+
+#[test]
+fn insert_unlinked_clip_override_after_policy_does_not_gap_linked_asset() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        2.0,
+        clip(2.0, Some("linked-video")),
+        vec![audio_clip(2.0, "file:///linked-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    let primary_track_index = stack.get_item("linked-video").unwrap().0;
+
+    let insert_result = stack.insert_item_at_time(
+        primary_track_index,
+        3.0,
+        Item::Clip(clip(1.0, Some("inserted"))),
+        OverlapPolicy::Override,
+        InsertPolicy::InsertAfter,
+        None,
+        None,
+    );
+
+    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
+    let (video_track_index, video_item_index, video_item) =
+        stack.get_item("linked-video").unwrap();
+    let (audio_track_index, audio_item_index, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        2.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        2.0
+    );
+    assert_eq!(video_item.duration(), 2.0);
+    assert_eq!(audio_item.duration(), 2.0);
+}
+
+#[test]
 fn insert_into_linked_clip_stops_at_empty_track_boundary() {
     let mut stack = Stack::default();
     stack
