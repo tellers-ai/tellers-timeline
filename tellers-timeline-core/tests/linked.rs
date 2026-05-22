@@ -1378,6 +1378,43 @@ fn resize_item_updates_linked_group() {
 }
 
 #[test]
+fn resize_item_moves_linked_group_by_selected_delta() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("primary")),
+        vec![audio_clip(4.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    assert!(stack.split_item_at_time("primary", 2.0));
+    let right_video_id = stack.children[stack.get_item("primary").unwrap().0].items[1]
+        .get_id()
+        .unwrap();
+    let right_audio_id = stack.children[stack.get_item(&audio_id).unwrap().0].items[1]
+        .get_id()
+        .unwrap();
+
+    assert!(stack.resize_item("primary", 1.0, 1.0, OverlapPolicy::Override, false));
+
+    for item_id in [&"primary".to_string(), &audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 1.0);
+        assert_eq!(item.duration(), 1.0);
+    }
+    for item_id in [&right_video_id, &right_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 3.0);
+        assert_eq!(item.duration(), 1.0);
+    }
+}
+
+#[test]
 fn replace_item_rejects_linked_audio_with_different_duration() {
     let mut stack = Stack::default();
     stack

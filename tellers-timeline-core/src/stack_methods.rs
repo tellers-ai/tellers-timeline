@@ -1192,13 +1192,19 @@ impl Stack {
         else {
             return false;
         };
-        let targets = match selected_item {
+        let mut targets = match selected_item {
             Item::Clip(clip) => resolve_link_group_id(&clip.metadata)
                 .map(|link_group_id| self.linked_group_targets(link_group_id))
                 .filter(|targets| targets.len() > 1)
                 .unwrap_or_else(|| vec![(selected_track_index, selected_item_index)]),
             Item::Gap(_) => vec![(selected_track_index, selected_item_index)],
         };
+        if targets.is_empty() {
+            return false;
+        }
+        let selected_start =
+            self.children[selected_track_index].start_time_of_item(selected_item_index);
+        let start_delta = new_start_time - selected_start;
 
         let effective_duration = targets
             .iter()
@@ -1211,56 +1217,49 @@ impl Stack {
             .fold(new_duration.max(0.0), Seconds::min);
 
         let backup = self.clone();
-        let target_ids: Vec<_> = targets
-            .iter()
-            .filter_map(|(track_index, item_index)| {
-                self.children
-                    .get(*track_index)
-                    .and_then(|track| track.items.get(*item_index))
-                    .and_then(Item::get_id)
-            })
-            .collect();
-        if target_ids.len() == targets.len() {
-            for item_id in target_ids {
-                let Some((track_index, item_index, _)) = self.get_item(&item_id) else {
-                    *self = backup;
-                    return false;
-                };
-                let Some(track) = self.children.get_mut(track_index) else {
-                    *self = backup;
-                    return false;
-                };
-                if !track.resize_item(
-                    item_index,
-                    new_start_time,
-                    effective_duration,
-                    overlap_policy,
-                    false,
-                ) {
-                    *self = backup;
-                    return false;
-                }
-            }
-            return true;
+        let mut resized_items = Vec::new();
+        for (track_index, item_index) in &targets {
+            let Some(item) = self
+                .children
+                .get(*track_index)
+                .and_then(|track| track.items.get(*item_index))
+                .cloned()
+            else {
+                *self = backup;
+                return false;
+            };
+            let mut item = item;
+            item.set_duration(effective_duration);
+            let target_start =
+                self.children[*track_index].start_time_of_item(*item_index) + start_delta;
+            resized_items.push((*track_index, *item_index, target_start, item));
         }
 
-        let mut fallback_targets = targets;
-        fallback_targets.sort_by(|a, b| b.cmp(a));
-        for (track_index, item_index) in fallback_targets {
+        targets.sort_by(|a, b| b.cmp(a));
+        for (track_index, item_index) in targets {
             let Some(track) = self.children.get_mut(track_index) else {
                 *self = backup;
                 return false;
             };
-            if !track.resize_item(
-                item_index,
-                new_start_time,
-                effective_duration,
-                overlap_policy,
-                false,
-            ) {
+            if item_index >= track.items.len() {
                 *self = backup;
                 return false;
             }
+            track.items.remove(item_index);
+            track.sanitize();
+        }
+
+        for (track_index, _, target_start, item) in resized_items {
+            let Some(track) = self.children.get_mut(track_index) else {
+                *self = backup;
+                return false;
+            };
+            track.insert_at_time(
+                target_start,
+                item,
+                overlap_policy,
+                InsertPolicy::SplitAndInsert,
+            );
         }
         true
     }

@@ -951,3 +951,32 @@ def test_resize_item_updates_linked_group():
     assert stack.tracks()[audio_track].start_time_of_item(audio_index) == 1.0
     assert video_item.duration() == 2.0
     assert audio_item.duration() == 2.0
+
+
+def test_resize_item_moves_linked_group_by_selected_delta():
+    stack = Stack([Track(kind="video", id="v")])
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    audio_id = result["audio_clips"][0][0]
+    assert stack.split_item_at_time("primary", 2.0)
+    primary_track = stack.get_item("primary")[0]
+    audio_track = stack.get_item(audio_id)[0]
+    right_video_id = stack.tracks()[primary_track].items()[1].get_id()
+    right_audio_id = stack.tracks()[audio_track].items()[1].get_id()
+
+    assert stack.resize_item("primary", 1.0, 1.0, "override", False)
+
+    for item_id in ["primary", audio_id]:
+        track_index, item_index, item = stack.get_item(item_id)
+        assert stack.tracks()[track_index].start_time_of_item(item_index) == 1.0
+        assert item.duration() == 1.0
+    for item_id in [right_video_id, right_audio_id]:
+        track_index, item_index, item = stack.get_item(item_id)
+        assert stack.tracks()[track_index].start_time_of_item(item_index) == 3.0
+        assert item.duration() == 1.0
