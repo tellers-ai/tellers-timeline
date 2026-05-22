@@ -1747,6 +1747,122 @@ fn modify_item_left_shrink_with_push_updates_linked_source_starts() {
 }
 
 #[test]
+fn modify_item_from_audio_updates_linked_video() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(5.0, Some("video")),
+        vec![audio_clip(5.0, "file:///audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.modify_item(&audio_id, 1.0, 3.0, false, true, false));
+
+    for item_id in ["video", &audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(item_index, 1);
+        assert!(matches!(stack.children[track_index].items[0], Item::Gap(_)));
+        assert_eq!(stack.children[track_index].items[0].duration(), 1.0);
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            1.0
+        );
+        assert_eq!(source_start(item), 1.0);
+        assert_eq!(item.duration(), 3.0);
+    }
+}
+
+#[test]
+fn modify_item_negative_source_start_clamps_linked_group() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(5.0, Some("video")),
+        vec![audio_clip(5.0, "file:///audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.modify_item("video", -1.0, 5.0, false, true, true));
+
+    for item_id in ["video", &audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            0.0
+        );
+        assert_eq!(source_start(item), 0.0);
+        assert_eq!(item.duration(), 4.0);
+    }
+}
+
+#[test]
+fn modify_item_extend_updates_linked_group_duration() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("video")),
+        vec![audio_clip(3.0, "file:///audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.modify_item("video", 0.0, 5.0, false, false, true));
+
+    for item_id in ["video", &audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            0.0
+        );
+        assert_eq!(source_start(item), 0.0);
+        assert_eq!(item.duration(), 5.0);
+    }
+}
+
+#[test]
+fn modify_item_negative_duration_deletes_linked_group() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("video")),
+        vec![audio_clip(3.0, "file:///audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+
+    assert!(stack.modify_item("video", 0.0, -1.0, false, false, false));
+
+    assert!(stack.get_item("video").is_none());
+    assert!(stack.get_item(&audio_id).is_none());
+    assert!(stack
+        .children
+        .iter()
+        .all(|track| track.items.iter().all(|item| matches!(item, Item::Gap(_)))));
+}
+
+#[test]
 fn replace_item_rejects_linked_audio_with_different_duration() {
     let mut stack = Stack::default();
     stack
