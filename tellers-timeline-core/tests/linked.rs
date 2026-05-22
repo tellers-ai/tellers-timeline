@@ -909,7 +909,7 @@ fn delete_unlinked_item_only_removes_selected_item() {
 }
 
 #[test]
-fn delete_track_cleans_singleton_link_group_left_behind() {
+fn delete_track_removes_linked_assets_left_behind() {
     let mut stack = Stack::default();
     let video = Track::new(TrackKind::Video, Some("v".to_string()));
     let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
@@ -934,7 +934,12 @@ fn delete_track_cleans_singleton_link_group_left_behind() {
         .children
         .iter()
         .any(|track| track.get_id().as_deref() == Some("a")));
-    assert_eq!(link_group_id(stack.get_item(&audio_id).unwrap().2), None);
+    assert!(stack.get_item(&audio_id).is_none());
+    assert!(stack.children.iter().any(|track| {
+        track.items
+            .iter()
+            .any(|item| matches!(item, Item::Gap(_)) && (item.duration() - 3.0).abs() <= 1e-9)
+    }));
 }
 
 #[test]

@@ -1,6 +1,6 @@
 import json
 
-from tellers_timeline import Clip, Gap, Item, MediaReference, Stack, Track
+from tellers_timeline import Clip, Gap, Item, MediaReference, Stack, Timeline, Track
 
 
 def link_group_id(item):
@@ -185,7 +185,7 @@ def test_delete_item_keeps_empty_linked_tracks():
         assert all(item.is_gap() for item in track.items())
 
 
-def test_delete_track_cleans_singleton_link_group_left_behind():
+def test_delete_track_removes_linked_assets_left_behind():
     stack = Stack([Track(kind="video", id="v"), Track(kind="audio", id="a")])
     result = stack.insert_item_at_time(
         0,
@@ -203,7 +203,38 @@ def test_delete_track_cleans_singleton_link_group_left_behind():
     assert removed.get_id() == "v"
     assert len(stack.tracks()) == 2
     assert any(track.get_id() == "a" for track in stack.tracks())
-    assert maybe_link_group_id(stack.get_item(audio_id)[2]) is None
+    assert stack.get_item(audio_id) is None
+    assert any(
+        item.is_gap() and item.duration() == 3.0
+        for track in stack.tracks()
+        for item in track.items()
+    )
+
+
+def test_timeline_delete_track_removes_linked_assets_left_behind():
+    timeline = Timeline(Stack([Track(kind="video", id="v"), Track(kind="audio", id="a")]))
+    stack = timeline.get_stack()
+    result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
+        "override",
+        "split_and_insert",
+        [Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    timeline.set_stack(stack)
+    audio_id = result["audio_clips"][0][0]
+
+    removed = timeline.delete_track("v")
+
+    assert removed is not None
+    stack = timeline.get_stack()
+    assert stack.get_item(audio_id) is None
+    assert any(
+        item.is_gap() and item.duration() == 3.0
+        for track in stack.tracks()
+        for item in track.items()
+    )
 
 
 def test_track_timeline_ids_returns_child_item_ids_in_order():

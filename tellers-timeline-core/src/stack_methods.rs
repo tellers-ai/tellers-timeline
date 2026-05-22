@@ -346,6 +346,10 @@ impl Stack {
             }
         };
 
+        self.delete_link_group(link_group_id, replace_with_gap)
+    }
+
+    fn delete_link_group(&mut self, link_group_id: i64, replace_with_gap: bool) -> Vec<(usize, Item)> {
         let mut targets = Vec::new();
         for (ti, track) in self.children.iter().enumerate() {
             for (ii, item) in track.items.iter().enumerate() {
@@ -1677,7 +1681,9 @@ impl Stack {
             })
             .collect();
         let removed = self.children.remove(i);
-        self.cleanup_singleton_link_groups(&touched_link_groups);
+        for link_group_id in touched_link_groups {
+            self.delete_link_group(link_group_id, true);
+        }
         Some(removed)
     }
 }
