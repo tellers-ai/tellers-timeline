@@ -1706,10 +1706,24 @@ impl Stack {
     fn delete_one_item(&mut self, item_id: &str, replace_with_gap: bool) -> Option<(usize, Item)> {
         for ti in 0..self.children.len() {
             if let Some((ii, _)) = self.children[ti].get_item_by_id(item_id) {
+                let backup = self.clone();
+                let before_states = self.linked_clip_states();
                 let removed = self.children[ti].items[ii].clone();
                 // Use the track API for deletion and optional gap insertion/merge behavior
                 let deleted = self.children[ti].delete_clip(ii, replace_with_gap);
                 if deleted {
+                    if !replace_with_gap {
+                        let excluded_ids = removed.get_id().into_iter().collect();
+                        if !self.sync_changed_link_groups_after_resize(
+                            &before_states,
+                            &[ti],
+                            &excluded_ids,
+                            OverlapPolicy::Override,
+                        ) {
+                            *self = backup;
+                            return None;
+                        }
+                    }
                     return Some((ti, removed));
                 } else {
                     return None;

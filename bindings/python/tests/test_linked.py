@@ -908,6 +908,51 @@ def test_move_unlinked_item_only_moves_selected_item():
     assert stack.get_item("unlinked-audio") is not None
 
 
+def test_move_unlinked_item_without_gap_pulls_later_linked_assets():
+    stack = Stack(
+        [
+            Track(
+                kind="video",
+                id="v",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            1.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///unlinked.mov")},
+                            id="unlinked",
+                        )
+                    )
+                ],
+            ),
+            Track(kind="audio", id="a"),
+        ]
+    )
+    result = stack.insert_item_at_time(
+        0,
+        1.0,
+        Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="linked-video"),
+        "override",
+        "split_and_insert",
+        [Clip(2.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    audio_id = result["audio_clips"][0][0]
+
+    assert stack.move_item_at_time(
+        "unlinked",
+        "v",
+        2.0,
+        False,
+        "push",
+        "insert_before_or_after",
+    )
+
+    video_track, video_index, _video_item = stack.get_item("linked-video")
+    audio_track, audio_index, _audio_item = stack.get_item(audio_id)
+    assert stack.tracks()[video_track].start_time_of_item(
+        video_index
+    ) == stack.tracks()[audio_track].start_time_of_item(audio_index)
+
+
 def test_move_item_at_index_moves_linked_group():
     stack = Stack(
         [
