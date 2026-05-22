@@ -597,7 +597,7 @@ impl Stack {
             start,
             item,
             OverlapPolicy::Override,
-            InsertPolicy::InsertBefore,
+            InsertPolicy::SplitAndInsert,
         );
     }
 
@@ -739,7 +739,7 @@ impl Stack {
                     modified_start,
                     video_item,
                     OverlapPolicy::Override,
-                    InsertPolicy::InsertBefore,
+                    InsertPolicy::SplitAndInsert,
                 );
             } else {
                 self.insert_gap_then_linked_item(
@@ -795,7 +795,7 @@ impl Stack {
                     modified_start,
                     audio_item,
                     OverlapPolicy::Override,
-                    InsertPolicy::InsertBefore,
+                    InsertPolicy::SplitAndInsert,
                 );
             } else {
                 self.insert_gap_then_linked_item(

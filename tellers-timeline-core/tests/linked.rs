@@ -208,6 +208,43 @@ fn linked_insert_creates_audio_track_before_unlinked_boundary_clip() {
 }
 
 #[test]
+fn linked_insert_places_audio_below_video_when_audio_track_exists_above() {
+    let mut unrelated_audio = Track::new(TrackKind::Audio, Some("audio-above".to_string()));
+    unrelated_audio.items.push(audio_clip(4.0, "file:///existing.wav", None));
+
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(unrelated_audio);
+    stack.children.push(video);
+
+    let result = match stack.insert_item_at_time(
+        1,
+        2.0,
+        Item::Clip(clip(3.0, Some("primary"))),
+        OverlapPolicy::Push,
+        InsertPolicy::SplitAndInsert,
+        Some(vec![audio_clip(3.0, "file:///linked.wav", None)]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("linked insert should create audio below the target video track"),
+    };
+
+    assert_eq!(result.audio_clips[0].1, 2);
+    assert_eq!(result.created_track_indices, vec![2]);
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("audio-above"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("video-track"));
+    assert_eq!(stack.children[2].kind, TrackKind::Audio);
+    let audio_track = &stack.children[2];
+    assert!(matches!(audio_track.items[0], Item::Gap(_)));
+    assert_eq!(audio_track.items[0].duration(), 2.0);
+    assert_eq!(audio_track.items[1].get_id(), Some(result.audio_clips[0].0.clone()));
+    assert_eq!(audio_track.items[1].duration(), 3.0);
+}
+
+#[test]
 fn linked_insert_regenerates_colliding_timeline_ids_and_preserves_media_id() {
     let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
     let existing = clip(1.0, Some("duplicate-id"));
