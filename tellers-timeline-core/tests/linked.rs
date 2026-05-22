@@ -1368,6 +1368,20 @@ fn move_unlinked_item_without_gap_pulls_later_linked_assets() {
         stack.children[video_track_index].start_time_of_item(video_item_index),
         stack.children[audio_track_index].start_time_of_item(audio_item_index)
     );
+    assert_eq!(stack.children[video_track_index].items.len(), 2);
+    assert!(stack.children[video_track_index]
+        .items
+        .iter()
+        .all(|item| matches!(item, Item::Clip(_))));
+    assert_eq!(
+        stack.children[video_track_index].timeline_ids(),
+        vec!["linked-video", "unlinked"]
+    );
+    assert_eq!(stack.children[audio_track_index].items.len(), 1);
+    assert!(matches!(
+        stack.children[audio_track_index].items[audio_item_index],
+        Item::Clip(_)
+    ));
 }
 
 #[test]

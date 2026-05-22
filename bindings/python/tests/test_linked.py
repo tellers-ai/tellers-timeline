@@ -951,6 +951,13 @@ def test_move_unlinked_item_without_gap_pulls_later_linked_assets():
     assert stack.tracks()[video_track].start_time_of_item(
         video_index
     ) == stack.tracks()[audio_track].start_time_of_item(audio_index)
+    assert [item.get_id() for item in stack.tracks()[video_track].items()] == [
+        "linked-video",
+        "unlinked",
+    ]
+    assert all(item.is_clip() for item in stack.tracks()[video_track].items())
+    assert len(stack.tracks()[audio_track].items()) == 1
+    assert stack.tracks()[audio_track].items()[0].is_clip()
 
 
 def test_move_item_at_index_moves_linked_group():
