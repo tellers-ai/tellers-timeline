@@ -957,6 +957,59 @@ def test_resize_item_updates_linked_group():
     assert audio_item.duration() == 2.0
 
 
+def test_resize_video_updates_linked_audio_with_different_initial_boundary():
+    audio = Clip(
+        49.88,
+        {"DEFAULT_MEDIA": MediaReference("file:///shared.mov", media_duration=49.88)},
+        id="audio",
+    )
+    audio.set_metadata_json(
+        json.dumps({"tellers.ai": {"timeline_id": "audio"}, "Resolve_OTIO": {"Link Group ID": 1}})
+    )
+    video = Clip(
+        49.11530679434423,
+        {"DEFAULT_MEDIA": MediaReference("file:///shared.mov", media_duration=49.88)},
+        id="video",
+    )
+    video.set_metadata_json(
+        json.dumps({"tellers.ai": {"timeline_id": "video"}, "Resolve_OTIO": {"Link Group ID": 1}})
+    )
+    stack = Stack(
+        [
+            Track(
+                kind="audio",
+                id="A1",
+                children=[
+                    Item.from_gap(Gap(0.3879401240763142)),
+                    Item.from_clip(audio),
+                ],
+            ),
+            Track(
+                kind="video",
+                id="V1",
+                children=[
+                    Item.from_gap(Gap(0.3879401240763142)),
+                    Item.from_gap(Gap(0.7646932056557713)),
+                    Item.from_clip(video),
+                ],
+            ),
+        ]
+    )
+    old_video_start = 0.3879401240763142 + 0.7646932056557713
+    new_video_start = 2.0
+    new_duration = 10.0
+
+    assert stack.resize_item("video", new_video_start, new_duration, "override", False)
+
+    audio_track, audio_index, audio_item = stack.get_item("audio")
+    video_track, video_index, video_item = stack.get_item("video")
+    delta = new_video_start - old_video_start
+    assert stack.tracks()[video_track].start_time_of_item(video_index) == new_video_start
+    assert stack.tracks()[audio_track].start_time_of_item(audio_index) == 0.3879401240763142 + delta
+    assert video_item.duration() == new_duration
+    assert audio_item.duration() == new_duration
+
+
 def test_resize_item_moves_linked_group_by_selected_delta():
     stack = Stack([Track(kind="video", id="v")])
     result = stack.insert_item_at_time(
