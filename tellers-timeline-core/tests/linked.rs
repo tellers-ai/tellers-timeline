@@ -192,11 +192,64 @@ fn linked_insert_adds_primary_and_audio_tracks_without_touching_clips() {
     let primary = stack.get_item("primary-id").unwrap().2;
     assert_eq!(primary.duration(), 4.0);
     assert_eq!(link_group_id(primary), result.link_group_id);
+    let (primary_track_index, primary_item_index, _) = stack.get_item("primary-id").unwrap();
+    let primary_start = stack.children[primary_track_index].start_time_of_item(primary_item_index);
 
-    for (audio_id, _track_index) in result.audio_clips {
-        let item = stack.get_item(&audio_id).unwrap().2;
+    for (audio_id, track_index) in result.audio_clips {
+        let (actual_track_index, item_index, item) = stack.get_item(&audio_id).unwrap();
+        assert_eq!(actual_track_index, track_index);
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            primary_start
+        );
         assert_eq!(item.duration(), 4.0);
         assert_eq!(link_group_id(item), result.link_group_id);
+    }
+}
+
+#[test]
+fn linked_insert_master_clip_with_multiple_audio_clips_at_time() {
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(10.0)));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+
+    let result = match stack.insert_item_at_time(
+        0,
+        2.0,
+        Item::Clip(clip(4.0, Some("master-video"))),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+        Some(vec![
+            audio_clip(4.0, "file:///master-audio-1.wav", Some("master-media")),
+            audio_clip(4.0, "file:///master-audio-2.wav", Some("master-media")),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("master clip linked insert should succeed"),
+    };
+
+    assert_eq!(result.primary_clip_id, "master-video");
+    assert_eq!(result.audio_clips.len(), 2);
+    assert_eq!(result.created_track_indices, vec![0, 1]);
+    let (primary_track_index, primary_item_index, primary_item) =
+        stack.get_item("master-video").unwrap();
+    assert_eq!(
+        stack.children[primary_track_index].start_time_of_item(primary_item_index),
+        2.0
+    );
+    assert_eq!(primary_item.duration(), 4.0);
+    assert_eq!(link_group_id(primary_item), result.link_group_id);
+
+    for (audio_id, track_index) in result.audio_clips {
+        let (actual_track_index, item_index, audio_item) = stack.get_item(&audio_id).unwrap();
+        assert_eq!(actual_track_index, track_index);
+        assert_eq!(stack.children[track_index].kind, TrackKind::Audio);
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 2.0);
+        assert_eq!(audio_item.duration(), 4.0);
+        assert_eq!(link_group_id(audio_item), result.link_group_id);
     }
 }
 

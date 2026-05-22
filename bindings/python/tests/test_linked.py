@@ -59,6 +59,59 @@ def test_insert_item_at_time_returns_linked_ids_and_preserves_media_id():
     assert media_metadata["tellers.ai"]["media_id"] == "asset-1"
 
 
+def test_insert_master_clip_with_multiple_linked_audio_clips():
+    stack = Stack([Track(kind="video", id="v")])
+    primary = Clip(
+        4.0,
+        {"DEFAULT_MEDIA": MediaReference("file:///master-video.mov")},
+        id="master-video",
+    )
+    audio_one = Clip(
+        4.0,
+        {"DEFAULT_MEDIA": MediaReference("file:///master-audio-1.wav")},
+        id="audio-one",
+    )
+    audio_two = Clip(
+        4.0,
+        {"DEFAULT_MEDIA": MediaReference("file:///master-audio-2.wav")},
+        id="audio-two",
+    )
+
+    result = stack.insert_item_at_time(
+        0,
+        2.0,
+        primary,
+        "override",
+        "split_and_insert",
+        [audio_one, audio_two],
+    )
+
+    assert result is not None
+    assert result["primary_clip_id"] == "master-video"
+    assert len(result["audio_clips"]) == 2
+    assert result["linked_video_clip_id"] is None
+    assert result["created_track_indices"] == [0, 1]
+
+    tracks = stack.tracks()
+    assert [tracks[index].get_id() for _, index in result["audio_clips"]] == ["A1", "A2"]
+    primary_track, primary_index, primary_item = stack.get_item("master-video")
+    assert tracks[primary_track].start_time_of_item(primary_index) == 2.0
+    assert primary_item.duration() == 4.0
+    assert maybe_link_group_id(primary_item) == result["link_group_id"]
+
+    expected_urls = ["file:///master-audio-1.wav", "file:///master-audio-2.wav"]
+    for (audio_id, track_index), expected_url in zip(result["audio_clips"], expected_urls):
+        actual_track, item_index, audio_item = stack.get_item(audio_id)
+        assert actual_track == track_index
+        assert tracks[track_index].start_time_of_item(item_index) == 2.0
+        assert audio_item.duration() == 4.0
+        assert maybe_link_group_id(audio_item) == result["link_group_id"]
+        assert (
+            audio_item.get_media_references()["DEFAULT_MEDIA"].get_url()
+            == expected_url
+        )
+
+
 def test_insert_without_link_group_only_changes_destination_track():
     stack = Stack(
         [
