@@ -171,6 +171,7 @@ impl Stack {
         duration: Seconds,
         created_track_indices: &mut Vec<usize>,
         used_audio_indices: &[usize],
+        used_audio_boundary_indices: &[usize],
         link_group_id: Option<i64>,
         use_link_backed_track: bool,
     ) -> Option<usize> {
@@ -179,9 +180,17 @@ impl Stack {
             let mut index = track_index;
             while index > 0 && self.children[index - 1].kind == TrackKind::Audio {
                 index -= 1;
+                if track_is_empty_boundary(&self.children[index])
+                    || used_audio_boundary_indices.contains(&index)
+                {
+                    break;
+                }
             }
             for audio_index in (index..track_index).rev() {
                 if used_audio_indices.contains(&audio_index) {
+                    if used_audio_boundary_indices.contains(&audio_index) {
+                        break;
+                    }
                     continue;
                 }
                 if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
@@ -217,6 +226,11 @@ impl Stack {
                 let mut audio_start = track_index;
                 while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
                     audio_start -= 1;
+                    if track_is_empty_boundary(&self.children[audio_start])
+                        || used_audio_boundary_indices.contains(&audio_start)
+                    {
+                        break;
+                    }
                 }
                 audio_start
             }
@@ -225,6 +239,9 @@ impl Stack {
 
         while index < self.children.len() && self.children[index].kind == TrackKind::Audio {
             if used_audio_indices.contains(&index) {
+                if used_audio_boundary_indices.contains(&index) {
+                    break;
+                }
                 index += 1;
                 continue;
             }
@@ -270,8 +287,14 @@ impl Stack {
         let mut group_start = audio_track_index;
         while group_start > 0 && self.children[group_start - 1].kind == TrackKind::Audio {
             group_start -= 1;
+            if track_is_empty_boundary(&self.children[group_start]) {
+                break;
+            }
         }
-        if group_start > 0 && self.children[group_start - 1].kind == TrackKind::Video {
+        if group_start > 0
+            && !track_is_empty_boundary(&self.children[group_start])
+            && self.children[group_start - 1].kind == TrackKind::Video
+        {
             group_start -= 1;
         }
 
@@ -577,15 +600,24 @@ impl Stack {
         excluded_track_index: usize,
     ) -> Vec<usize> {
         let mut track_indices = Vec::new();
-        for (track_index, track) in self.children.iter().enumerate() {
-            if track_index == excluded_track_index {
-                continue;
+        for track_index in (0..excluded_track_index).rev() {
+            let Some(track) = self.children.get(track_index) else {
+                break;
+            };
+            if track_is_empty_boundary(track) {
+                break;
             }
-            if track.items.iter().any(|item| match item {
-                Item::Clip(clip) => resolve_link_group_id(&clip.metadata)
-                    .is_some_and(|group| link_groups.contains(&group)),
-                Item::Gap(_) => false,
-            }) {
+            if track_contains_link_group(track, link_groups) {
+                track_indices.push(track_index);
+            }
+        }
+        track_indices.reverse();
+        for track_index in excluded_track_index + 1..self.children.len() {
+            let track = &self.children[track_index];
+            if track_is_empty_boundary(track) {
+                break;
+            }
+            if track_contains_link_group(track, link_groups) {
                 track_indices.push(track_index);
             }
         }
@@ -791,6 +823,7 @@ impl Stack {
             linked_video_clip_id = Some(_video_id);
         }
 
+        let mut used_audio_boundary_indices = Vec::new();
         for audio_item in linked_inputs.audio {
             let used_audio_track_indices: Vec<_> = audio_clips
                 .iter()
@@ -811,6 +844,7 @@ impl Stack {
                     modified_duration,
                     &mut created_track_indices,
                     &used_audio_track_indices,
+                    &used_audio_boundary_indices,
                     link_group_id,
                     true,
                 ) else {
@@ -819,6 +853,10 @@ impl Stack {
                 };
                 audio_track_index
             };
+            let reused_empty_boundary_track =
+                self.children.len() == track_count_before_audio
+                    && !used_existing_spacer
+                    && self.children[audio_track_index].items.is_empty();
             if self.children.len() > track_count_before_audio
                 && audio_track_index <= modified_track_index
             {
@@ -851,6 +889,9 @@ impl Stack {
                 );
             }
             audio_clips.push((audio_id, audio_track_index));
+            if reused_empty_boundary_track {
+                used_audio_boundary_indices.push(audio_track_index);
+            }
         }
 
         Some(InsertItemAtTimeResult::Linked(LinkedInsertResult {
@@ -1088,6 +1129,7 @@ impl Stack {
         }
 
         let mut inserted_audio_tracks = Vec::new();
+        let mut inserted_audio_boundary_tracks = Vec::new();
         for audio_item in linked_inputs.audio {
             let track_count_before_audio = self.children.len();
             let Some(audio_track_index) = self.find_or_create_audio_track(
@@ -1096,12 +1138,16 @@ impl Stack {
                 replacement_duration,
                 &mut created_track_indices,
                 &inserted_audio_tracks,
+                &inserted_audio_boundary_tracks,
                 Some(link_group_id),
                 false,
             ) else {
                 *self = backup;
                 return false;
             };
+            let reused_empty_boundary_track =
+                self.children.len() == track_count_before_audio
+                    && self.children[audio_track_index].items.is_empty();
             if self.children.len() > track_count_before_audio
                 && audio_track_index <= primary_track_index
             {
@@ -1121,6 +1167,9 @@ impl Stack {
                 return false;
             }
             inserted_audio_tracks.push(audio_track_index);
+            if reused_empty_boundary_track {
+                inserted_audio_boundary_tracks.push(audio_track_index);
+            }
         }
 
         true
@@ -1658,6 +1707,19 @@ fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
         pos = item_end;
     }
     true
+}
+
+fn track_is_empty_boundary(track: &Track) -> bool {
+    track.items.is_empty()
+}
+
+fn track_contains_link_group(track: &Track, link_groups: &[i64]) -> bool {
+    track.items.iter().any(|item| match item {
+        Item::Clip(clip) => {
+            resolve_link_group_id(&clip.metadata).is_some_and(|group| link_groups.contains(&group))
+        }
+        Item::Gap(_) => false,
+    })
 }
 
 fn range_has_blocking_clip(

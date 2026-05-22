@@ -912,7 +912,7 @@ def test_resize_item_updates_linked_group():
     )
     audio_id = result["audio_clips"][0][0]
 
-    assert stack.resize_item("primary", 1.0, 2.0, "override", False)
+    assert stack.resize_item(audio_id, 1.0, 2.0, "override", False)
 
     video_track, video_index, video_item = stack.get_item("primary")
     audio_track, audio_index, audio_item = stack.get_item(audio_id)
