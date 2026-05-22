@@ -619,6 +619,7 @@ impl Stack {
         track_index: usize,
         dest_time: Seconds,
         duration: Seconds,
+        overlap_policy: OverlapPolicy,
     ) -> Vec<i64> {
         let Some(track) = self.children.get(track_index) else {
             return Vec::new();
@@ -631,7 +632,12 @@ impl Stack {
         if start < 0.0 || start >= total - EPS {
             return Vec::new();
         }
-        self.linked_groups_overlapping_range(track_index, start, duration)
+        let affected_duration = if overlap_policy == OverlapPolicy::Push {
+            total - start
+        } else {
+            duration
+        };
+        self.linked_groups_overlapping_range(track_index, start, affected_duration)
     }
 
     fn linked_groups_touched_by_insert_at_index(
@@ -639,6 +645,7 @@ impl Stack {
         track_index: usize,
         dest_index: usize,
         duration: Seconds,
+        overlap_policy: OverlapPolicy,
     ) -> Vec<i64> {
         let Some(track) = self.children.get(track_index) else {
             return Vec::new();
@@ -646,10 +653,16 @@ impl Stack {
         if dest_index >= track.items.len() {
             return Vec::new();
         }
+        let start = track.start_time_of_item(dest_index);
+        let affected_duration = if overlap_policy == OverlapPolicy::Push {
+            track.total_duration() - start
+        } else {
+            duration
+        };
         self.linked_groups_overlapping_range(
             track_index,
-            track.start_time_of_item(dest_index),
-            duration,
+            start,
+            affected_duration,
         )
     }
 
@@ -855,12 +868,14 @@ impl Stack {
                 dest_track_index,
                 dest_index,
                 modified_duration,
+                overlap_policy,
             )
         } else {
             self.linked_groups_touched_by_insert_at_time(
                 dest_track_index,
                 dest_time,
                 modified_duration,
+                overlap_policy,
             )
         };
 
@@ -1856,6 +1871,7 @@ impl Stack {
                     dest_track_index,
                     dest_time,
                     item.duration(),
+                    overlap_policy,
                 )
                 .is_empty();
         if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
@@ -1907,6 +1923,7 @@ impl Stack {
                     dest_track_index,
                     dest_index,
                     item.duration(),
+                    overlap_policy,
                 )
                 .is_empty();
         if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
