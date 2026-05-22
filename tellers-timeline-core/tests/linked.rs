@@ -687,6 +687,51 @@ fn insert_unlinked_clip_after_policy_does_not_touch_linked_assets() {
 }
 
 #[test]
+fn insert_linked_clip_after_linked_clip_uses_same_audio_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let first = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(2.0, Some("first-video")),
+        vec![audio_clip(2.0, "file:///first-audio.wav", None)],
+    )
+    .unwrap();
+    let first_audio_id = first.audio_clips[0].0.clone();
+    let first_audio_track = first.audio_clips[0].1;
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+
+    let second = match stack.insert_item_at_time(
+        video_track_index,
+        1.0,
+        Item::Clip(clip(3.0, Some("second-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertAfter,
+        Some(vec![audio_clip(3.0, "file:///second-audio.wav", None)]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("linked insert after linked clip should stay linked"),
+    };
+    let second_audio_id = second.audio_clips[0].0.clone();
+
+    assert_eq!(second.audio_clips[0].1, first_audio_track);
+    assert_eq!(stack.get_item(&first_audio_id).unwrap().0, first_audio_track);
+    assert_eq!(stack.get_item(&second_audio_id).unwrap().0, first_audio_track);
+    assert_eq!(
+        stack.children[first_audio_track]
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::Clip(_)))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn insert_unlinked_clip_override_after_policy_does_not_gap_linked_asset() {
     let mut stack = Stack::default();
     stack
