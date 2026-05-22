@@ -175,8 +175,44 @@ impl Stack {
         use_link_backed_track: bool,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
+        if self.children.get(track_index)?.kind == TrackKind::Video {
+            let mut index = track_index;
+            while index > 0 && self.children[index - 1].kind == TrackKind::Audio {
+                index -= 1;
+            }
+            for audio_index in (index..track_index).rev() {
+                if used_audio_indices.contains(&audio_index) {
+                    continue;
+                }
+                if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
+                    return Some(audio_index);
+                }
+                let has_blocking_clip = range_has_blocking_clip(
+                    &self.children[audio_index],
+                    dest_time,
+                    end_time,
+                    link_group_id,
+                );
+                if !has_blocking_clip {
+                    if use_link_backed_track {
+                        return Some(audio_index);
+                    }
+                    continue;
+                }
+                let insert_at = audio_index + 1;
+                self.children
+                    .insert(insert_at, Track::new(TrackKind::Audio, None));
+                created_track_indices.push(insert_at);
+                return Some(insert_at);
+            }
+
+            self.children
+                .insert(track_index, Track::new(TrackKind::Audio, None));
+            created_track_indices.push(track_index);
+            return Some(track_index);
+        }
+
         let mut index = match self.children.get(track_index)?.kind {
-            TrackKind::Video => track_index + 1,
             TrackKind::Audio => {
                 let mut audio_start = track_index;
                 while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
@@ -184,7 +220,7 @@ impl Stack {
                 }
                 audio_start
             }
-            TrackKind::Other => return None,
+            TrackKind::Video | TrackKind::Other => return None,
         };
 
         while index < self.children.len() && self.children[index].kind == TrackKind::Audio {
@@ -760,6 +796,7 @@ impl Stack {
                 .iter()
                 .map(|(_, track_index)| *track_index)
                 .collect();
+            let track_count_before_audio = self.children.len();
             let mut used_existing_spacer = false;
             let audio_track_index = if let Some(position) = spacer_track_indices
                 .iter()
@@ -782,6 +819,11 @@ impl Stack {
                 };
                 audio_track_index
             };
+            if self.children.len() > track_count_before_audio
+                && audio_track_index <= modified_track_index
+            {
+                modified_track_index += 1;
+            }
 
             let Some((audio_item, audio_id)) =
                 Self::prepare_linked_item(audio_item, modified_duration, link_group_id, &mut used_ids)
@@ -1047,6 +1089,7 @@ impl Stack {
 
         let mut inserted_audio_tracks = Vec::new();
         for audio_item in linked_inputs.audio {
+            let track_count_before_audio = self.children.len();
             let Some(audio_track_index) = self.find_or_create_audio_track(
                 primary_track_index,
                 selected_start,
@@ -1059,6 +1102,11 @@ impl Stack {
                 *self = backup;
                 return false;
             };
+            if self.children.len() > track_count_before_audio
+                && audio_track_index <= primary_track_index
+            {
+                primary_track_index += 1;
+            }
             let Some((audio_item, _audio_id)) = Self::prepare_linked_item(
                 audio_item,
                 replacement_duration,

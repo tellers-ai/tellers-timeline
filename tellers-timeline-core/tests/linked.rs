@@ -155,11 +155,17 @@ fn linked_insert_adds_primary_and_audio_tracks_without_touching_clips() {
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![1, 2]
+        vec![0, 1]
     );
-    assert_eq!(result.created_track_indices, vec![2]);
-    assert_eq!(stack.children.len(), 3);
-    assert_eq!(stack.children[2].kind, TrackKind::Audio);
+    assert_eq!(result.created_track_indices, vec![0, 1]);
+    assert_eq!(stack.children.len(), 4);
+    assert_eq!(stack.children[0].kind, TrackKind::Audio);
+    assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    assert_eq!(stack.get_item("primary-id").unwrap().0, 2);
+    assert_eq!(
+        stack.children[3].get_id().as_deref(),
+        Some("audio-track")
+    );
 
     let primary = stack.get_item("primary-id").unwrap().2;
     assert_eq!(primary.duration(), 4.0);
@@ -197,9 +203,9 @@ fn linked_insert_creates_audio_track_before_unlinked_boundary_clip() {
     )
     .expect("linked insert should create a track before the unlinked clip");
 
-    assert_eq!(result.created_track_indices, vec![1]);
-    assert_eq!(result.audio_clips[0].1, 1);
-    assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    assert_eq!(result.created_track_indices, vec![0]);
+    assert_eq!(result.audio_clips[0].1, 0);
+    assert_eq!(stack.children[0].kind, TrackKind::Audio);
     assert_eq!(
         stack.children[2].get_id().as_deref(),
         Some("blocked-audio")
@@ -232,12 +238,12 @@ fn linked_insert_places_audio_below_video_when_audio_track_exists_above() {
         _ => panic!("linked insert should create audio below the target video track"),
     };
 
-    assert_eq!(result.audio_clips[0].1, 2);
-    assert_eq!(result.created_track_indices, vec![2]);
+    assert_eq!(result.audio_clips[0].1, 1);
+    assert_eq!(result.created_track_indices, vec![1]);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("audio-above"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("video-track"));
-    assert_eq!(stack.children[2].kind, TrackKind::Audio);
-    let audio_track = &stack.children[2];
+    assert_eq!(stack.children[1].kind, TrackKind::Audio);
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("video-track"));
+    let audio_track = &stack.children[1];
     assert!(matches!(audio_track.items[0], Item::Gap(_)));
     assert_eq!(audio_track.items[0].duration(), 2.0);
     assert_eq!(audio_track.items[1].get_id(), Some(result.audio_clips[0].0.clone()));
@@ -264,10 +270,7 @@ fn linked_insert_regenerates_colliding_timeline_ids_and_preserves_media_id() {
     .expect("linked insert should create an audio track");
 
     assert_ne!(result.primary_clip_id, "duplicate-id");
-    assert_eq!(
-        stack.children[0].items[0].get_id().as_deref(),
-        Some("duplicate-id")
-    );
+    assert_eq!(stack.get_item("duplicate-id").unwrap().0, 1);
 
     let audio_item = stack.children[result.audio_clips[0].1]
         .items
@@ -327,8 +330,9 @@ fn insert_into_linked_clip_adds_spacer_gap_on_same_link_group_track() {
     )
     .unwrap();
 
+    let primary_track_index = stack.get_item("primary").unwrap().0;
     let result = stack.insert_item_at_time(
-        0,
+        primary_track_index,
         1.0,
         Item::Clip(clip(1.0, Some("inserted"))),
         OverlapPolicy::Override,
@@ -338,7 +342,7 @@ fn insert_into_linked_clip_adds_spacer_gap_on_same_link_group_track() {
     );
 
     assert!(matches!(result, Some(InsertItemAtTimeResult::Linked(_))));
-    assert_eq!(stack.get_item("inserted").unwrap().0, 0);
+    assert_eq!(stack.get_item("inserted").unwrap().0, primary_track_index);
     let audio_track = &stack.children[first.audio_clips[0].1];
     let spacer_index = audio_track.get_item_at_time(1.0).unwrap();
     assert!(matches!(audio_track.items[spacer_index], Item::Gap(_)));
@@ -369,8 +373,9 @@ fn insert_into_linked_clip_updates_every_same_link_group_track() {
     )
     .unwrap();
 
+    let primary_track_index = stack.get_item("primary").unwrap().0;
     let result = stack.insert_item_at_time(
-        0,
+        primary_track_index,
         1.0,
         Item::Clip(clip(1.0, Some("inserted"))),
         OverlapPolicy::Override,
@@ -599,7 +604,7 @@ fn linked_insert_at_index_adds_audio_companion() {
 
     assert_eq!(result.primary_clip_id, "primary");
     assert_eq!(result.audio_clips.len(), 1);
-    assert_eq!(result.created_track_indices, vec![1]);
+    assert_eq!(result.created_track_indices, vec![0]);
     assert_eq!(
         link_group_id(stack.get_item("primary").unwrap().2),
         result.link_group_id
@@ -845,8 +850,11 @@ fn delete_track_cleans_singleton_link_group_left_behind() {
     let removed = stack.delete_track("v").unwrap();
 
     assert_eq!(removed.get_id().as_deref(), Some("v"));
-    assert_eq!(stack.children.len(), 1);
-    assert_eq!(stack.children[0].get_id().as_deref(), Some("a"));
+    assert_eq!(stack.children.len(), 2);
+    assert!(stack
+        .children
+        .iter()
+        .any(|track| track.get_id().as_deref() == Some("a")));
     assert_eq!(link_group_id(stack.get_item(&audio_id).unwrap().2), None);
 }
 
@@ -1052,8 +1060,8 @@ fn replace_item_can_add_linked_audio_clip() {
     let group = link_group_id(primary);
     assert!(group.is_some());
     assert_eq!(stack.children.len(), 2);
-    assert_eq!(stack.children[1].kind, TrackKind::Audio);
-    let audio = stack.children[1]
+    assert_eq!(stack.children[0].kind, TrackKind::Audio);
+    let audio = stack.children[0]
         .items
         .iter()
         .find(|item| matches!(item, Item::Clip(_)))
@@ -1089,11 +1097,11 @@ fn replace_item_can_add_audio_past_same_link_clip() {
         None,
     ));
 
-    assert_eq!(stack.get_item(&first_audio_id).unwrap().0, 1);
-    assert_eq!(stack.children.len(), 3);
-    assert_eq!(stack.children[2].kind, TrackKind::Audio);
+    assert_eq!(stack.get_item(&first_audio_id).unwrap().0, 0);
+    assert_eq!(stack.children.len(), 4);
+    assert_eq!(stack.children[1].kind, TrackKind::Audio);
     assert_eq!(
-        stack.children[2]
+        stack.children[1]
             .items
             .iter()
             .filter(|item| matches!(item, Item::Clip(_)))
@@ -1336,9 +1344,10 @@ fn unlink_item_accepts_multiple_ids_and_cleans_singletons() {
         vec![audio_clip(3.0, "file:///a1.wav", None)],
     )
     .unwrap();
+    let primary_track_index = stack.get_item("primary").unwrap().0;
     let second = insert_with_audio(
         &mut stack,
-        0,
+        primary_track_index,
         5.0,
         clip(2.0, Some("primary-2")),
         vec![audio_clip(2.0, "file:///a2.wav", None)],
