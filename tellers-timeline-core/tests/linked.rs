@@ -211,7 +211,7 @@ fn linked_insert_adds_primary_and_audio_tracks_without_touching_clips() {
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![0, 1, 2]
+        vec![2, 1, 0]
     );
     assert_eq!(result.created_track_indices, vec![0, 1, 2]);
     assert_eq!(stack.children.len(), 5);
@@ -400,7 +400,7 @@ fn linked_insert_does_not_cross_empty_audio_track_boundary() {
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![1, 2]
+        vec![2, 1]
     );
     assert_eq!(result.created_track_indices, vec![2]);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("far-audio"));
@@ -916,13 +916,13 @@ fn insert_linked_clip_with_more_audio_links_creates_additional_audio_track() {
         3
     );
     assert_eq!(second.audio_clips.len(), 3);
-    assert_eq!(first.audio_clips[0].1, second.audio_clips[0].1);
-    assert_eq!(first.audio_clips[1].1, second.audio_clips[1].1);
+    assert_eq!(first.audio_clips[0].1, second.audio_clips[1].1);
+    assert_eq!(first.audio_clips[1].1, second.audio_clips[2].1);
     assert!(!first
         .audio_clips
         .iter()
-        .any(|(_, track_index)| *track_index == second.audio_clips[2].1));
-    let (track_index, item_index, item) = stack.get_item(&second.audio_clips[2].0).unwrap();
+        .any(|(_, track_index)| *track_index == second.audio_clips[0].1));
+    let (track_index, item_index, item) = stack.get_item(&second.audio_clips[0].0).unwrap();
     assert_eq!(
         stack.children[track_index].start_time_of_item(item_index),
         2.0

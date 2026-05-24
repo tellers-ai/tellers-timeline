@@ -1060,8 +1060,11 @@ impl Stack {
                 *track_index != primary_track_index
                     && self.children[*track_index].kind == TrackKind::Audio
             })
-            .take(audio_track_indices.len())
             .collect();
+        ordered_audio_track_indices.sort_by_key(|track_index| {
+            (track_index.abs_diff(primary_track_index), *track_index)
+        });
+        ordered_audio_track_indices.truncate(audio_track_indices.len());
         for track_index in audio_track_indices {
             if ordered_audio_track_indices.len() >= linked_inputs.audio.len() {
                 break;
