@@ -931,6 +931,92 @@ fn insert_linked_clip_with_more_audio_links_creates_additional_audio_track() {
 }
 
 #[test]
+fn insert_linked_clip_four_then_two_then_four_reuses_full_boundary() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    let first = match stack.insert_item_at_time(
+        0,
+        0.0,
+        Item::Clip(clip(2.0, Some("first-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(2.0, "file:///first-a1.wav", None),
+            audio_clip(2.0, "file:///first-a2.wav", None),
+            audio_clip(2.0, "file:///first-a3.wav", None),
+            audio_clip(2.0, "file:///first-a4.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("first linked insert should succeed"),
+    };
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+
+    let second = match stack.insert_item_at_time(
+        video_track_index,
+        2.0,
+        Item::Clip(clip(3.0, Some("second-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(3.0, "file:///second-a1.wav", None),
+            audio_clip(3.0, "file:///second-a2.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("second linked insert should succeed"),
+    };
+
+    let third = match stack.insert_item_at_time(
+        video_track_index,
+        5.0,
+        Item::Clip(clip(4.0, Some("third-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(4.0, "file:///third-a1.wav", None),
+            audio_clip(4.0, "file:///third-a2.wav", None),
+            audio_clip(4.0, "file:///third-a3.wav", None),
+            audio_clip(4.0, "file:///third-a4.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("third linked insert should succeed"),
+    };
+
+    assert_eq!(
+        stack
+            .children
+            .iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .count(),
+        4
+    );
+    assert_eq!(second.audio_clips.len(), 2);
+    assert_eq!(third.audio_clips.len(), 4);
+    assert_eq!(third.audio_clips[0].1, first.audio_clips[0].1);
+    assert_eq!(third.audio_clips[1].1, first.audio_clips[1].1);
+    assert_eq!(third.audio_clips[2].1, first.audio_clips[2].1);
+    assert_eq!(third.audio_clips[3].1, first.audio_clips[3].1);
+
+    for (audio_id, track_index) in &third.audio_clips {
+        let (actual_track_index, item_index, item) = stack.get_item(audio_id).unwrap();
+        assert_eq!(actual_track_index, *track_index);
+        assert_eq!(
+            stack.children[actual_track_index].start_time_of_item(item_index),
+            5.0
+        );
+        assert_eq!(item.duration(), 4.0);
+    }
+}
+
+#[test]
 fn insert_audio_primary_with_fewer_audio_links_fills_remaining_audio_track_with_gap() {
     let mut stack = Stack::default();
     stack
