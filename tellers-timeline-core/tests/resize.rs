@@ -78,6 +78,62 @@ fn make_clip_with_rate(duration: Seconds, media_start: Seconds, rate: f64) -> It
     })
 }
 
+fn make_clip_with_rate_and_available_range(
+    duration: Seconds,
+    media_start: Seconds,
+    source_rate: f64,
+    available_duration: Seconds,
+    available_rate: f64,
+) -> Item {
+    let source_range = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: source_rate,
+            value: duration * source_rate,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: source_rate,
+            value: media_start * source_rate,
+        },
+    };
+    let available_range = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: available_rate,
+            value: available_duration * available_rate,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: available_rate,
+            value: 0.0,
+        },
+    };
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "mem://".to_string(),
+            available_range: Some(available_range),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
+    Item::Clip(Clip {
+        otio_schema: "Clip.2".to_string(),
+        enabled: true,
+        name: None,
+        source_range,
+        media_references: refs,
+        active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
+        metadata: serde_json::Value::Null,
+        effects: Vec::new(),
+    })
+}
+
 fn media_ref(url: &str) -> MediaReference {
     MediaReference::ExternalReference {
         target_url: url.to_string(),
@@ -230,6 +286,39 @@ fn resize_item_sets_rational_time_duration_from_seconds() {
             assert_eq!(clip.source_range.duration.rate, 24.0);
             assert_eq!(clip.source_range.duration.value, 72.0);
             assert_eq!(first_item.duration(), 3.0);
+        }
+        _ => panic!("expected clip"),
+    }
+}
+
+#[test]
+fn resize_overlong_clip_down_with_clamp_uses_seconds_across_rates() {
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    let mut clip = make_clip_with_rate_and_available_range(10.0, 0.0, 24.0, 5.0, 25.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("clip", 0.0, 2.0, OverlapPolicy::Override, true));
+
+    let (track_index, item_index, item) = stack.get_item("clip").unwrap();
+    assert_eq!(item.duration(), 2.0);
+    match &stack.children[track_index].items[item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.duration.rate, 24.0);
+            assert_eq!(clip.source_range.duration.value, 48.0);
+            assert_eq!(
+                clip.media_references["DEFAULT_MEDIA"]
+                    .available_range()
+                    .as_ref()
+                    .unwrap()
+                    .duration
+                    .rate,
+                25.0
+            );
         }
         _ => panic!("expected clip"),
     }
