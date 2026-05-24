@@ -606,7 +606,7 @@ impl Stack {
     fn flatten_boundary_for_link_groups(
         &self,
         anchor_track_index: usize,
-        link_groups: &[i64],
+        _link_groups: &[i64],
     ) -> FlattenedBoundary {
         if anchor_track_index >= self.children.len() {
             return FlattenedBoundary {
@@ -621,12 +621,16 @@ impl Stack {
                     if self.children[track_index].kind != TrackKind::Audio {
                         break;
                     }
-                    track_indices.push(track_index);
-                    if track_is_empty_boundary(&self.children[track_index])
-                        || track_blocks_link_boundary(&self.children[track_index], link_groups)
+                    if track_is_empty_boundary(&self.children[track_index]) {
+                        track_indices.push(track_index);
+                        break;
+                    }
+                    if !self
+                        .track_matches_primary_link_boundary(anchor_track_index, track_index)
                     {
                         break;
                     }
+                    track_indices.push(track_index);
                 }
                 track_indices.reverse();
                 track_indices.push(anchor_track_index);
@@ -636,7 +640,7 @@ impl Stack {
                 while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
                     let previous = audio_start - 1;
                     if track_is_empty_boundary(&self.children[previous])
-                        || track_blocks_link_boundary(&self.children[previous], link_groups)
+                        || !self.track_matches_primary_link_boundary(anchor_track_index, previous)
                     {
                         break;
                     }
@@ -646,10 +650,18 @@ impl Stack {
                     if self.children[track_index].kind != TrackKind::Audio {
                         break;
                     }
+                    if track_index != anchor_track_index
+                        && !track_is_empty_boundary(&self.children[track_index])
+                        && !self.track_matches_primary_link_boundary(
+                            anchor_track_index,
+                            track_index,
+                        )
+                    {
+                        break;
+                    }
                     track_indices.push(track_index);
                     if track_index != anchor_track_index
-                        && (track_is_empty_boundary(&self.children[track_index])
-                            || track_blocks_link_boundary(&self.children[track_index], link_groups))
+                        && track_is_empty_boundary(&self.children[track_index])
                     {
                         break;
                     }
@@ -657,7 +669,7 @@ impl Stack {
                 let video_index = track_indices.last().copied().unwrap_or(anchor_track_index) + 1;
                 if video_index < self.children.len()
                     && self.children[video_index].kind == TrackKind::Video
-                    && !track_blocks_link_boundary(&self.children[video_index], link_groups)
+                    && self.track_matches_primary_link_boundary(anchor_track_index, video_index)
                 {
                     track_indices.push(video_index);
                 }
@@ -666,6 +678,42 @@ impl Stack {
         }
 
         FlattenedBoundary { track_indices }
+    }
+
+    fn track_matches_primary_link_boundary(
+        &self,
+        primary_track_index: usize,
+        candidate_track_index: usize,
+    ) -> bool {
+        if primary_track_index == candidate_track_index {
+            return true;
+        }
+        let Some(candidate_track) = self.children.get(candidate_track_index) else {
+            return false;
+        };
+        let primary_segments = self.flatten_track_segments(primary_track_index);
+        let mut start = 0.0;
+        for item in &candidate_track.items {
+            let duration = item.duration().max(0.0);
+            let end = start + duration;
+            match item {
+                Item::Gap(_) => {}
+                Item::Clip(clip) => {
+                    let Some(link_group_id) = resolve_link_group_id(&clip.metadata) else {
+                        return false;
+                    };
+                    if !primary_segments.iter().any(|segment| {
+                        segment.link_group_id == Some(link_group_id)
+                            && (segment.start - start).abs() <= EPS
+                            && (segment.end - end).abs() <= EPS
+                    }) {
+                        return false;
+                    }
+                }
+            }
+            start = end;
+        }
+        true
     }
 
     fn boundary_track_indices_for_link_groups(
@@ -1772,15 +1820,6 @@ fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
 
 fn track_is_empty_boundary(track: &Track) -> bool {
     track.items.iter().all(|item| matches!(item, Item::Gap(_)))
-}
-
-fn track_blocks_link_boundary(track: &Track, link_groups: &[i64]) -> bool {
-    track.items.iter().any(|item| match item {
-        Item::Clip(clip) => {
-            !resolve_link_group_id(&clip.metadata).is_some_and(|group| link_groups.contains(&group))
-        }
-        Item::Gap(_) => false,
-    })
 }
 
 fn range_has_blocking_clip(
