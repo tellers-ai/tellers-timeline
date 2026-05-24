@@ -30,6 +30,37 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
     })
 }
 
+fn media_ref(url: &str) -> MediaReference {
+    MediaReference::ExternalReference {
+        target_url: url.to_string(),
+        available_range: None,
+        name: None,
+        available_image_bounds: None,
+        metadata: serde_json::Value::Null,
+    }
+}
+
+fn make_clip_with_references(duration: Seconds, active_key: Option<&str>) -> Item {
+    let sr = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: duration },
+        start_time: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: 0.0 },
+    };
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert("ALT".to_string(), media_ref("mem://alt"));
+    refs.insert("DEFAULT_MEDIA".to_string(), media_ref("mem://default"));
+    Item::Clip(Clip {
+        otio_schema: "Clip.2".to_string(),
+        enabled: true,
+        name: None,
+        source_range: sr,
+        media_references: refs,
+        active_media_reference_key: active_key.map(str::to_string),
+        metadata: serde_json::Value::Null,
+        effects: Vec::new(),
+    })
+}
+
 #[test]
 fn resize_moves_and_sets_duration_with_override() {
     let mut track = Track::default();
@@ -51,6 +82,32 @@ fn resize_moves_and_sets_duration_with_override() {
     // Ensure sanitize kept a valid sequence
     let total: Seconds = track.items.iter().map(|i| i.duration().max(0.0)).sum();
     assert!(total >= 5.0);
+}
+
+#[test]
+fn resize_missing_active_reference_does_not_bind_default_media() {
+    let mut track = Track::default();
+    track.append(make_clip_with_references(4.0, None));
+
+    assert!(track.resize_item(0, 0.0, 3.0, OverlapPolicy::Override, false));
+
+    match &track.items[0] {
+        Item::Clip(clip) => assert_eq!(clip.active_media_reference_key.as_deref(), None),
+        _ => panic!("expected resized clip"),
+    }
+}
+
+#[test]
+fn resize_preserves_valid_non_default_active_reference() {
+    let mut track = Track::default();
+    track.append(make_clip_with_references(4.0, Some("ALT")));
+
+    assert!(track.resize_item(0, 0.0, 3.0, OverlapPolicy::Override, false));
+
+    match &track.items[0] {
+        Item::Clip(clip) => assert_eq!(clip.active_media_reference_key.as_deref(), Some("ALT")),
+        _ => panic!("expected resized clip"),
+    }
 }
 
 #[test]

@@ -49,6 +49,25 @@ fn clip(duration: f64, id: Option<&str>) -> Clip {
     )
 }
 
+fn clip_with_references(duration: f64, active_key: Option<&str>, id: Option<&str>) -> Clip {
+    let mut refs = std::collections::HashMap::new();
+    refs.insert(
+        "ALT".to_string(),
+        media_ref("file:///replacement-alt.mov", Some("replacement-alt")),
+    );
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        media_ref("file:///replacement-default.mov", Some("replacement-default")),
+    );
+    Clip::new(
+        range(duration),
+        refs,
+        active_key.map(str::to_string),
+        None,
+        id.map(str::to_string),
+    )
+}
+
 fn audio_clip(duration: f64, url: &str, media_id: Option<&str>) -> Item {
     Item::Clip(Clip::new_single_media_reference(
         range(duration),
@@ -1772,6 +1791,86 @@ fn replace_unlinked_item_only_replaces_selected_item() {
     assert_eq!(stack.get_item("primary").unwrap().2.duration(), 2.0);
     assert!(stack.get_item("replacement").is_none());
     assert!(stack.get_item("unlinked-audio").is_some());
+}
+
+#[test]
+fn replace_item_missing_active_reference_does_not_bind_default_media() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("primary"))));
+
+    assert!(stack.replace_item(
+        "primary",
+        Item::Clip(clip_with_references(2.0, None, Some("replacement"))),
+        None,
+        None,
+    ));
+
+    let replaced = stack.get_item("primary").unwrap().2;
+    let Item::Clip(clip) = replaced else {
+        panic!("expected replacement clip");
+    };
+    assert_eq!(clip.active_media_reference_key.as_deref(), None);
+}
+
+#[test]
+fn replace_item_preserves_valid_non_default_active_reference() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("primary"))));
+
+    assert!(stack.replace_item(
+        "primary",
+        Item::Clip(clip_with_references(2.0, Some("ALT"), Some("replacement"))),
+        None,
+        None,
+    ));
+
+    let replaced = stack.get_item("primary").unwrap().2;
+    let Item::Clip(clip) = replaced else {
+        panic!("expected replacement clip");
+    };
+    assert_eq!(clip.active_media_reference_key.as_deref(), Some("ALT"));
+}
+
+#[test]
+fn replace_item_clamps_replacement_to_available_range() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("primary"))));
+
+    assert!(stack.replace_item(
+        "primary",
+        Item::Clip(clip_with_references(
+            150.0,
+            Some("DEFAULT_MEDIA"),
+            Some("replacement")
+        )),
+        None,
+        None,
+    ));
+
+    let replaced = stack.get_item("primary").unwrap().2;
+    let Item::Clip(clip) = replaced else {
+        panic!("expected replacement clip");
+    };
+    assert_eq!(clip.source_range.duration.value, 100.0);
+    assert_eq!(
+        clip.active_media_reference_key.as_deref(),
+        Some("DEFAULT_MEDIA")
+    );
 }
 
 #[test]

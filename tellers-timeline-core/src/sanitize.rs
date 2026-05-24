@@ -9,10 +9,17 @@ impl Timeline {
 
 impl Track {
     pub fn sanitize(&mut self) {
+        self.clamp_clips_to_available_ranges();
         self.clamp_negative_durations();
         self.remove_zero_length_items();
         self.merge_adjacent_gaps();
         self.remove_trailing_gap();
+    }
+
+    pub fn clamp_clips_to_available_ranges(&mut self) {
+        for it in &mut self.items {
+            it.clamp_to_active_available_range();
+        }
     }
 
     pub fn clamp_negative_durations(&mut self) {

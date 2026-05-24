@@ -21,6 +21,7 @@ impl Track {
 
         match original {
             crate::Item::Clip(mut clip) => {
+                clip.clamp_to_active_available_range();
                 let total = clip.source_range.duration.value.max(0.0);
                 if local_offset >= total - EPS {
                     // Nothing to split, put the original back

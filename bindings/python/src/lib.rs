@@ -321,9 +321,7 @@ impl PyClip {
         let refs = dict_to_media_references(references)?;
         let mut inner = Clip::new(sr, refs, active_key, name, id);
         if inner.active_media_reference_key.is_none() {
-            if let Some(first_key) = inner.media_references.keys().next().cloned() {
-                inner.active_media_reference_key = Some(first_key);
-            }
+            inner.bind_default_media_reference_when_needed();
         }
         Ok(Self { inner })
     }

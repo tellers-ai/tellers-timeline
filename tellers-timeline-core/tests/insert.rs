@@ -35,6 +35,123 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
         name: None,
         source_range: sr,
         media_references: refs,
+        active_media_reference_key: None,
+        metadata: serde_json::Value::Null,
+        effects: Vec::new(),
+    })
+}
+
+fn make_clip_with_default_available_range(duration: Seconds, media_duration: Seconds) -> Item {
+    let sr = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: duration,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: 0.0,
+        },
+    };
+    let available_range = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: media_duration,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: 1.0,
+            value: 0.0,
+        },
+    };
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert(
+        "ALT".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "mem://alt".to_string(),
+            available_range: Some(available_range.clone()),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "mem://default".to_string(),
+            available_range: Some(available_range),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
+    Item::Clip(Clip {
+        otio_schema: "Clip.2".to_string(),
+        enabled: true,
+        name: None,
+        source_range: sr,
+        media_references: refs,
+        active_media_reference_key: None,
+        metadata: serde_json::Value::Null,
+        effects: Vec::new(),
+    })
+}
+
+fn make_clip_with_mixed_rates(
+    source_start: Seconds,
+    source_duration: Seconds,
+    source_rate: f64,
+    media_start: Seconds,
+    media_duration: Seconds,
+    media_rate: f64,
+) -> Item {
+    let sr = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: source_rate,
+            value: source_duration,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: source_rate,
+            value: source_start,
+        },
+    };
+    let available_range = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: media_rate,
+            value: media_duration,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate: media_rate,
+            value: media_start,
+        },
+    };
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "mem://default".to_string(),
+            available_range: Some(available_range),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
+    Item::Clip(Clip {
+        otio_schema: "Clip.2".to_string(),
+        enabled: true,
+        name: None,
+        source_range: sr,
+        media_references: refs,
         active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
         effects: Vec::new(),
@@ -74,6 +191,48 @@ fn insert_before_after_or_boundary() {
         InsertPolicy::InsertBeforeOrAfter,
     );
     assert_eq!(track.items.len(), before_len + 1);
+}
+
+#[test]
+fn insert_missing_active_key_does_not_clamp_to_default_media() {
+    let mut track = Track::default();
+
+    track.insert_at_time(
+        0.0,
+        make_clip_with_default_available_range(5.0, 3.0),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBefore,
+    );
+
+    match &track.items[0] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.active_media_reference_key.as_deref(), None);
+            assert_eq!(clip.source_range.duration.value, 5.0);
+        }
+        _ => panic!("expected inserted clip"),
+    }
+}
+
+#[test]
+fn insert_clamp_converts_rational_time_rates() {
+    let mut track = Track::default();
+
+    track.insert_at_time(
+        0.0,
+        make_clip_with_mixed_rates(0.0, 120.0, 24.0, 1.0, 3.0, 1.0),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBefore,
+    );
+
+    match &track.items[0] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.start_time.value, 24.0);
+            assert_eq!(clip.source_range.duration.value, 72.0);
+            assert_eq!(clip.source_range.start_time.rate, 24.0);
+            assert_eq!(clip.source_range.duration.rate, 24.0);
+        }
+        _ => panic!("expected inserted clip"),
+    }
 }
 
 #[test]
