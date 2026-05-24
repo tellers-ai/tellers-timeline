@@ -41,6 +41,8 @@ impl Stack {
             Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
             Item::Gap(_) => None,
         };
+        let linked_audio_input_provided = linked_audio_clips.is_some();
+        let linked_video_input_provided = linked_video_clip.is_some();
         let linked_inputs =
             Self::normalize_linked_inputs(&item, linked_audio_clips, linked_video_clip);
         if linked_inputs.video.is_some()
@@ -82,24 +84,36 @@ impl Stack {
             return false;
         }
 
+        let mut linked_audio_inputs = linked_inputs.audio.into_iter();
+        let mut linked_video_input = linked_inputs.video;
         let mut replacements = Vec::new();
         for (track_index, item_index) in targets {
-            let Some(existing) = self
-                .children
-                .get(track_index)
-                .and_then(|track| track.items.get(item_index))
-            else {
+            let Some(track) = self.children.get(track_index) else {
+                *self = backup;
+                return false;
+            };
+            let track_kind = track.kind.clone();
+            let Some(existing) = track.items.get(item_index) else {
                 *self = backup;
                 return false;
             };
             let existing_id = existing.get_id();
 
-            let mut next =
-                if track_index == selected_track_index && item_index == selected_item_index {
-                    replacement_item.clone()
-                } else {
-                    existing.clone()
-                };
+            let mut next = if track_index == selected_track_index
+                && item_index == selected_item_index
+            {
+                replacement_item.clone()
+            } else if linked_audio_input_provided && track_kind == TrackKind::Audio {
+                linked_audio_inputs
+                    .next()
+                    .unwrap_or_else(|| Item::Gap(Gap::make_gap(replacement_duration)))
+            } else if linked_video_input_provided && track_kind == TrackKind::Video {
+                linked_video_input
+                    .take()
+                    .unwrap_or_else(|| Item::Gap(Gap::make_gap(replacement_duration)))
+            } else {
+                existing.clone()
+            };
             next.set_id(existing_id);
             next.set_duration(replacement_duration);
             Self::set_item_link_group(&mut next, link_group);
@@ -125,7 +139,7 @@ impl Stack {
         let mut primary_track_index = selected_track_index;
         let mut created_track_indices = Vec::new();
         let mut insertions = Vec::new();
-        if let Some(video_item) = linked_inputs.video {
+        if let Some(video_item) = linked_video_input {
             let track_count_before_video = self.children.len();
             let Some(video_track_index) = self.find_or_create_video_track_for_audio(
                 primary_track_index,
@@ -157,7 +171,7 @@ impl Stack {
 
         let mut inserted_audio_tracks = Vec::new();
         let mut inserted_audio_boundary_tracks = Vec::new();
-        for audio_item in linked_inputs.audio {
+        for audio_item in linked_audio_inputs {
             let track_count_before_audio = self.children.len();
             let Some(audio_track_index) = self.find_or_create_audio_track(
                 primary_track_index,
