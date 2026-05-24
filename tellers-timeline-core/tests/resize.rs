@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
-    Clip, IdMetadataExt, Item, MediaReference, OverlapPolicy, RationalTime, Seconds, Stack,
+    Clip, Gap, IdMetadataExt, Item, MediaReference, OverlapPolicy, RationalTime, Seconds, Stack,
     TimeRange, Track,
 };
 
@@ -108,6 +108,32 @@ fn resize_moves_and_sets_duration_with_override() {
     // Ensure sanitize kept a valid sequence
     let total: Seconds = track.items.iter().map(|i| i.duration().max(0.0)).sum();
     assert!(total >= 5.0);
+}
+
+#[test]
+fn resize_gap_duration_preserves_following_clip() {
+    let mut track = Track::default();
+    track
+        .items
+        .push(Item::Gap(Gap::new(2.0, Some("gap".to_string()))));
+    let mut clip = make_clip(3.0, 0.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("gap", 0.0, 1.0, OverlapPolicy::Override, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 2);
+    assert!(matches!(track.items[0], Item::Gap(_)));
+    assert_eq!(track.items[0].duration(), 1.0);
+    let (clip_track_index, clip_item_index, clip_item) = stack.get_item("clip").unwrap();
+    assert_eq!(clip_track_index, 0);
+    assert_eq!(track.start_time_of_item(clip_item_index), 1.0);
+    assert_eq!(clip_item.duration(), 3.0);
 }
 
 #[test]

@@ -1209,6 +1209,17 @@ impl Stack {
         if target_ids.is_empty() {
             return false;
         }
+        if matches!(selected_item, Item::Gap(_)) {
+            let Some(track) = self.children.get_mut(selected_track_index) else {
+                return false;
+            };
+            let Some(item) = track.items.get_mut(selected_item_index) else {
+                return false;
+            };
+            item.set_duration(new_duration.max(0.0));
+            track.sanitize();
+            return true;
+        }
         let excluded_ids: HashSet<_> = target_ids.iter().cloned().collect();
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
