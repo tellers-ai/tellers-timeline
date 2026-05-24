@@ -782,20 +782,6 @@ impl Stack {
         self.linked_groups_overlapping_range(track_index, start, affected_duration)
     }
 
-    fn insert_spacer_gap(
-        &mut self,
-        track_index: usize,
-        start: Seconds,
-        duration: Seconds,
-        overlap_policy: OverlapPolicy,
-        insert_policy: InsertPolicy,
-        used_ids: &mut HashSet<String>,
-    ) {
-        let mut gap = Item::Gap(crate::Gap::make_gap(duration));
-        Self::ensure_unique_item_id(&mut gap, used_ids);
-        self.children[track_index].insert_at_time(start, gap, overlap_policy, insert_policy);
-    }
-
     fn sync_changed_link_groups_after_resize(
         &mut self,
         before_states: &HashMap<String, LinkedClipState>,
@@ -1726,19 +1712,52 @@ impl Stack {
         placement: LinkedMovePlacement,
     ) -> bool {
         let backup = self.clone();
-        let Some(selected_item) = items_to_move.iter().find(|item| item.is_selected) else {
+        if dest_track_index >= self.children.len() {
+            return false;
+        }
+
+        let mut items_to_move = items_to_move;
+        for item in &mut items_to_move {
+            item.item.clamp_to_active_available_range();
+        }
+        let Some(selected_position) = items_to_move.iter().position(|item| item.is_selected) else {
             return false;
         };
+        let selected_item = &items_to_move[selected_position];
         let Some(selected_id) = selected_item.item.get_id() else {
             return false;
         };
-        let link_group_id = match &selected_item.item {
+        let Some(link_group_id) = (match &selected_item.item {
             Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
             Item::Gap(_) => None,
+        }) else {
+            return false;
         };
+        let moved_duration = selected_item.item.duration().max(0.0);
+        if moved_duration <= EPS
+            || items_to_move
+                .iter()
+                .any(|item| (item.item.duration().max(0.0) - moved_duration).abs() > EPS)
+        {
+            return false;
+        }
+
         let source_track_indices: Vec<_> =
             items_to_move.iter().map(|item| item.track_index).collect();
-        let moved_duration = selected_item.item.duration().max(0.0);
+        let mut anchor_track_indices = source_track_indices.clone();
+        anchor_track_indices.push(dest_track_index);
+        let mut boundary_track_indices = self.boundary_track_indices_for_link_groups(
+            &[link_group_id],
+            &anchor_track_indices,
+            &[],
+        );
+        for track_index in anchor_track_indices {
+            if !boundary_track_indices.contains(&track_index) {
+                boundary_track_indices.push(track_index);
+            }
+        }
+        boundary_track_indices.sort_unstable();
+        boundary_track_indices.dedup();
 
         let mut used_ids = self.collect_timeline_ids();
         let mut targets: Vec<_> = items_to_move
@@ -1758,63 +1777,86 @@ impl Stack {
             }
         }
 
-        match placement {
+        let moved_start = match placement {
             LinkedMovePlacement::Time {
                 dest_time,
                 insert_policy,
-            } => self.children[dest_track_index].insert_at_time(
-                dest_time,
-                selected_item.item.clone(),
-                overlap_policy,
-                insert_policy,
-            ),
-            LinkedMovePlacement::Index { dest_index } => self.children[dest_track_index]
-                .insert_at_index(dest_index, selected_item.item.clone(), overlap_policy),
-        }
-        let Some((selected_track_index, selected_item_index, _)) = self.get_item(&selected_id)
-        else {
-            *self = backup;
-            return false;
+            } => {
+                let Some(start) = insertion_start_or_end_for_policy(
+                    &self.children[dest_track_index],
+                    dest_time,
+                    insert_policy,
+                ) else {
+                    *self = backup;
+                    return false;
+                };
+                start
+            }
+            LinkedMovePlacement::Index { dest_index } => {
+                self.children[dest_track_index].start_time_of_item(dest_index)
+            }
         };
-        let moved_start =
-            self.children[selected_track_index].start_time_of_item(selected_item_index);
 
-        let mut occupied_track_indices = vec![selected_track_index];
-        for move_item in items_to_move {
-            if move_item.is_selected {
+        let mut placements = Vec::new();
+        placements.push((
+            dest_track_index,
+            items_to_move[selected_position].item.clone(),
+            true,
+        ));
+        for (position, move_item) in items_to_move.into_iter().enumerate() {
+            if position == selected_position {
                 continue;
             }
-            let Some(track) = self.children.get_mut(move_item.track_index) else {
+            if placements
+                .iter()
+                .any(|(track_index, _, _)| *track_index == move_item.track_index)
+            {
                 *self = backup;
                 return false;
             };
-            track.insert_at_time(
-                moved_start,
-                move_item.item,
-                overlap_policy,
-                InsertPolicy::SplitAndInsert,
-            );
-            occupied_track_indices.push(move_item.track_index);
+            placements.push((move_item.track_index, move_item.item, false));
         }
+        for track_index in boundary_track_indices {
+            if placements
+                .iter()
+                .any(|(placement_track_index, _, _)| *placement_track_index == track_index)
+            {
+                continue;
+            }
+            let mut gap = Item::Gap(crate::Gap::make_gap(moved_duration));
+            Self::ensure_unique_item_id(&mut gap, &mut used_ids);
+            placements.push((track_index, gap, false));
+        }
+        placements.sort_by_key(|(track_index, _, _)| *track_index);
 
-        if let Some(link_group_id) = link_group_id {
-            let mut anchor_track_indices = source_track_indices;
-            anchor_track_indices.push(dest_track_index);
-            let spacer_track_indices = self.boundary_track_indices_for_link_groups(
-                &[link_group_id],
-                &anchor_track_indices,
-                &occupied_track_indices,
-            );
-            for track_index in spacer_track_indices {
-                self.insert_spacer_gap(
-                    track_index,
+        for (track_index, item, is_selected) in placements {
+            if is_selected {
+                match placement {
+                    LinkedMovePlacement::Time {
+                        dest_time,
+                        insert_policy,
+                    } => self.children[track_index].insert_at_time(
+                        dest_time,
+                        item,
+                        overlap_policy,
+                        insert_policy,
+                    ),
+                    LinkedMovePlacement::Index { dest_index } => {
+                        self.children[track_index].insert_at_index(dest_index, item, overlap_policy)
+                    }
+                }
+            } else {
+                self.children[track_index].insert_at_time(
                     moved_start,
-                    moved_duration,
+                    item,
                     overlap_policy,
                     InsertPolicy::SplitAndInsert,
-                    &mut used_ids,
                 );
             }
+        }
+        if self.get_item(&selected_id).is_none() {
+            *self = backup;
+            return false;
         }
 
         self.sanitize();

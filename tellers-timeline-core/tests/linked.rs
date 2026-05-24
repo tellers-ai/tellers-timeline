@@ -1630,6 +1630,38 @@ fn move_item_at_index_moves_linked_group() {
 }
 
 #[test]
+fn move_linked_item_rejects_duration_mismatch_unchanged() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    let (audio_track, audio_index, _) = stack.get_item(&audio_id).unwrap();
+    if let Item::Clip(clip) = &mut stack.children[audio_track].items[audio_index] {
+        clip.source_range.duration.value = 4.0;
+    }
+    let original = stack.clone();
+
+    assert!(!stack.move_item_at_time(
+        "primary",
+        "v",
+        1.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+    assert_eq!(stack.children, original.children);
+}
+
+#[test]
 fn move_unlinked_item_only_moves_selected_item() {
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
     video.items.push(Item::Clip(clip(3.0, Some("primary"))));
