@@ -14,7 +14,8 @@ impl Stack {
         };
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
-        let selected_end = selected_start + selected_clip.source_range.duration.value.max(0.0);
+        let selected_end =
+            selected_start + selected_clip.source_range.duration.to_seconds().max(0.0);
         if split_time < selected_start - EPS || split_time > selected_end + EPS {
             return false;
         }
@@ -41,7 +42,7 @@ impl Stack {
                 return false;
             };
             let item_start = self.children[*track_index].start_time_of_item(*item_index);
-            let item_end = item_start + clip.source_range.duration.value.max(0.0);
+            let item_end = item_start + clip.source_range.duration.to_seconds().max(0.0);
             if split_time <= item_start + EPS || split_time >= item_end - EPS {
                 *self = backup;
                 return false;

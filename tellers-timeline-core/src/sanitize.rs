@@ -42,7 +42,9 @@ impl Track {
         for item in self.items.drain(..) {
             match (merged.last_mut(), &item) {
                 (Some(Item::Gap(prev)), Item::Gap(next)) => {
-                    prev.source_range.duration.value += next.source_range.duration.value;
+                    let duration =
+                        prev.source_range.duration.to_seconds() + next.source_range.duration.to_seconds();
+                    prev.source_range.duration.set_from_seconds(duration);
                 }
                 _ => merged.push(item),
             }

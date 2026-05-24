@@ -22,7 +22,7 @@ impl Track {
         match original {
             crate::Item::Clip(mut clip) => {
                 clip.clamp_to_active_available_range();
-                let total = clip.source_range.duration.value.max(0.0);
+                let total = clip.source_range.duration.to_seconds().max(0.0);
                 if local_offset >= total - EPS {
                     // Nothing to split, put the original back
                     self.items.insert(item_index, crate::Item::Clip(clip));
@@ -33,11 +33,17 @@ impl Track {
                 let right_duration = (total - left_duration).max(0.0);
 
                 let mut left_clip = clip.clone();
-                left_clip.source_range.duration.value = left_duration;
+                left_clip
+                    .source_range
+                    .duration
+                    .set_from_seconds(left_duration);
 
                 // Right clip keeps the rest, media_start advances by left_duration
-                clip.source_range.duration.value = right_duration;
-                clip.source_range.start_time.value += left_duration;
+                clip.source_range.duration.set_from_seconds(right_duration);
+                let right_source_start = clip.source_range.start_time.to_seconds() + left_duration;
+                clip.source_range
+                    .start_time
+                    .set_from_seconds(right_source_start);
 
                 // Ensure the right-hand piece receives a fresh unique id
                 crate::metadata::IdMetadataExt::set_id(
@@ -49,7 +55,7 @@ impl Track {
                 self.items.insert(item_index + 1, crate::Item::Clip(clip));
             }
             crate::Item::Gap(mut gap) => {
-                let total = gap.source_range.duration.value.max(0.0);
+                let total = gap.source_range.duration.to_seconds().max(0.0);
                 if local_offset >= total - EPS {
                     self.items.insert(item_index, crate::Item::Gap(gap));
                     return;
@@ -59,9 +65,12 @@ impl Track {
                 let right_duration = (total - left_duration).max(0.0);
 
                 let mut left_gap = gap.clone();
-                left_gap.source_range.duration.value = left_duration;
+                left_gap
+                    .source_range
+                    .duration
+                    .set_from_seconds(left_duration);
 
-                gap.source_range.duration.value = right_duration;
+                gap.source_range.duration.set_from_seconds(right_duration);
                 crate::metadata::IdMetadataExt::set_id(
                     &mut gap,
                     Some(crate::types::gen_hex_id_12()),

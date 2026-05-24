@@ -229,14 +229,14 @@ impl Item {
     }
     pub fn duration(&self) -> Seconds {
         match self {
-            Item::Clip(c) => c.source_range.duration.value,
-            Item::Gap(g) => g.source_range.duration.value,
+            Item::Clip(c) => c.source_range.duration.to_seconds(),
+            Item::Gap(g) => g.source_range.duration.to_seconds(),
         }
     }
     pub fn set_duration(&mut self, dur: Seconds) {
         match self {
-            Item::Clip(c) => c.source_range.duration.value = dur,
-            Item::Gap(g) => g.source_range.duration.value = dur,
+            Item::Clip(c) => c.source_range.duration.set_from_seconds(dur),
+            Item::Gap(g) => g.source_range.duration.set_from_seconds(dur),
         }
     }
     pub fn get_enabled(&self) -> bool {
@@ -1178,14 +1178,14 @@ impl MediaReference {
     pub fn media_start(&self) -> Seconds {
         self.available_range()
             .as_ref()
-            .map(|tr| tr.start_time.value)
+            .map(|tr| tr.start_time.to_seconds())
             .unwrap_or(0.0)
     }
 
     pub fn set_media_start(&mut self, start_seconds: Seconds) {
         let available_range = self.available_range_mut();
         if let Some(tr) = available_range {
-            tr.start_time.value = start_seconds;
+            tr.start_time.set_from_seconds(start_seconds);
         } else {
             *available_range = Some(TimeRange {
                 otio_schema: default_time_range_schema(),
@@ -1204,7 +1204,9 @@ impl MediaReference {
     }
 
     pub fn media_duration(&self) -> Option<Seconds> {
-        self.available_range().as_ref().map(|tr| tr.duration.value)
+        self.available_range()
+            .as_ref()
+            .map(|tr| tr.duration.to_seconds())
     }
 
     pub fn set_media_duration(&mut self, duration_seconds: Option<Seconds>) {
@@ -1212,7 +1214,7 @@ impl MediaReference {
         match duration_seconds {
             Some(v) => {
                 if let Some(tr) = available_range {
-                    tr.duration.value = v;
+                    tr.duration.set_from_seconds(v);
                 } else {
                     *available_range = Some(TimeRange {
                         otio_schema: default_time_range_schema(),
@@ -1403,16 +1405,16 @@ impl TimeRange {
         }
     }
     pub fn get_duration(&self) -> Seconds {
-        self.duration.value
+        self.duration.to_seconds()
     }
     pub fn get_start_time(&self) -> Seconds {
-        self.start_time.value
+        self.start_time.to_seconds()
     }
     pub fn set_duration(&mut self, duration: Seconds) {
-        self.duration.value = duration;
+        self.duration.set_from_seconds(duration);
     }
     pub fn set_start_time(&mut self, start_time: Seconds) {
-        self.start_time.value = start_time;
+        self.start_time.set_from_seconds(start_time);
     }
 }
 

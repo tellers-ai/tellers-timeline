@@ -41,6 +41,43 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
     })
 }
 
+fn make_clip_with_rate(duration: Seconds, media_start: Seconds, rate: f64) -> Item {
+    let sr = TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        duration: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate,
+            value: duration * rate,
+        },
+        start_time: RationalTime {
+            otio_schema: "RationalTime.1".to_string(),
+            rate,
+            value: media_start * rate,
+        },
+    };
+    let mut refs: HashMap<String, MediaReference> = HashMap::new();
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "mem://".to_string(),
+            available_range: None,
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
+    Item::Clip(Clip {
+        otio_schema: "Clip.2".to_string(),
+        enabled: true,
+        name: None,
+        source_range: sr,
+        media_references: refs,
+        active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
+        metadata: serde_json::Value::Null,
+        effects: Vec::new(),
+    })
+}
+
 fn media_ref(url: &str) -> MediaReference {
     MediaReference::ExternalReference {
         target_url: url.to_string(),
@@ -164,6 +201,65 @@ fn resize_audio_clip_duration_preserves_following_clip() {
         stack.children[second_track_index].start_time_of_item(second_item_index),
         4.0
     );
+}
+
+#[test]
+fn resize_item_sets_rational_time_duration_from_seconds() {
+    let mut track = Track::new(TrackKind::Audio, Some("a".to_string()));
+    let mut first = make_clip_with_rate(2.0, 0.0, 24.0);
+    first.set_id(Some("first".to_string()));
+    let mut second = make_clip_with_rate(1.0, 0.0, 24.0);
+    second.set_id(Some("second".to_string()));
+    track.items.push(first);
+    track.items.push(second);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("first", 0.0, 3.0, OverlapPolicy::Override, false));
+
+    let (first_track_index, first_item_index, first_item) = stack.get_item("first").unwrap();
+    let (second_track_index, second_item_index, _) = stack.get_item("second").unwrap();
+    assert_eq!(
+        stack.children[second_track_index].start_time_of_item(second_item_index),
+        3.0
+    );
+    match &stack.children[first_track_index].items[first_item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.duration.rate, 24.0);
+            assert_eq!(clip.source_range.duration.value, 72.0);
+            assert_eq!(first_item.duration(), 3.0);
+        }
+        _ => panic!("expected clip"),
+    }
+}
+
+#[test]
+fn modify_item_uses_seconds_for_rational_time_source_and_duration() {
+    let mut track = Track::new(TrackKind::Audio, Some("a".to_string()));
+    let mut clip = make_clip_with_rate(4.0, 1.0, 24.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.modify_item("clip", 2.0, 2.0, false, true, false));
+
+    let (track_index, item_index, item) = stack.get_item("clip").unwrap();
+    assert_eq!(stack.children[track_index].start_time_of_item(item_index), 1.0);
+    assert_eq!(item.duration(), 2.0);
+    match &stack.children[track_index].items[item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.start_time.rate, 24.0);
+            assert_eq!(clip.source_range.start_time.value, 48.0);
+            assert_eq!(clip.source_range.duration.rate, 24.0);
+            assert_eq!(clip.source_range.duration.value, 48.0);
+        }
+        _ => panic!("expected clip"),
+    }
 }
 
 #[test]

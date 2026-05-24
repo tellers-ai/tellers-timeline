@@ -72,7 +72,7 @@ impl Stack {
             let Item::Clip(clip) = &mut replacement_item else {
                 return false;
             };
-            let duration = clip.source_range.duration.value.max(0.0);
+            let duration = clip.source_range.duration.to_seconds().max(0.0);
             if duration <= EPS {
                 return false;
             }

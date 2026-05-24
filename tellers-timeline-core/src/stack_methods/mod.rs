@@ -506,10 +506,10 @@ impl Stack {
         let Item::Clip(mut clip) = item else {
             return None;
         };
-        clip.source_range.duration.value = duration;
+        clip.source_range.duration.set_from_seconds(duration);
         clamp_clip_to_active_available_range(&mut clip);
-        if clip.source_range.duration.value + EPS < duration
-            || clip.source_range.duration.value <= EPS
+        let clamped_duration = clip.source_range.duration.to_seconds();
+        if clamped_duration + EPS < duration || clamped_duration <= EPS
         {
             return None;
         }
@@ -525,7 +525,7 @@ impl Stack {
             return None;
         };
         clamp_clip_to_active_available_range(&mut clip);
-        let duration = clip.source_range.duration.value.max(0.0);
+        let duration = clip.source_range.duration.to_seconds().max(0.0);
         (duration > EPS).then_some(duration)
     }
 
@@ -1146,7 +1146,7 @@ impl Stack {
                 (item, id)
             }
             Item::Gap(mut gap) => {
-                gap.source_range.duration.value = modified_duration;
+                gap.source_range.duration.set_from_seconds(modified_duration);
                 let mut item = Item::Gap(gap);
                 let id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
                 (item, id)
@@ -1422,7 +1422,7 @@ impl Stack {
 
         let old_timeline_start = self.children[track_index].start_time_of_item(item_index);
         let old_source_start = match &self.children[track_index].items[item_index] {
-            Item::Clip(clip) => clip.source_range.start_time.value,
+            Item::Clip(clip) => clip.source_range.start_time.to_seconds(),
             Item::Gap(_) => 0.0,
         };
         let old_duration = self.children[track_index].items[item_index].duration();
@@ -1497,7 +1497,7 @@ impl Stack {
             return false;
         };
         let source_delta = match item {
-            Item::Clip(clip) => source_start_time - clip.source_range.start_time.value,
+            Item::Clip(clip) => source_start_time - clip.source_range.start_time.to_seconds(),
             Item::Gap(_) => 0.0,
         };
         if source_delta.abs() > EPS {
@@ -1923,15 +1923,17 @@ fn split_gap_boundary(track: &mut Track, time: Seconds) {
             return;
         }
     };
-    let total = gap.source_range.duration.value.max(0.0);
+    let total = gap.source_range.duration.to_seconds().max(0.0);
     if local >= total - EPS {
         track.items.insert(index, Item::Gap(gap));
         return;
     }
 
     let mut left = gap.clone();
-    left.source_range.duration.value = local.max(0.0);
-    gap.source_range.duration.value = (total - local).max(0.0);
+    left.source_range.duration.set_from_seconds(local.max(0.0));
+    gap.source_range
+        .duration
+        .set_from_seconds((total - local).max(0.0));
     gap.set_id(Some(crate::types::gen_hex_id_12()));
     track.items.insert(index, Item::Gap(left));
     track.items.insert(index + 1, Item::Gap(gap));
@@ -1958,18 +1960,18 @@ fn resize_effective_duration(
 
 fn item_source_start(item: &Item) -> Seconds {
     match item {
-        Item::Clip(clip) => clip.source_range.start_time.value,
-        Item::Gap(gap) => gap.source_range.start_time.value,
+        Item::Clip(clip) => clip.source_range.start_time.to_seconds(),
+        Item::Gap(gap) => gap.source_range.start_time.to_seconds(),
     }
 }
 
 fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
     match item {
         Item::Clip(clip) => {
-            clip.source_range.start_time.value = source_start_time;
+            clip.source_range.start_time.set_from_seconds(source_start_time);
         }
         Item::Gap(gap) => {
-            gap.source_range.start_time.value = source_start_time;
+            gap.source_range.start_time.set_from_seconds(source_start_time);
         }
     }
 }
