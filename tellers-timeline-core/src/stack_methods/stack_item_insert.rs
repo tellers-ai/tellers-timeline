@@ -17,16 +17,15 @@ impl Stack {
         if dest_track_index >= self.children.len() {
             return None;
         }
-        let touches_linked_group = matches!(item, Item::Clip(_))
-            && !self
-                .linked_groups_touched_by_insert_at_time(
-                    dest_track_index,
-                    dest_time,
-                    item.duration(),
-                    overlap_policy,
-                    insert_policy,
-                )
-                .is_empty();
+        let touches_linked_group = !self
+            .linked_groups_touched_by_insert_at_time(
+                dest_track_index,
+                dest_time,
+                item.duration(),
+                overlap_policy,
+                insert_policy,
+            )
+            .is_empty();
         if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
         {
             return self.insert_linked_item_at_time(
@@ -70,15 +69,14 @@ impl Stack {
             return None;
         }
 
-        let touches_linked_group = matches!(item, Item::Clip(_))
-            && !self
-                .linked_groups_touched_by_insert_at_index(
-                    dest_track_index,
-                    dest_index,
-                    item.duration(),
-                    overlap_policy,
-                )
-                .is_empty();
+        let touches_linked_group = !self
+            .linked_groups_touched_by_insert_at_index(
+                dest_track_index,
+                dest_index,
+                item.duration(),
+                overlap_policy,
+            )
+            .is_empty();
         if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
         {
             return self.insert_linked_item_at_time(

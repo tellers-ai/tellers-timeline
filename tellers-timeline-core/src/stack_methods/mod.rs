@@ -694,6 +694,29 @@ impl Stack {
         track_indices
     }
 
+    fn boundary_track_indices_for_anchors(
+        &self,
+        link_groups: &[i64],
+        anchor_track_indices: &[usize],
+        excluded_track_indices: &[usize],
+    ) -> Vec<usize> {
+        let mut track_indices = Vec::new();
+        for anchor_track_index in anchor_track_indices {
+            for track_index in &self
+                .flatten_boundary_for_link_groups(*anchor_track_index, link_groups)
+                .track_indices
+            {
+                if excluded_track_indices.contains(track_index) {
+                    continue;
+                }
+                if !track_indices.contains(track_index) {
+                    track_indices.push(*track_index);
+                }
+            }
+        }
+        track_indices
+    }
+
     fn linked_groups_overlapping_range(
         &self,
         track_index: usize,
@@ -771,32 +794,6 @@ impl Stack {
         let mut gap = Item::Gap(crate::Gap::make_gap(duration));
         Self::ensure_unique_item_id(&mut gap, used_ids);
         self.children[track_index].insert_at_time(start, gap, overlap_policy, insert_policy);
-    }
-
-    fn insert_gap_then_linked_item(
-        &mut self,
-        track_index: usize,
-        start: Seconds,
-        duration: Seconds,
-        item: Item,
-        overlap_policy: OverlapPolicy,
-        insert_policy: InsertPolicy,
-        used_ids: &mut HashSet<String>,
-    ) {
-        self.insert_spacer_gap(
-            track_index,
-            start,
-            duration,
-            overlap_policy,
-            insert_policy,
-            used_ids,
-        );
-        self.children[track_index].insert_at_time(
-            start,
-            item,
-            OverlapPolicy::Override,
-            InsertPolicy::SplitAndInsert,
-        );
     }
 
     fn sync_changed_link_groups_after_resize(
@@ -906,23 +903,22 @@ impl Stack {
         linked_audio_clips: Option<Vec<Item>>,
         linked_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
-        let primary_item = item.clone();
-        let Item::Clip(mut primary_clip) = item else {
-            return None;
-        };
+        let mut primary_item = item;
+        primary_item.clamp_to_active_available_range();
         let linked_inputs =
             Self::normalize_linked_inputs(&primary_item, linked_audio_clips, linked_video_clip);
-        clamp_clip_to_active_available_range(&mut primary_clip);
-        let modified_duration = primary_clip.source_range.duration.value.max(0.0);
-        if modified_duration <= EPS {
+        let has_linked_clips = !linked_inputs.audio.is_empty() || linked_inputs.video.is_some();
+        if has_linked_clips && !matches!(primary_item, Item::Clip(_)) {
             return None;
         }
-
-        if !Self::linked_inputs_match_duration(modified_duration, &linked_inputs) {
-            return None;
-        }
-
         if linked_inputs.video.is_some() && self.children[dest_track_index].kind != TrackKind::Audio
+        {
+            return None;
+        }
+
+        let modified_duration = primary_item.duration().max(0.0);
+        if modified_duration <= EPS
+            || !Self::linked_inputs_match_duration(modified_duration, &linked_inputs)
         {
             return None;
         }
@@ -943,88 +939,136 @@ impl Stack {
             )
         };
 
+        let start = if let Some(dest_index) = dest_index {
+            self.children[dest_track_index].start_time_of_item(dest_index)
+        } else {
+            insertion_start_or_end_for_policy(
+                &self.children[dest_track_index],
+                dest_time,
+                insert_policy,
+            )?
+        };
         let backup = self.clone();
         let mut used_ids = self.collect_timeline_ids();
-        let has_linked_clips = !linked_inputs.audio.is_empty() || linked_inputs.video.is_some();
         let link_group_id = has_linked_clips.then(|| self.next_link_group_id());
-        primary_clip.source_range.duration.value = modified_duration;
-        let (primary_item, primary_clip_id) = Self::prepare_linked_item(
-            Item::Clip(primary_clip),
-            modified_duration,
-            link_group_id,
-            &mut used_ids,
-        )?;
 
-        if let Some(dest_index) = dest_index {
-            self.children[dest_track_index].insert_at_index(
-                dest_index,
-                primary_item,
-                overlap_policy,
-            );
-        } else {
-            self.children[dest_track_index].insert_at_time(
-                dest_time,
-                primary_item,
-                overlap_policy,
-                insert_policy,
-            );
-        }
-        let Some((mut modified_track_index, modified_item_index, _)) =
-            self.get_item(&primary_clip_id)
-        else {
-            *self = backup;
-            return None;
-        };
-        let modified_start =
-            self.children[modified_track_index].start_time_of_item(modified_item_index);
-
-        let mut audio_clips = Vec::new();
+        let mut primary_track_index = dest_track_index;
         let mut created_track_indices = Vec::new();
-        let mut spacer_track_indices = self.boundary_track_indices_for_link_groups(
-            &touched_link_groups,
-            &[dest_track_index, modified_track_index],
-            &[modified_track_index],
-        );
-        for track_index in spacer_track_indices.iter().copied() {
-            self.insert_spacer_gap(
-                track_index,
-                modified_start,
+        let mut audio_track_indices = Vec::new();
+        let mut video_track_index = None;
+
+        if linked_inputs.video.is_some() {
+            let track_count_before = self.children.len();
+            let Some(track_index) = self.find_or_create_video_track_for_audio(
+                primary_track_index,
+                start,
                 modified_duration,
-                overlap_policy,
-                insert_policy,
-                &mut used_ids,
-            );
-        }
-        let mut linked_video_clip_id = None;
-        if let Some(video_item) = linked_inputs.video {
-            let track_count_before_video = self.children.len();
-            let mut used_existing_spacer = false;
-            let video_track_index = if let Some(position) = spacer_track_indices
-                .iter()
-                .position(|index| self.children[*index].kind == TrackKind::Video)
-            {
-                used_existing_spacer = true;
-                spacer_track_indices.remove(position)
-            } else {
-                let Some(video_track_index) = self.find_or_create_video_track_for_audio(
-                    modified_track_index,
-                    modified_start,
-                    modified_duration,
-                    &mut created_track_indices,
-                    link_group_id,
-                    true,
-                ) else {
-                    *self = backup;
-                    return None;
-                };
-                video_track_index
+                &mut created_track_indices,
+                link_group_id,
+                true,
+            ) else {
+                *self = backup;
+                return None;
             };
-            if self.children.len() > track_count_before_video
-                && video_track_index <= modified_track_index
-            {
-                modified_track_index += 1;
+            if self.children.len() > track_count_before {
+                if track_index <= primary_track_index {
+                    primary_track_index += 1;
+                }
+                for audio_track_index in &mut audio_track_indices {
+                    if track_index <= *audio_track_index {
+                        *audio_track_index += 1;
+                    }
+                }
             }
-            let Some((video_item, _video_id)) = Self::prepare_linked_item(
+            video_track_index = Some(track_index);
+        }
+
+        let mut used_audio_boundary_indices = Vec::new();
+        for _ in &linked_inputs.audio {
+            let track_count_before = self.children.len();
+            let Some(track_index) = self.find_or_create_audio_track(
+                primary_track_index,
+                start,
+                modified_duration,
+                &mut created_track_indices,
+                &audio_track_indices,
+                &used_audio_boundary_indices,
+                link_group_id,
+                true,
+            ) else {
+                *self = backup;
+                return None;
+            };
+            let reused_empty_boundary_track = self.children.len() == track_count_before
+                && track_is_empty_boundary(&self.children[track_index]);
+            if self.children.len() > track_count_before {
+                if track_index <= primary_track_index {
+                    primary_track_index += 1;
+                }
+                if let Some(video_index) = &mut video_track_index {
+                    if track_index <= *video_index {
+                        *video_index += 1;
+                    }
+                }
+                for audio_track_index in &mut audio_track_indices {
+                    if track_index <= *audio_track_index {
+                        *audio_track_index += 1;
+                    }
+                }
+            }
+            audio_track_indices.push(track_index);
+            if reused_empty_boundary_track {
+                used_audio_boundary_indices.push(track_index);
+            }
+        }
+
+        let boundary_groups = if touched_link_groups.is_empty() {
+            Vec::new()
+        } else {
+            touched_link_groups.clone()
+        };
+        let mut boundary_track_indices =
+            self.boundary_track_indices_for_anchors(&boundary_groups, &[primary_track_index], &[]);
+        if !boundary_track_indices.contains(&primary_track_index) {
+            boundary_track_indices.push(primary_track_index);
+        }
+        if let Some(video_track_index) = video_track_index {
+            if !boundary_track_indices.contains(&video_track_index) {
+                boundary_track_indices.push(video_track_index);
+            }
+        }
+        for audio_track_index in &audio_track_indices {
+            if !boundary_track_indices.contains(audio_track_index) {
+                boundary_track_indices.push(*audio_track_index);
+            }
+        }
+        boundary_track_indices.sort_unstable();
+        boundary_track_indices.dedup();
+
+        let (primary_item, primary_id) = match primary_item {
+            Item::Clip(_) => {
+                let (item, id) = Self::prepare_linked_item(
+                    primary_item,
+                    modified_duration,
+                    link_group_id,
+                    &mut used_ids,
+                )?;
+                (item, id)
+            }
+            Item::Gap(mut gap) => {
+                gap.source_range.duration.value = modified_duration;
+                let mut item = Item::Gap(gap);
+                let id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
+                (item, id)
+            }
+        };
+
+        let mut placements = vec![(primary_track_index, primary_item)];
+        let mut linked_video_clip_id = None;
+        if let (Some(video_track_index), Some(video_item)) =
+            (video_track_index, linked_inputs.video)
+        {
+            let Some((video_item, video_id)) = Self::prepare_linked_item(
                 video_item,
                 modified_duration,
                 link_group_id,
@@ -1033,66 +1077,14 @@ impl Stack {
                 *self = backup;
                 return None;
             };
-            if used_existing_spacer {
-                self.children[video_track_index].insert_at_time(
-                    modified_start,
-                    video_item,
-                    OverlapPolicy::Override,
-                    InsertPolicy::SplitAndInsert,
-                );
-            } else {
-                self.insert_gap_then_linked_item(
-                    video_track_index,
-                    modified_start,
-                    modified_duration,
-                    video_item,
-                    overlap_policy,
-                    insert_policy,
-                    &mut used_ids,
-                );
-            }
-            linked_video_clip_id = Some(_video_id);
+            placements.push((video_track_index, video_item));
+            linked_video_clip_id = Some(video_id);
         }
 
-        let mut used_audio_boundary_indices = Vec::new();
-        for audio_item in linked_inputs.audio {
-            let used_audio_track_indices: Vec<_> = audio_clips
-                .iter()
-                .map(|(_, track_index)| *track_index)
-                .collect();
-            let track_count_before_audio = self.children.len();
-            let mut used_existing_spacer = false;
-            let audio_track_index = if let Some(position) = spacer_track_indices
-                .iter()
-                .position(|index| self.children[*index].kind == TrackKind::Audio)
-            {
-                used_existing_spacer = true;
-                spacer_track_indices.remove(position)
-            } else {
-                let Some(audio_track_index) = self.find_or_create_audio_track(
-                    modified_track_index,
-                    modified_start,
-                    modified_duration,
-                    &mut created_track_indices,
-                    &used_audio_track_indices,
-                    &used_audio_boundary_indices,
-                    link_group_id,
-                    true,
-                ) else {
-                    *self = backup;
-                    return None;
-                };
-                audio_track_index
-            };
-            let reused_empty_boundary_track = self.children.len() == track_count_before_audio
-                && !used_existing_spacer
-                && track_is_empty_boundary(&self.children[audio_track_index]);
-            if self.children.len() > track_count_before_audio
-                && audio_track_index <= modified_track_index
-            {
-                modified_track_index += 1;
-            }
-
+        let mut audio_clips = Vec::new();
+        for (audio_item, audio_track_index) in
+            linked_inputs.audio.into_iter().zip(audio_track_indices)
+        {
             let Some((audio_item, audio_id)) = Self::prepare_linked_item(
                 audio_item,
                 modified_duration,
@@ -1102,33 +1094,50 @@ impl Stack {
                 *self = backup;
                 return None;
             };
+            placements.push((audio_track_index, audio_item));
+            audio_clips.push((audio_id, audio_track_index));
+        }
 
-            if used_existing_spacer {
-                self.children[audio_track_index].insert_at_time(
-                    modified_start,
-                    audio_item,
-                    OverlapPolicy::Override,
+        for track_index in boundary_track_indices {
+            if placements
+                .iter()
+                .any(|(placement_track_index, _)| *placement_track_index == track_index)
+            {
+                continue;
+            }
+            let mut gap = Item::Gap(Gap::make_gap(modified_duration));
+            Self::ensure_unique_item_id(&mut gap, &mut used_ids);
+            placements.push((track_index, gap));
+        }
+        placements.sort_by_key(|(track_index, _)| *track_index);
+
+        for (track_index, item) in placements {
+            if track_index == primary_track_index {
+                if let Some(dest_index) = dest_index {
+                    self.children[track_index].insert_at_index(dest_index, item, overlap_policy);
+                } else {
+                    self.children[track_index].insert_at_time(
+                        dest_time,
+                        item,
+                        overlap_policy,
+                        insert_policy,
+                    );
+                }
+            } else {
+                self.children[track_index].insert_at_time(
+                    start,
+                    item,
+                    overlap_policy,
                     InsertPolicy::SplitAndInsert,
                 );
-            } else {
-                self.insert_gap_then_linked_item(
-                    audio_track_index,
-                    modified_start,
-                    modified_duration,
-                    audio_item,
-                    overlap_policy,
-                    insert_policy,
-                    &mut used_ids,
-                );
-            }
-            audio_clips.push((audio_id, audio_track_index));
-            if reused_empty_boundary_track {
-                used_audio_boundary_indices.push(audio_track_index);
             }
         }
 
+        if !matches!(self.get_item(&primary_id), Some((_, _, Item::Clip(_)))) {
+            return Some(InsertItemAtTimeResult::ItemId(primary_id));
+        }
         Some(InsertItemAtTimeResult::Linked(LinkedInsertResult {
-            primary_clip_id,
+            primary_clip_id: primary_id,
             audio_clips,
             linked_video_clip_id,
             link_group_id,
@@ -1811,7 +1820,6 @@ impl Stack {
         self.sanitize();
         true
     }
-
 }
 
 fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
@@ -1990,6 +1998,45 @@ fn insertion_start_for_policy(
         }
     };
     (start < total - EPS).then_some(start)
+}
+
+fn insertion_start_or_end_for_policy(
+    track: &Track,
+    insert_time: Seconds,
+    insert_policy: InsertPolicy,
+) -> Option<Seconds> {
+    let total = track.total_duration();
+    let mut effective_time = insert_time;
+    if effective_time < 0.0 {
+        effective_time = total - effective_time;
+    }
+    if effective_time < 0.0 {
+        return None;
+    }
+    if effective_time >= total - EPS {
+        return Some(effective_time);
+    }
+
+    let Some(item_index) = track.get_item_at_time(effective_time) else {
+        return Some(effective_time);
+    };
+    let item_start = track.start_time_of_item(item_index);
+    let item_end = item_start + track.items[item_index].duration().max(0.0);
+    let start = match insert_policy {
+        InsertPolicy::SplitAndInsert => effective_time,
+        InsertPolicy::InsertBefore => item_start,
+        InsertPolicy::InsertAfter => item_end,
+        InsertPolicy::InsertBeforeOrAfter => {
+            let d_start = (effective_time - item_start).abs();
+            let d_end = (item_end - effective_time).abs();
+            if d_start <= d_end {
+                item_start
+            } else {
+                item_end
+            }
+        }
+    };
+    Some(start)
 }
 
 fn resolve_link_group_id(metadata: &serde_json::Value) -> Option<i64> {
