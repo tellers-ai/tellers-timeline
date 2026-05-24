@@ -1096,6 +1096,93 @@ fn insert_unlinked_between_linked_groups_keeps_partial_boundary_tracks_aligned()
 }
 
 #[test]
+fn boundary_keeps_linked_audio_video_unlinked_audio_and_unlinked_video_as_three_groups() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("linked-v".to_string())));
+    let linked = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("linked-video")),
+        vec![audio_clip(4.0, "file:///linked-audio.wav", None)],
+    )
+    .expect("linked insert should succeed");
+    let linked_video_track = stack.get_item("linked-video").unwrap().0;
+    let linked_audio_track = linked.audio_clips[0].1;
+
+    let mut unlinked_audio = Track::new(TrackKind::Audio, Some("unlinked-a".to_string()));
+    unlinked_audio
+        .items
+        .push(audio_clip(4.0, "file:///unlinked-audio.wav", None));
+    stack.children.push(unlinked_audio);
+    let mut unlinked_video = Track::new(TrackKind::Video, Some("unlinked-v".to_string()));
+    unlinked_video
+        .items
+        .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
+    stack.children.push(unlinked_video);
+    let unlinked_audio_track = stack.children.len() - 2;
+    let unlinked_video_track = stack.children.len() - 1;
+
+    assert_eq!(stack.children[linked_audio_track].kind, TrackKind::Audio);
+    assert_eq!(stack.children[linked_video_track].kind, TrackKind::Video);
+    assert_eq!(stack.children[unlinked_audio_track].kind, TrackKind::Audio);
+    assert_eq!(stack.children[unlinked_video_track].kind, TrackKind::Video);
+
+    assert!(matches!(
+        stack.insert_item_at_time(
+            linked_video_track,
+            1.0,
+            Item::Clip(clip(1.0, Some("linked-group-insert"))),
+            OverlapPolicy::Push,
+            InsertPolicy::SplitAndInsert,
+            None,
+            None,
+        ),
+        Some(InsertItemAtTimeResult::Linked(_))
+    ));
+    assert_eq!(stack.children[linked_audio_track].total_duration(), 5.0);
+    assert_eq!(stack.children[linked_video_track].total_duration(), 5.0);
+    assert_eq!(stack.children[unlinked_audio_track].total_duration(), 4.0);
+    assert_eq!(stack.children[unlinked_video_track].total_duration(), 4.0);
+
+    assert!(matches!(
+        stack.insert_item_at_time(
+            unlinked_audio_track,
+            1.0,
+            audio_clip(1.0, "file:///audio-only-insert.wav", None),
+            OverlapPolicy::Push,
+            InsertPolicy::SplitAndInsert,
+            None,
+            None,
+        ),
+        Some(InsertItemAtTimeResult::ItemId(_))
+    ));
+    assert_eq!(stack.children[linked_audio_track].total_duration(), 5.0);
+    assert_eq!(stack.children[linked_video_track].total_duration(), 5.0);
+    assert_eq!(stack.children[unlinked_audio_track].total_duration(), 5.0);
+    assert_eq!(stack.children[unlinked_video_track].total_duration(), 4.0);
+
+    assert!(matches!(
+        stack.insert_item_at_time(
+            unlinked_video_track,
+            1.0,
+            Item::Clip(clip(1.0, Some("video-only-insert"))),
+            OverlapPolicy::Push,
+            InsertPolicy::SplitAndInsert,
+            None,
+            None,
+        ),
+        Some(InsertItemAtTimeResult::ItemId(_))
+    ));
+    assert_eq!(stack.children[linked_audio_track].total_duration(), 5.0);
+    assert_eq!(stack.children[linked_video_track].total_duration(), 5.0);
+    assert_eq!(stack.children[unlinked_audio_track].total_duration(), 5.0);
+    assert_eq!(stack.children[unlinked_video_track].total_duration(), 5.0);
+}
+
+#[test]
 fn insert_audio_primary_with_fewer_audio_links_fills_remaining_audio_track_with_gap() {
     let mut stack = Stack::default();
     stack
