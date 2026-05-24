@@ -1270,6 +1270,7 @@ impl Stack {
             return false;
         }
         if matches!(selected_item, Item::Gap(_)) {
+            let backup = self.clone();
             let Some(track) = self.children.get_mut(selected_track_index) else {
                 return false;
             };
@@ -1278,6 +1279,15 @@ impl Stack {
             };
             item.set_duration(new_duration.max(0.0));
             track.sanitize();
+            if !self.sync_changed_link_groups_after_resize(
+                &before_states,
+                &[selected_track_index],
+                &HashSet::new(),
+                overlap_policy,
+            ) {
+                *self = backup;
+                return false;
+            }
             return true;
         }
         let excluded_ids: HashSet<_> = target_ids.iter().cloned().collect();
@@ -1435,8 +1445,19 @@ impl Stack {
             push_following || (is_gap && effective_duration < old_duration);
 
         if is_gap && effective_duration < old_duration {
+            let backup = self.clone();
+            let before_states = self.linked_clip_states();
             self.children[track_index].items[item_index].set_duration(effective_duration);
             self.sanitize();
+            if !self.sync_changed_link_groups_after_resize(
+                &before_states,
+                &[track_index],
+                &HashSet::new(),
+                OverlapPolicy::Push,
+            ) {
+                *self = backup;
+                return false;
+            }
             return true;
         }
 

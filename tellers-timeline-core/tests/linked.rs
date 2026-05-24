@@ -159,10 +159,8 @@ fn active_target_url(item: &Item) -> Option<&str> {
 
 fn linked_clip_item(duration: f64, id: &str, link_group_id: i64) -> Item {
     let mut clip = clip(duration, Some(id));
-    clip.metadata = serde_json::json!({
-        "Resolve_OTIO": {
-            "Link Group ID": link_group_id
-        }
+    clip.metadata["Resolve_OTIO"] = serde_json::json!({
+        "Link Group ID": link_group_id
     });
     Item::Clip(clip)
 }
@@ -3469,6 +3467,36 @@ fn resize_audio_linked_item_override_preserves_following_group_when_start_is_unc
 }
 
 #[test]
+fn resize_gap_shrink_updates_following_linked_assets() {
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio
+        .items
+        .push(Item::Gap(Gap::new(5.0, Some("audio-gap".to_string()))));
+    audio.items.push(linked_clip_item(2.0, "audio", 1));
+
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video
+        .items
+        .push(Item::Gap(Gap::new(5.0, Some("video-gap".to_string()))));
+    video.items.push(linked_clip_item(2.0, "video", 1));
+
+    let mut stack = Stack::default();
+    stack.children.push(audio);
+    stack.children.push(video);
+
+    assert!(stack.resize_item("audio-gap", 0.0, 3.0, OverlapPolicy::Override, false));
+
+    for item_id in ["audio", "video"] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            3.0
+        );
+        assert_eq!(item.duration(), 2.0);
+    }
+}
+
+#[test]
 fn resize_item_override_updates_linked_assets_of_trimmed_clip() {
     let video = Track::new(TrackKind::Video, Some("v".to_string()));
     let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
@@ -3661,6 +3689,36 @@ fn modify_item_left_shrink_leaves_gap_on_linked_group() {
         );
         assert_eq!(source_start(item), 2.0);
         assert_eq!(item.duration(), 3.0);
+    }
+}
+
+#[test]
+fn modify_gap_shrink_updates_following_linked_assets() {
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio
+        .items
+        .push(Item::Gap(Gap::new(5.0, Some("audio-gap".to_string()))));
+    audio.items.push(linked_clip_item(2.0, "audio", 1));
+
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video
+        .items
+        .push(Item::Gap(Gap::new(5.0, Some("video-gap".to_string()))));
+    video.items.push(linked_clip_item(2.0, "video", 1));
+
+    let mut stack = Stack::default();
+    stack.children.push(audio);
+    stack.children.push(video);
+
+    assert!(stack.modify_item("audio-gap", 0.0, 3.0, false, false, false));
+
+    for item_id in ["audio", "video"] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            3.0
+        );
+        assert_eq!(item.duration(), 2.0);
     }
 }
 
