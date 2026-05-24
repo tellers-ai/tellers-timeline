@@ -1072,6 +1072,33 @@ fn linked_insert_clamps_primary_clip_to_active_available_range() {
 }
 
 #[test]
+fn linked_insert_clamps_linked_audio_before_duration_check() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip_with_available_duration(
+            10.0,
+            "file:///short-audio.wav",
+            3.0,
+        )],
+    )
+    .expect("linked audio should clamp before duration validation");
+
+    let (audio_id, audio_track_index) = &result.audio_clips[0];
+    let (actual_audio_track, _, audio_item) = stack.get_item(audio_id).unwrap();
+    assert_eq!(actual_audio_track, *audio_track_index);
+    assert_eq!(audio_item.duration(), 3.0);
+    assert_eq!(link_group_id(audio_item), result.link_group_id);
+}
+
+#[test]
 fn linked_insert_rejects_linked_audio_with_different_duration() {
     let mut stack = Stack::default();
     stack

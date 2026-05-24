@@ -564,6 +564,12 @@ impl Stack {
             video: linked_video_clip,
         };
         Self::remove_item_from_linked_video_input(item, &mut inputs.video);
+        for item in &mut inputs.audio {
+            item.clamp_to_active_available_range();
+        }
+        if let Some(video) = &mut inputs.video {
+            video.clamp_to_active_available_range();
+        }
         inputs
     }
 
