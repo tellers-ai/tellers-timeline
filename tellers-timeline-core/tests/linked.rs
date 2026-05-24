@@ -867,6 +867,70 @@ fn insert_linked_clip_with_fewer_audio_links_fills_remaining_audio_track_with_ga
 }
 
 #[test]
+fn insert_linked_clip_with_more_audio_links_creates_additional_audio_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    let first = match stack.insert_item_at_time(
+        0,
+        0.0,
+        Item::Clip(clip(2.0, Some("first-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(2.0, "file:///first-a1.wav", None),
+            audio_clip(2.0, "file:///first-a2.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("first linked insert should succeed"),
+    };
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+
+    let second = match stack.insert_item_at_time(
+        video_track_index,
+        2.0,
+        Item::Clip(clip(3.0, Some("second-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(3.0, "file:///second-a1.wav", None),
+            audio_clip(3.0, "file:///second-a2.wav", None),
+            audio_clip(3.0, "file:///second-a3.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("second linked insert should succeed"),
+    };
+
+    assert_eq!(
+        stack
+            .children
+            .iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .count(),
+        3
+    );
+    assert_eq!(second.audio_clips.len(), 3);
+    assert_eq!(first.audio_clips[0].1, second.audio_clips[0].1);
+    assert_eq!(first.audio_clips[1].1, second.audio_clips[1].1);
+    assert!(!first
+        .audio_clips
+        .iter()
+        .any(|(_, track_index)| *track_index == second.audio_clips[2].1));
+    let (track_index, item_index, item) = stack.get_item(&second.audio_clips[2].0).unwrap();
+    assert_eq!(
+        stack.children[track_index].start_time_of_item(item_index),
+        2.0
+    );
+    assert_eq!(item.duration(), 3.0);
+}
+
+#[test]
 fn insert_audio_primary_with_fewer_audio_links_fills_remaining_audio_track_with_gap() {
     let mut stack = Stack::default();
     stack
@@ -935,6 +999,75 @@ fn insert_audio_primary_with_fewer_audio_links_fills_remaining_audio_track_with_
             .iter()
             .all(|(_, track_index)| *track_index > primary_track_index)
     );
+}
+
+#[test]
+fn insert_audio_primary_with_more_audio_links_creates_additional_audio_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("primary-audio".to_string())));
+
+    let mut first_primary = audio_clip(2.0, "file:///first-primary.wav", None);
+    first_primary.set_id(Some("first-primary".to_string()));
+    let first = match stack.insert_item_at_time(
+        0,
+        0.0,
+        first_primary,
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(2.0, "file:///first-a1.wav", None),
+            audio_clip(2.0, "file:///first-a2.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("first audio-primary linked insert should succeed"),
+    };
+    let primary_track_index = stack.get_item("first-primary").unwrap().0;
+
+    let mut second_primary = audio_clip(3.0, "file:///second-primary.wav", None);
+    second_primary.set_id(Some("second-primary".to_string()));
+    let second = match stack.insert_item_at_time(
+        primary_track_index,
+        2.0,
+        second_primary,
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(3.0, "file:///second-a1.wav", None),
+            audio_clip(3.0, "file:///second-a2.wav", None),
+            audio_clip(3.0, "file:///second-a3.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("second audio-primary linked insert should succeed"),
+    };
+
+    assert_eq!(
+        stack
+            .children
+            .iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .count(),
+        4
+    );
+    assert_eq!(second.audio_clips.len(), 3);
+    assert_eq!(stack.get_item("second-primary").unwrap().0, primary_track_index);
+    assert_eq!(first.audio_clips[0].1, second.audio_clips[0].1);
+    assert_eq!(first.audio_clips[1].1, second.audio_clips[1].1);
+    assert!(!first
+        .audio_clips
+        .iter()
+        .any(|(_, track_index)| *track_index == second.audio_clips[2].1));
+    let (track_index, item_index, item) = stack.get_item(&second.audio_clips[2].0).unwrap();
+    assert_eq!(
+        stack.children[track_index].start_time_of_item(item_index),
+        2.0
+    );
+    assert_eq!(item.duration(), 3.0);
 }
 
 #[test]
@@ -2629,6 +2762,52 @@ fn resize_linked_item_push_updates_linked_assets_of_pushed_group() {
 }
 
 #[test]
+fn resize_audio_linked_item_push_updates_video_and_following_group() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let first = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(2.0, Some("first-video")),
+        vec![audio_clip(2.0, "file:///first-audio.wav", None)],
+    )
+    .unwrap();
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+    let second = insert_with_audio(
+        &mut stack,
+        video_track_index,
+        2.0,
+        clip(2.0, Some("second-video")),
+        vec![audio_clip(2.0, "file:///second-audio.wav", None)],
+    )
+    .unwrap();
+    let first_audio_id = first.audio_clips[0].0.clone();
+    let second_audio_id = second.audio_clips[0].0.clone();
+
+    assert!(stack.resize_item(&first_audio_id, 0.0, 3.0, OverlapPolicy::Push, false));
+
+    for item_id in ["first-video", &first_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            0.0
+        );
+        assert_eq!(item.duration(), 3.0);
+    }
+    for item_id in ["second-video", &second_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            3.0
+        );
+        assert_eq!(item.duration(), 2.0);
+    }
+}
+
+#[test]
 fn resize_item_override_updates_linked_assets_of_trimmed_clip() {
     let video = Track::new(TrackKind::Video, Some("v".to_string()));
     let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
@@ -2692,6 +2871,58 @@ fn resize_linked_item_override_updates_linked_assets_of_trimmed_group() {
     let second_audio_id = second.audio_clips[0].0.clone();
 
     assert!(stack.resize_item("first-video", 1.0, 2.0, OverlapPolicy::Override, false));
+
+    for item_id in ["first-video", &first_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            1.0
+        );
+        assert_eq!(item.duration(), 2.0);
+    }
+    for item_id in ["second-video", &second_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            0.0
+        );
+        assert_eq!(item.duration(), 1.0);
+    }
+}
+
+#[test]
+fn resize_audio_linked_item_override_updates_video_and_trims_following_group() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let first = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(2.0, Some("first-video")),
+        vec![audio_clip(2.0, "file:///first-audio.wav", None)],
+    )
+    .unwrap();
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+    let second = insert_with_audio(
+        &mut stack,
+        video_track_index,
+        2.0,
+        clip(2.0, Some("second-video")),
+        vec![audio_clip(2.0, "file:///second-audio.wav", None)],
+    )
+    .unwrap();
+    let first_audio_id = first.audio_clips[0].0.clone();
+    let second_audio_id = second.audio_clips[0].0.clone();
+
+    assert!(stack.resize_item(
+        &first_audio_id,
+        1.0,
+        2.0,
+        OverlapPolicy::Override,
+        false
+    ));
 
     for item_id in ["first-video", &first_audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
