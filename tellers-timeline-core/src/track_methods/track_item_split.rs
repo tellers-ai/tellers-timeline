@@ -1,7 +1,7 @@
 use crate::{Seconds, Track};
 
 impl Track {
-    pub fn split_at_time(&mut self, split_time: Seconds) {
+    pub(crate) fn split_at_time(&mut self, split_time: Seconds) {
         const EPS: Seconds = 1e-9;
 
         let Some(item_index) = self.get_item_at_time(split_time) else {

@@ -20,12 +20,12 @@ pub enum InsertPolicy {
 }
 
 impl Track {
-    pub fn append(&mut self, mut item: Item) {
-        item.clamp_to_active_available_range();
-        self.items.push(item);
-    }
-
-    pub fn insert_at_index(&mut self, index: usize, mut item: Item, overlap_policy: OverlapPolicy) {
+    pub(crate) fn insert_at_index(
+        &mut self,
+        index: usize,
+        mut item: Item,
+        overlap_policy: OverlapPolicy,
+    ) {
         item.clamp_to_active_available_range();
         if overlap_policy == OverlapPolicy::Push {
             self.insert_and_push(index, item);
@@ -35,12 +35,12 @@ impl Track {
         self.insert_and_override(index, item);
     }
 
-    pub fn insert_and_push(&mut self, index: usize, mut item: Item) {
+    pub(crate) fn insert_and_push(&mut self, index: usize, mut item: Item) {
         item.clamp_to_active_available_range();
         self.items.insert(index, item);
     }
 
-    pub fn insert_and_override(&mut self, index: usize, mut item: Item) {
+    pub(crate) fn insert_and_override(&mut self, index: usize, mut item: Item) {
         const EPS: Seconds = 1e-9;
         item.clamp_to_active_available_range();
 
@@ -90,7 +90,7 @@ impl Track {
 
     /// Insert an item at a timeline time, controlling how overlaps are handled
     /// and how to place the item relative to neighbors.
-    pub fn insert_at_time(
+    pub(crate) fn insert_at_time(
         &mut self,
         insert_time: Seconds,
         mut item: Item,

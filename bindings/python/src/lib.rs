@@ -718,23 +718,8 @@ impl PyTrack {
     fn timeline_ids(&self) -> Vec<String> {
         self.inner.timeline_ids()
     }
-    fn clear_items(&mut self) {
-        self.inner.items.clear();
-    }
-    fn set_items(&mut self, items: Vec<PyItem>) {
-        self.inner.items = items.into_iter().map(|i| i.inner).collect();
-    }
-    fn sanitize(&mut self) {
-        self.inner.sanitize();
-    }
-    fn split_at_time(&mut self, time: f64) {
-        self.inner.split_at_time(time);
-    }
     fn get_id(&self) -> Option<String> {
         self.inner.get_id()
-    }
-    fn set_id(&mut self, id: Option<&str>) {
-        self.inner.set_id(id.map(|s| s.to_string()));
     }
     fn get_item_at_time(&self, time: f64) -> Option<usize> {
         self.inner.get_item_at_time(time)
@@ -745,30 +730,6 @@ impl PyTrack {
             (i, Py::new(py, PyItem { inner: item }).unwrap())
         })
     }
-    fn replace_item(&mut self, index: usize, item: &Bound<PyAny>) -> PyResult<bool> {
-        if let Some(inner_item) = extract_item(item) {
-            Ok(self.inner.replace_item_by_index(index, inner_item))
-        } else {
-            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                "replace_item_by_index expects an Item, Clip, or Gap",
-            ))
-        }
-    }
-    fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> bool {
-        self.inner.delete_clip(index, replace_with_gap)
-    }
-    fn resize_item(
-        &mut self,
-        index: usize,
-        new_start_time: f64,
-        new_duration: f64,
-        overlap_policy: &str,
-        clamp_to_media: bool,
-    ) -> bool {
-        let op = overlap_policy_from_str(overlap_policy);
-        self.inner
-            .resize_item(index, new_start_time, new_duration, op, clamp_to_media)
-    }
     fn total_duration(&self) -> f64 {
         self.inner.total_duration()
     }
@@ -778,17 +739,6 @@ impl PyTrack {
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
-    }
-    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
-        let v: serde_json::Value = serde_json::from_str(metadata_json)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-        let coerced = if v.as_object().is_none() {
-            serde_json::Value::Object(serde_json::Map::new())
-        } else {
-            v
-        };
-        self.inner.metadata = coerced;
-        Ok(())
     }
     fn __str__(&self) -> PyResult<String> {
         to_json_with_precision(&self.inner, None, false)
