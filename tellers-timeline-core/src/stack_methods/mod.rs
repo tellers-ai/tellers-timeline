@@ -51,6 +51,7 @@ struct LinkedInputs {
 struct LinkedMoveItem {
     track_index: usize,
     item_index: usize,
+    track_kind: TrackKind,
     item: Item,
     is_selected: bool,
 }
@@ -83,6 +84,27 @@ enum LinkedMovePlacement {
     Index {
         dest_index: usize,
     },
+}
+
+fn shift_track_index_after_insert(track_index: &mut usize, inserted_track_index: usize) {
+    if inserted_track_index <= *track_index {
+        *track_index += 1;
+    }
+}
+
+fn shift_track_indices_after_insert(track_indices: &mut [usize], inserted_track_index: usize) {
+    for track_index in track_indices {
+        shift_track_index_after_insert(track_index, inserted_track_index);
+    }
+}
+
+fn shift_move_placements_after_insert(
+    placements: &mut [(usize, Item, bool)],
+    inserted_track_index: usize,
+) {
+    for (track_index, _, _) in placements {
+        shift_track_index_after_insert(track_index, inserted_track_index);
+    }
 }
 
 fn clamp_insertion_index(len: usize, index: isize) -> usize {
@@ -172,17 +194,13 @@ impl Stack {
         let end = start + duration;
 
         if start >= total - EPS {
-            return self
-                .insert_item_at_time(
-                    track_index,
-                    start,
-                    item,
-                    OverlapPolicy::Override,
-                    InsertPolicy::InsertBefore,
-                    None,
-                    None,
-                )
-                .is_some();
+            self.children[track_index].insert_at_time(
+                start,
+                item,
+                OverlapPolicy::Override,
+                InsertPolicy::InsertBefore,
+            );
+            return true;
         }
 
         if !range_is_gap_backed(&self.children[track_index], start, end) {
@@ -193,16 +211,13 @@ impl Stack {
         split_gap_boundary(track, end);
         split_gap_boundary(track, start);
 
-        self.insert_item_at_time(
-            track_index,
+        self.children[track_index].insert_at_time(
             start,
             item,
             OverlapPolicy::Override,
             InsertPolicy::InsertBefore,
-            None,
-            None,
-        )
-        .is_some()
+        );
+        true
     }
 
     fn find_or_create_audio_track(
@@ -314,6 +329,80 @@ impl Stack {
         self.children.insert(insert_at, track);
         created_track_indices.push(insert_at);
         Some(insert_at)
+    }
+
+    fn find_or_create_move_audio_track(
+        &mut self,
+        primary_track_index: usize,
+        dest_time: Seconds,
+        duration: Seconds,
+        created_track_indices: &mut Vec<usize>,
+        used_audio_indices: &[usize],
+    ) -> Option<usize> {
+        let end_time = dest_time + duration;
+        match self.children.get(primary_track_index)?.kind {
+            TrackKind::Video => {
+                let mut audio_start = primary_track_index;
+                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
+                    audio_start -= 1;
+                }
+
+                for audio_index in (audio_start..primary_track_index).rev() {
+                    if used_audio_indices.contains(&audio_index) {
+                        continue;
+                    }
+                    if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
+                        return Some(audio_index);
+                    }
+                }
+
+                let insert_at = if audio_start < primary_track_index {
+                    audio_start
+                } else {
+                    primary_track_index
+                };
+                self.children
+                    .insert(insert_at, self.new_numbered_track(TrackKind::Audio));
+                created_track_indices.push(insert_at);
+                Some(insert_at)
+            }
+            TrackKind::Audio => {
+                let mut audio_start = primary_track_index;
+                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
+                    audio_start -= 1;
+                }
+                let mut audio_end = primary_track_index + 1;
+                while audio_end < self.children.len()
+                    && self.children[audio_end].kind == TrackKind::Audio
+                {
+                    audio_end += 1;
+                }
+
+                let mut candidates: Vec<_> = (audio_start..audio_end)
+                    .filter(|track_index| {
+                        *track_index != primary_track_index
+                            && !used_audio_indices.contains(track_index)
+                            && range_is_gap_backed(
+                                &self.children[*track_index],
+                                dest_time,
+                                end_time,
+                            )
+                    })
+                    .collect();
+                candidates.sort_by_key(|track_index| {
+                    (track_index.abs_diff(primary_track_index), *track_index)
+                });
+                if let Some(track_index) = candidates.into_iter().next() {
+                    return Some(track_index);
+                }
+
+                self.children
+                    .insert(audio_end, self.new_numbered_track(TrackKind::Audio));
+                created_track_indices.push(audio_end);
+                Some(audio_end)
+            }
+            TrackKind::Other => None,
+        }
     }
 
     fn find_or_create_video_track_for_audio(
@@ -737,33 +826,6 @@ impl Stack {
         true
     }
 
-    fn boundary_track_indices_for_link_groups(
-        &self,
-        link_groups: &[i64],
-        anchor_track_indices: &[usize],
-        excluded_track_indices: &[usize],
-    ) -> Vec<usize> {
-        if link_groups.is_empty() {
-            return Vec::new();
-        }
-
-        let mut track_indices = Vec::new();
-        for anchor_track_index in anchor_track_indices {
-            for track_index in &self
-                .flatten_boundary_for_link_groups(*anchor_track_index, link_groups)
-                .track_indices
-            {
-                if excluded_track_indices.contains(track_index) {
-                    continue;
-                }
-                if !track_indices.contains(track_index) {
-                    track_indices.push(*track_index);
-                }
-            }
-        }
-        track_indices
-    }
-
     fn boundary_track_indices_for_anchors(
         &self,
         link_groups: &[i64],
@@ -865,6 +927,70 @@ impl Stack {
             duration
         };
         self.linked_groups_overlapping_range(track_index, start, affected_duration)
+    }
+
+    fn linked_groups_for_insert_at_time_boundary(
+        &self,
+        track_index: usize,
+        dest_time: Seconds,
+        duration: Seconds,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) -> Vec<i64> {
+        let Some(track) = self.children.get(track_index) else {
+            return Vec::new();
+        };
+        let Some(start) = insertion_start_or_end_for_policy(track, dest_time, insert_policy) else {
+            return Vec::new();
+        };
+        let mut groups = self.linked_groups_touched_by_insert_at_time(
+            track_index,
+            dest_time,
+            duration,
+            overlap_policy,
+            insert_policy,
+        );
+        for group in self.linked_groups_adjacent_to_time(track_index, start) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        for group in self.linked_groups_adjacent_to_time(track_index, start + duration.max(0.0)) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        groups
+    }
+
+    fn linked_groups_for_insert_at_index_boundary(
+        &self,
+        track_index: usize,
+        dest_index: usize,
+        duration: Seconds,
+        overlap_policy: OverlapPolicy,
+    ) -> Vec<i64> {
+        let Some(track) = self.children.get(track_index) else {
+            return Vec::new();
+        };
+        let start = track.start_time_of_item(dest_index.min(track.items.len()));
+        let mut groups = self.linked_groups_touched_by_insert_at_index(
+            track_index,
+            dest_index,
+            duration,
+            overlap_policy,
+        );
+        for group in self.linked_groups_adjacent_to_time(track_index, start) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        for group in self.linked_groups_adjacent_to_time(track_index, start + duration.max(0.0)) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        groups
     }
 
     fn sync_changed_link_groups_after_resize(
@@ -993,15 +1119,15 @@ impl Stack {
         {
             return None;
         }
-        let touched_link_groups = if let Some(dest_index) = dest_index {
-            self.linked_groups_touched_by_insert_at_index(
+        let boundary_link_groups = if let Some(dest_index) = dest_index {
+            self.linked_groups_for_insert_at_index_boundary(
                 dest_track_index,
                 dest_index,
                 modified_duration,
                 overlap_policy,
             )
         } else {
-            self.linked_groups_touched_by_insert_at_time(
+            self.linked_groups_for_insert_at_time_boundary(
                 dest_track_index,
                 dest_time,
                 modified_duration,
@@ -1101,10 +1227,10 @@ impl Stack {
             }
         }
 
-        let boundary_groups = if touched_link_groups.is_empty() && has_linked_clips {
+        let boundary_groups = if boundary_link_groups.is_empty() && has_linked_clips {
             self.linked_groups_adjacent_to_time(primary_track_index, start)
         } else {
-            touched_link_groups.clone()
+            boundary_link_groups.clone()
         };
         let mut boundary_track_indices =
             self.boundary_track_indices_for_anchors(&boundary_groups, &[primary_track_index], &[]);
@@ -1225,10 +1351,18 @@ impl Stack {
                     );
                 }
             } else {
+                let companion_overlap_policy = if matches!(item, Item::Gap(_))
+                    && overlap_policy == OverlapPolicy::Override
+                    && start >= self.children[track_index].total_duration() - EPS
+                {
+                    OverlapPolicy::Push
+                } else {
+                    overlap_policy
+                };
                 self.children[track_index].insert_at_time(
                     start,
                     item,
-                    overlap_policy,
+                    companion_overlap_policy,
                     InsertPolicy::SplitAndInsert,
                 );
             }
@@ -1299,6 +1433,7 @@ impl Stack {
                 *self = backup;
                 return false;
             }
+            self.sanitize();
             return true;
         }
         let excluded_ids: HashSet<_> = target_ids.iter().cloned().collect();
@@ -1349,6 +1484,7 @@ impl Stack {
                 *self = backup;
                 return false;
             }
+            self.sanitize();
             return true;
         }
 
@@ -1410,6 +1546,7 @@ impl Stack {
             *self = backup;
             return false;
         }
+        self.sanitize();
         true
     }
 
@@ -1692,6 +1829,7 @@ impl Stack {
 
         let mut items = Vec::new();
         for (track_index, item_index) in targets {
+            let track_kind = self.children.get(track_index)?.kind.clone();
             let item = self
                 .children
                 .get(track_index)?
@@ -1703,6 +1841,7 @@ impl Stack {
             items.push(LinkedMoveItem {
                 track_index,
                 item_index,
+                track_kind,
                 item,
                 is_selected,
             });
@@ -1713,7 +1852,7 @@ impl Stack {
     fn move_linked_items(
         &mut self,
         items_to_move: Vec<LinkedMoveItem>,
-        dest_track_index: usize,
+        mut dest_track_index: usize,
         replace_with_gap: bool,
         overlap_policy: OverlapPolicy,
         placement: LinkedMovePlacement,
@@ -1723,14 +1862,11 @@ impl Stack {
             return false;
         }
 
-        let mut items_to_move = items_to_move;
-        for item in &mut items_to_move {
-            item.item.clamp_to_active_available_range();
-        }
         let Some(selected_position) = items_to_move.iter().position(|item| item.is_selected) else {
             return false;
         };
         let selected_item = &items_to_move[selected_position];
+        let selected_source_track_index = selected_item.track_index;
         let Some(selected_id) = selected_item.item.get_id() else {
             return false;
         };
@@ -1748,23 +1884,6 @@ impl Stack {
         {
             return false;
         }
-
-        let source_track_indices: Vec<_> =
-            items_to_move.iter().map(|item| item.track_index).collect();
-        let mut anchor_track_indices = source_track_indices.clone();
-        anchor_track_indices.push(dest_track_index);
-        let mut boundary_track_indices = self.boundary_track_indices_for_link_groups(
-            &[link_group_id],
-            &anchor_track_indices,
-            &[],
-        );
-        for track_index in anchor_track_indices {
-            if !boundary_track_indices.contains(&track_index) {
-                boundary_track_indices.push(track_index);
-            }
-        }
-        boundary_track_indices.sort_unstable();
-        boundary_track_indices.dedup();
 
         let mut used_ids = self.collect_timeline_ids();
         let mut targets: Vec<_> = items_to_move
@@ -1804,25 +1923,137 @@ impl Stack {
             }
         };
 
-        let mut placements = Vec::new();
-        placements.push((
+        let mut placements = vec![(
             dest_track_index,
             items_to_move[selected_position].item.clone(),
             true,
-        ));
-        for (position, move_item) in items_to_move.into_iter().enumerate() {
-            if position == selected_position {
-                continue;
-            }
-            if placements
-                .iter()
-                .any(|(track_index, _, _)| *track_index == move_item.track_index)
-            {
-                *self = backup;
-                return false;
-            };
-            placements.push((move_item.track_index, move_item.item, false));
+        )];
+        let mut created_track_indices = Vec::new();
+        let mut used_audio_track_indices = Vec::new();
+        let mut used_audio_boundary_indices = Vec::new();
+        let mut used_video_track_indices = Vec::new();
+        match self.children[dest_track_index].kind {
+            TrackKind::Audio => used_audio_track_indices.push(dest_track_index),
+            TrackKind::Video => used_video_track_indices.push(dest_track_index),
+            TrackKind::Other => {}
         }
+
+        let mut companion_items: Vec<_> = items_to_move
+            .into_iter()
+            .enumerate()
+            .filter(|(position, _)| *position != selected_position)
+            .collect();
+        companion_items.sort_by_key(|(_, move_item)| {
+            (
+                move_item.track_index.abs_diff(selected_source_track_index),
+                move_item.track_index,
+            )
+        });
+
+        for (_, move_item) in companion_items {
+
+            match move_item.track_kind {
+                TrackKind::Audio => {
+                    let track_count_before = self.children.len();
+                    let Some(track_index) = self.find_or_create_move_audio_track(
+                        dest_track_index,
+                        moved_start,
+                        moved_duration,
+                        &mut created_track_indices,
+                        &used_audio_track_indices,
+                    ) else {
+                        *self = backup;
+                        return false;
+                    };
+                    let reused_empty_boundary_track = self.children.len() == track_count_before
+                        && track_is_empty_boundary(&self.children[track_index]);
+                    if self.children.len() > track_count_before {
+                        shift_track_index_after_insert(&mut dest_track_index, track_index);
+                        shift_move_placements_after_insert(&mut placements, track_index);
+                        shift_track_indices_after_insert(
+                            &mut used_audio_track_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_audio_boundary_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_video_track_indices,
+                            track_index,
+                        );
+                    }
+                    placements.push((track_index, move_item.item, false));
+                    used_audio_track_indices.push(track_index);
+                    if reused_empty_boundary_track {
+                        used_audio_boundary_indices.push(track_index);
+                    }
+                }
+                TrackKind::Video => {
+                    let track_count_before = self.children.len();
+                    let Some(mut track_index) = self.find_or_create_video_track_for_audio(
+                        dest_track_index,
+                        moved_start,
+                        moved_duration,
+                        &mut created_track_indices,
+                        Some(link_group_id),
+                        true,
+                        overlap_policy,
+                    ) else {
+                        *self = backup;
+                        return false;
+                    };
+                    if self.children.len() > track_count_before {
+                        shift_track_index_after_insert(&mut dest_track_index, track_index);
+                        shift_move_placements_after_insert(&mut placements, track_index);
+                        shift_track_indices_after_insert(
+                            &mut used_audio_track_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_audio_boundary_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_video_track_indices,
+                            track_index,
+                        );
+                    }
+                    if used_video_track_indices.contains(&track_index) {
+                        let insert_at = track_index;
+                        self.children
+                            .insert(insert_at, self.new_numbered_track(TrackKind::Video));
+                        created_track_indices.push(insert_at);
+                        shift_track_index_after_insert(&mut dest_track_index, insert_at);
+                        shift_move_placements_after_insert(&mut placements, insert_at);
+                        shift_track_indices_after_insert(&mut used_audio_track_indices, insert_at);
+                        shift_track_indices_after_insert(
+                            &mut used_audio_boundary_indices,
+                            insert_at,
+                        );
+                        shift_track_indices_after_insert(&mut used_video_track_indices, insert_at);
+                        track_index = insert_at;
+                    }
+                    placements.push((track_index, move_item.item, false));
+                    used_video_track_indices.push(track_index);
+                }
+                TrackKind::Other => {
+                    *self = backup;
+                    return false;
+                }
+            }
+        }
+
+        let mut boundary_track_indices =
+            self.boundary_track_indices_for_anchors(&[link_group_id], &[dest_track_index], &[]);
+        for (track_index, _, _) in &placements {
+            if !boundary_track_indices.contains(track_index) {
+                boundary_track_indices.push(*track_index);
+            }
+        }
+        boundary_track_indices.sort_unstable();
+        boundary_track_indices.dedup();
+
         for track_index in boundary_track_indices {
             if placements
                 .iter()
@@ -1853,12 +2084,20 @@ impl Stack {
                     }
                 }
             } else {
-                self.children[track_index].insert_at_time(
-                    moved_start,
-                    item,
-                    overlap_policy,
-                    InsertPolicy::SplitAndInsert,
-                );
+                let moved_end = moved_start + item.duration().max(0.0);
+                if range_is_gap_backed(&self.children[track_index], moved_start, moved_end) {
+                    if !self.insert_gap_only(track_index, moved_start, item) {
+                        *self = backup;
+                        return false;
+                    }
+                } else {
+                    self.children[track_index].insert_at_time(
+                        moved_start,
+                        item,
+                        overlap_policy,
+                        InsertPolicy::SplitAndInsert,
+                    );
+                }
             }
         }
         if self.get_item(&selected_id).is_none() {
@@ -1871,7 +2110,7 @@ impl Stack {
     }
 }
 
-fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
+pub(super) fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
     if start < -EPS || end < start - EPS {
         return false;
     }
@@ -1938,7 +2177,7 @@ fn range_has_blocking_clip(
     false
 }
 
-fn split_gap_boundary(track: &mut Track, time: Seconds) {
+pub(super) fn split_gap_boundary(track: &mut Track, time: Seconds) {
     let Some(index) = track.get_item_at_time(time) else {
         return;
     };
@@ -2000,10 +2239,14 @@ fn item_source_start(item: &Item) -> Seconds {
 fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
     match item {
         Item::Clip(clip) => {
-            clip.source_range.start_time.set_from_seconds(source_start_time);
+            clip.source_range
+                .start_time
+                .set_from_seconds(source_start_time);
         }
         Item::Gap(gap) => {
-            gap.source_range.start_time.set_from_seconds(source_start_time);
+            gap.source_range
+                .start_time
+                .set_from_seconds(source_start_time);
         }
     }
 }

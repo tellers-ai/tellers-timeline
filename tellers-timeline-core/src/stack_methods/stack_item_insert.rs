@@ -1,5 +1,5 @@
 use super::InsertItemAtTimeResult;
-use crate::{IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack};
+use crate::{InsertPolicy, Item, OverlapPolicy, Seconds, Stack};
 
 impl Stack {
     /// Insert an item at a given time into the track at `dest_track_index`.
@@ -17,16 +17,15 @@ impl Stack {
         if dest_track_index >= self.children.len() {
             return None;
         }
-        let touches_linked_group = !self
-            .linked_groups_touched_by_insert_at_time(
-                dest_track_index,
-                dest_time,
-                item.duration(),
-                overlap_policy,
-                insert_policy,
-            )
-            .is_empty();
-        if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
+        let boundary_link_groups = self.linked_groups_for_insert_at_time_boundary(
+            dest_track_index,
+            dest_time,
+            item.duration(),
+            overlap_policy,
+            insert_policy,
+        );
+        if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip)
+            || !boundary_link_groups.is_empty()
         {
             return self.insert_linked_item_at_time(
                 dest_track_index,
@@ -40,14 +39,17 @@ impl Stack {
             );
         }
 
-        let inserted_id = item.get_id();
+        let mut item = item;
+        let mut used_ids = self.collect_timeline_ids();
+        let inserted_id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
         self.children[dest_track_index].insert_at_time(
             dest_time,
             item,
             overlap_policy,
             insert_policy,
         );
-        inserted_id.map(InsertItemAtTimeResult::ItemId)
+        self.sanitize();
+        Some(InsertItemAtTimeResult::ItemId(inserted_id))
     }
 
     /// Insert an item at an index into the track with `dest_track_id`.
@@ -69,15 +71,14 @@ impl Stack {
             return None;
         }
 
-        let touches_linked_group = !self
-            .linked_groups_touched_by_insert_at_index(
-                dest_track_index,
-                dest_index,
-                item.duration(),
-                overlap_policy,
-            )
-            .is_empty();
-        if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
+        let boundary_link_groups = self.linked_groups_for_insert_at_index_boundary(
+            dest_track_index,
+            dest_index,
+            item.duration(),
+            overlap_policy,
+        );
+        if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip)
+            || !boundary_link_groups.is_empty()
         {
             return self.insert_linked_item_at_time(
                 dest_track_index,
@@ -91,8 +92,11 @@ impl Stack {
             );
         }
 
-        let inserted_id = item.get_id();
+        let mut item = item;
+        let mut used_ids = self.collect_timeline_ids();
+        let inserted_id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
         self.children[dest_track_index].insert_at_index(dest_index, item, overlap_policy);
-        inserted_id.map(InsertItemAtTimeResult::ItemId)
+        self.sanitize();
+        Some(InsertItemAtTimeResult::ItemId(inserted_id))
     }
 }
