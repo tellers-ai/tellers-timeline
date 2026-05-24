@@ -343,6 +343,57 @@ fn resize_overlong_clip_down_with_clamp_uses_seconds_across_rates() {
 }
 
 #[test]
+fn resize_overshoot_with_clamp_uses_clip_rate_not_media_rate() {
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    let mut clip = make_clip_with_rate_and_available_range(2.0, 0.0, 24.0, 5.0, 25.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut following = make_clip_with_rate(3.0, 0.0, 30.0);
+    following.set_id(Some("following".to_string()));
+    track.items.push(following);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("clip", 0.0, 10.0, OverlapPolicy::Override, true));
+
+    let (track_index, item_index, item) = stack.get_item("clip").unwrap();
+    assert_eq!(item.duration(), 5.0);
+    match &stack.children[track_index].items[item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.duration.rate, 24.0);
+            assert_eq!(clip.source_range.duration.value, 120.0);
+            assert_eq!(
+                clip.media_references["DEFAULT_MEDIA"]
+                    .available_range()
+                    .as_ref()
+                    .unwrap()
+                    .duration
+                    .rate,
+                25.0
+            );
+        }
+        _ => panic!("expected clip"),
+    }
+
+    let (following_track_index, following_item_index, following_item) =
+        stack.get_item("following").unwrap();
+    assert_eq!(
+        stack.children[following_track_index].start_time_of_item(following_item_index),
+        5.0
+    );
+    assert_eq!(following_item.duration(), 3.0);
+    match &stack.children[following_track_index].items[following_item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.duration.rate, 30.0);
+            assert_eq!(clip.source_range.duration.value, 90.0);
+        }
+        _ => panic!("expected following clip"),
+    }
+}
+
+#[test]
 fn modify_overlong_clip_down_without_push_preserves_following_duration() {
     let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
     let mut clip = make_clip_with_rate_and_available_range(10.0, 0.0, 24.0, 5.0, 25.0);
