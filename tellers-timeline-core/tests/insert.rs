@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
-    Clip, InsertPolicy, Item, MediaReference, OverlapPolicy, RationalTime, Seconds, Stack,
-    TimeRange, Track,
+    Clip, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, MediaReference,
+    OverlapPolicy, RationalTime, Seconds, Stack, TimeRange, Track,
 };
 
 fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
@@ -210,6 +210,52 @@ fn insert_before_after_or_boundary() {
     );
     let track = &stack.children[0];
     assert_eq!(track.items.len(), before_len + 1);
+}
+
+#[test]
+fn insert_plain_item_without_id_returns_assigned_id() {
+    let mut stack = stack_with_items(vec![]);
+
+    let result = stack.insert_item_at_time(
+        0,
+        0.0,
+        make_clip(1.0, 0.0),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBefore,
+        None,
+        None,
+    );
+
+    let Some(InsertItemAtTimeResult::ItemId(inserted_id)) = result else {
+        panic!("expected inserted id");
+    };
+    assert_eq!(
+        stack.children[0].items[0].get_id().as_deref(),
+        Some(inserted_id.as_str())
+    );
+}
+
+#[test]
+fn insert_plain_item_at_index_without_id_returns_assigned_id() {
+    let mut stack = stack_with_items(vec![make_clip(1.0, 0.0)]);
+    let track_id = stack.children[0].get_id().unwrap();
+
+    let result = stack.insert_item_at_index(
+        &track_id,
+        1,
+        make_clip(1.0, 0.0),
+        OverlapPolicy::Push,
+        None,
+        None,
+    );
+
+    let Some(InsertItemAtTimeResult::ItemId(inserted_id)) = result else {
+        panic!("expected inserted id");
+    };
+    assert_eq!(
+        stack.children[0].items[1].get_id().as_deref(),
+        Some(inserted_id.as_str())
+    );
 }
 
 #[test]

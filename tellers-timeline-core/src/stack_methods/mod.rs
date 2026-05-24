@@ -194,17 +194,13 @@ impl Stack {
         let end = start + duration;
 
         if start >= total - EPS {
-            return self
-                .insert_item_at_time(
-                    track_index,
-                    start,
-                    item,
-                    OverlapPolicy::Override,
-                    InsertPolicy::InsertBefore,
-                    None,
-                    None,
-                )
-                .is_some();
+            self.children[track_index].insert_at_time(
+                start,
+                item,
+                OverlapPolicy::Override,
+                InsertPolicy::InsertBefore,
+            );
+            return true;
         }
 
         if !range_is_gap_backed(&self.children[track_index], start, end) {
@@ -215,16 +211,13 @@ impl Stack {
         split_gap_boundary(track, end);
         split_gap_boundary(track, start);
 
-        self.insert_item_at_time(
-            track_index,
+        self.children[track_index].insert_at_time(
             start,
             item,
             OverlapPolicy::Override,
             InsertPolicy::InsertBefore,
-            None,
-            None,
-        )
-        .is_some()
+        );
+        true
     }
 
     fn find_or_create_audio_track(
@@ -1440,6 +1433,7 @@ impl Stack {
                 *self = backup;
                 return false;
             }
+            self.sanitize();
             return true;
         }
         let excluded_ids: HashSet<_> = target_ids.iter().cloned().collect();
@@ -1490,6 +1484,7 @@ impl Stack {
                 *self = backup;
                 return false;
             }
+            self.sanitize();
             return true;
         }
 
@@ -1551,6 +1546,7 @@ impl Stack {
             *self = backup;
             return false;
         }
+        self.sanitize();
         true
     }
 
