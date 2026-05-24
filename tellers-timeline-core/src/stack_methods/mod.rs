@@ -738,6 +738,21 @@ impl Stack {
         groups
     }
 
+    fn linked_groups_adjacent_to_time(&self, track_index: usize, time: Seconds) -> Vec<i64> {
+        let mut groups = Vec::new();
+        for segment in self.flatten_track_segments(track_index) {
+            if (segment.start - time).abs() > EPS && (segment.end - time).abs() > EPS {
+                continue;
+            }
+            if let Some(group) = segment.link_group_id {
+                if !groups.contains(&group) {
+                    groups.push(group);
+                }
+            }
+        }
+        groups
+    }
+
     fn linked_groups_touched_by_insert_at_time(
         &self,
         track_index: usize,
@@ -1009,8 +1024,8 @@ impl Stack {
             }
         }
 
-        let boundary_groups = if touched_link_groups.is_empty() {
-            Vec::new()
+        let boundary_groups = if touched_link_groups.is_empty() && has_linked_clips {
+            self.linked_groups_adjacent_to_time(primary_track_index, start)
         } else {
             touched_link_groups.clone()
         };
@@ -1031,6 +1046,25 @@ impl Stack {
         }
         boundary_track_indices.sort_unstable();
         boundary_track_indices.dedup();
+
+        let mut ordered_audio_track_indices: Vec<usize> = boundary_track_indices
+            .iter()
+            .copied()
+            .filter(|track_index| {
+                *track_index != primary_track_index
+                    && self.children[*track_index].kind == TrackKind::Audio
+            })
+            .take(audio_track_indices.len())
+            .collect();
+        for track_index in audio_track_indices {
+            if ordered_audio_track_indices.len() >= linked_inputs.audio.len() {
+                break;
+            }
+            if !ordered_audio_track_indices.contains(&track_index) {
+                ordered_audio_track_indices.push(track_index);
+            }
+        }
+        let audio_track_indices = ordered_audio_track_indices;
 
         let (primary_item, primary_id) = match primary_item {
             Item::Clip(_) => {

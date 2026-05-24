@@ -803,6 +803,70 @@ fn insert_linked_clip_at_end_of_linked_clip_uses_same_audio_track() {
 }
 
 #[test]
+fn insert_linked_clip_with_fewer_audio_links_fills_remaining_audio_track_with_gap() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    let first = match stack.insert_item_at_time(
+        0,
+        0.0,
+        Item::Clip(clip(2.0, Some("first-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(2.0, "file:///first-a1.wav", None),
+            audio_clip(2.0, "file:///first-a2.wav", None),
+            audio_clip(2.0, "file:///first-a3.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("first linked insert should succeed"),
+    };
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+
+    let second = match stack.insert_item_at_time(
+        video_track_index,
+        2.0,
+        Item::Clip(clip(3.0, Some("second-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![
+            audio_clip(3.0, "file:///second-a1.wav", None),
+            audio_clip(3.0, "file:///second-a2.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("second linked insert should succeed"),
+    };
+
+    let audio_track_count = stack
+        .children
+        .iter()
+        .filter(|track| track.kind == TrackKind::Audio)
+        .count();
+    let gap_track_count = stack
+        .children
+        .iter()
+        .filter(|track| {
+            track.kind == TrackKind::Audio
+                && track.items.iter().any(|item| {
+                    matches!(item, Item::Gap(_)) && (item.duration() - 3.0).abs() <= 1e-9
+                })
+        })
+        .count();
+
+    assert_eq!(audio_track_count, 3);
+    assert_eq!(second.audio_clips.len(), 2);
+    assert_eq!(gap_track_count, 1);
+    assert_eq!(first.audio_clips[0].1, second.audio_clips[0].1);
+    assert_eq!(first.audio_clips[1].1, second.audio_clips[1].1);
+}
+
+#[test]
 fn insert_linked_clip_at_index_after_linked_clip_uses_same_audio_track() {
     let mut stack = Stack::default();
     stack
