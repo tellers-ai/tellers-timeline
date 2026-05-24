@@ -3,6 +3,14 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 
+mod stack_item_delete;
+mod stack_item_get;
+mod stack_item_insert;
+mod stack_item_link;
+mod stack_item_move;
+mod stack_item_split;
+mod stack_track;
+
 const EPS: Seconds = 1e-9;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,16 +52,14 @@ struct LinkedClipState {
 
 #[derive(Debug, Clone)]
 struct BoundarySegment {
-    track_index: usize,
     start: Seconds,
     end: Seconds,
     link_group_id: Option<i64>,
-    is_gap: bool,
 }
 
 #[derive(Debug, Clone)]
 struct FlattenedBoundary {
-    segments: Vec<BoundarySegment>,
+    track_indices: Vec<usize>,
 }
 
 enum LinkedMovePlacement {
@@ -336,37 +342,6 @@ impl Stack {
         Some(group_start)
     }
 
-    /// Find an item by id across all tracks. Returns (track_index, item_index, &Item).
-    pub fn get_item(&self, item_id: &str) -> Option<(usize, usize, &Item)> {
-        for (ti, track) in self.children.iter().enumerate() {
-            if let Some((ii, item)) = track.get_item_by_id(item_id) {
-                return Some((ti, ii, item));
-            }
-        }
-        None
-    }
-
-    /// Delete an item by id across all tracks. Linked clips with the same Resolve
-    /// link group are deleted too. If replace_with_gap is true and a removed item
-    /// has a positive duration, a gap of equal duration is inserted.
-    /// Returns removed items with their source track indices.
-    pub fn delete_item(&mut self, item_id: &str, replace_with_gap: bool) -> Vec<(usize, Item)> {
-        let link_group_id = match self.get_item(item_id).and_then(|(_, _, item)| match item {
-            Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
-            Item::Gap(_) => None,
-        }) {
-            Some(id) => id,
-            None => {
-                return self
-                    .delete_one_item(item_id, replace_with_gap)
-                    .into_iter()
-                    .collect();
-            }
-        };
-
-        self.delete_link_group(link_group_id, replace_with_gap)
-    }
-
     fn delete_link_group(
         &mut self,
         link_group_id: i64,
@@ -612,11 +587,9 @@ impl Stack {
                 Item::Gap(_) => None,
             };
             segments.push(BoundarySegment {
-                track_index,
                 start,
                 end: start + duration,
                 link_group_id,
-                is_gap: matches!(item, Item::Gap(_)),
             });
             start += duration;
         }
@@ -630,7 +603,7 @@ impl Stack {
     ) -> FlattenedBoundary {
         if anchor_track_index >= self.children.len() {
             return FlattenedBoundary {
-                segments: Vec::new(),
+                track_indices: Vec::new(),
             };
         }
 
@@ -685,11 +658,34 @@ impl Stack {
             TrackKind::Other => track_indices.push(anchor_track_index),
         }
 
-        let segments = track_indices
-            .iter()
-            .flat_map(|track_index| self.flatten_track_segments(*track_index))
-            .collect();
-        FlattenedBoundary { segments }
+        FlattenedBoundary { track_indices }
+    }
+
+    fn boundary_track_indices_for_link_groups(
+        &self,
+        link_groups: &[i64],
+        anchor_track_indices: &[usize],
+        excluded_track_indices: &[usize],
+    ) -> Vec<usize> {
+        if link_groups.is_empty() {
+            return Vec::new();
+        }
+
+        let mut track_indices = Vec::new();
+        for anchor_track_index in anchor_track_indices {
+            for track_index in &self
+                .flatten_boundary_for_link_groups(*anchor_track_index, link_groups)
+                .track_indices
+            {
+                if excluded_track_indices.contains(track_index) {
+                    continue;
+                }
+                if !track_indices.contains(track_index) {
+                    track_indices.push(*track_index);
+                }
+            }
+        }
+        track_indices
     }
 
     fn linked_groups_overlapping_range(
@@ -755,32 +751,6 @@ impl Stack {
             duration
         };
         self.linked_groups_overlapping_range(track_index, start, affected_duration)
-    }
-
-    fn track_indices_for_link_groups(
-        &self,
-        link_groups: &[i64],
-        excluded_track_index: usize,
-    ) -> Vec<usize> {
-        let mut track_indices = Vec::new();
-        for segment in self
-            .flatten_boundary_for_link_groups(excluded_track_index, link_groups)
-            .segments
-        {
-            if segment.track_index == excluded_track_index || segment.is_gap {
-                continue;
-            }
-            if !segment
-                .link_group_id
-                .is_some_and(|group| link_groups.contains(&group))
-            {
-                continue;
-            }
-            if !track_indices.contains(&segment.track_index) {
-                track_indices.push(segment.track_index);
-            }
-        }
-        track_indices
     }
 
     fn insert_spacer_gap(
@@ -1004,8 +974,11 @@ impl Stack {
 
         let mut audio_clips = Vec::new();
         let mut created_track_indices = Vec::new();
-        let mut spacer_track_indices =
-            self.track_indices_for_link_groups(&touched_link_groups, modified_track_index);
+        let mut spacer_track_indices = self.boundary_track_indices_for_link_groups(
+            &touched_link_groups,
+            &[dest_track_index, modified_track_index],
+            &[modified_track_index],
+        );
         for track_index in spacer_track_indices.iter().copied() {
             self.insert_spacer_gap(
                 track_index,
@@ -1155,101 +1128,6 @@ impl Stack {
             link_group_id,
             created_track_indices,
         }))
-    }
-
-    pub fn unlink_item(&mut self, item_ids: &[String]) -> usize {
-        let mut targets = Vec::new();
-        let mut seen_targets = HashSet::new();
-        let mut touched_link_groups = Vec::new();
-
-        for item_id in item_ids {
-            let Some((track_index, item_index)) = self.clip_target(item_id) else {
-                continue;
-            };
-            if !seen_targets.insert((track_index, item_index)) {
-                continue;
-            }
-            if let Item::Clip(clip) = &self.children[track_index].items[item_index] {
-                if let Some(link_group_id) = resolve_link_group_id(&clip.metadata) {
-                    touched_link_groups.push(link_group_id);
-                    targets.push((track_index, item_index));
-                }
-            }
-        }
-
-        let mut count = 0;
-        for (track_index, item_index) in targets {
-            let Some(Item::Clip(clip)) = self
-                .children
-                .get_mut(track_index)
-                .and_then(|track| track.items.get_mut(item_index))
-            else {
-                continue;
-            };
-            if remove_resolve_link_group_id(&mut clip.metadata) {
-                count += 1;
-            }
-        }
-        count += self.cleanup_singleton_link_groups(&touched_link_groups);
-        count
-    }
-
-    pub fn link_item(&mut self, item_ids: &[String]) -> Option<i64> {
-        let mut targets = Vec::new();
-        let mut seen_targets = HashSet::new();
-        for item_id in item_ids {
-            let target = self.clip_target(item_id)?;
-            if seen_targets.insert(target) {
-                targets.push(target);
-            }
-        }
-        if targets.len() < 2 {
-            return None;
-        }
-
-        let (first_track_index, first_item_index) = targets[0];
-        let first_start = self.children[first_track_index].start_time_of_item(first_item_index);
-        let first_duration = self.children[first_track_index].items[first_item_index].duration();
-        for (track_index, item_index) in targets.iter().skip(1) {
-            let start = self.children[*track_index].start_time_of_item(*item_index);
-            let duration = self.children[*track_index].items[*item_index].duration();
-            if (start - first_start).abs() > EPS || (duration - first_duration).abs() > EPS {
-                return None;
-            }
-        }
-
-        let backup = self.clone();
-        let mut touched_link_groups = Vec::new();
-        for (track_index, item_index) in &targets {
-            let Some(Item::Clip(clip)) = self
-                .children
-                .get_mut(*track_index)
-                .and_then(|track| track.items.get_mut(*item_index))
-            else {
-                *self = backup;
-                return None;
-            };
-            if let Some(link_group_id) = resolve_link_group_id(&clip.metadata) {
-                touched_link_groups.push(link_group_id);
-                remove_resolve_link_group_id(&mut clip.metadata);
-            }
-        }
-        self.cleanup_singleton_link_groups(&touched_link_groups);
-
-        let link_group_id = self.next_link_group_id();
-        for (track_index, item_index) in targets {
-            let Some(Item::Clip(clip)) = self
-                .children
-                .get_mut(track_index)
-                .and_then(|track| track.items.get_mut(item_index))
-            else {
-                *self = backup;
-                return None;
-            };
-            set_resolve_link_group_id(&mut clip.metadata, link_group_id);
-        }
-
-        Some(link_group_id)
     }
 
     pub fn replace_item(
@@ -1739,63 +1617,6 @@ impl Stack {
         }
     }
 
-    pub fn split_item_at_time(&mut self, item_id: &str, split_time: Seconds) -> bool {
-        let Some((selected_track_index, selected_item_index, selected_item)) =
-            self.get_item(item_id)
-        else {
-            return false;
-        };
-        let Item::Clip(selected_clip) = selected_item else {
-            return false;
-        };
-        let selected_start =
-            self.children[selected_track_index].start_time_of_item(selected_item_index);
-        let selected_end = selected_start + selected_clip.source_range.duration.value.max(0.0);
-        if split_time < selected_start - EPS || split_time > selected_end + EPS {
-            return false;
-        }
-        if split_time <= selected_start + EPS || split_time >= selected_end - EPS {
-            return true;
-        }
-
-        let targets = resolve_link_group_id(&selected_clip.metadata)
-            .map(|link_group_id| self.linked_group_targets(link_group_id))
-            .filter(|targets| targets.len() > 1)
-            .unwrap_or_else(|| vec![(selected_track_index, selected_item_index)]);
-        let backup = self.clone();
-        for (track_index, item_index) in &targets {
-            let Some(item) = self
-                .children
-                .get(*track_index)
-                .and_then(|track| track.items.get(*item_index))
-            else {
-                *self = backup;
-                return false;
-            };
-            let Item::Clip(clip) = item else {
-                *self = backup;
-                return false;
-            };
-            let item_start = self.children[*track_index].start_time_of_item(*item_index);
-            let item_end = item_start + clip.source_range.duration.value.max(0.0);
-            if split_time <= item_start + EPS || split_time >= item_end - EPS {
-                *self = backup;
-                return false;
-            }
-        }
-
-        let mut target_tracks: Vec<_> = targets
-            .into_iter()
-            .map(|(track_index, _)| track_index)
-            .collect();
-        target_tracks.sort_unstable();
-        target_tracks.dedup();
-        for track_index in target_tracks {
-            self.children[track_index].split_at_time(split_time);
-        }
-        true
-    }
-
     fn delete_one_item(&mut self, item_id: &str, replace_with_gap: bool) -> Option<(usize, Item)> {
         for ti in 0..self.children.len() {
             if let Some((ii, _)) = self.children[ti].get_item_by_id(item_id) {
@@ -1896,6 +1717,13 @@ impl Stack {
         let Some(selected_id) = selected_item.item.get_id() else {
             return false;
         };
+        let link_group_id = match &selected_item.item {
+            Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
+            Item::Gap(_) => None,
+        };
+        let source_track_indices: Vec<_> =
+            items_to_move.iter().map(|item| item.track_index).collect();
+        let moved_duration = selected_item.item.duration().max(0.0);
 
         let mut used_ids = self.collect_timeline_ids();
         let mut targets: Vec<_> = items_to_move
@@ -1936,6 +1764,7 @@ impl Stack {
         let moved_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
 
+        let mut occupied_track_indices = vec![selected_track_index];
         for move_item in items_to_move {
             if move_item.is_selected {
                 continue;
@@ -1950,243 +1779,33 @@ impl Stack {
                 overlap_policy,
                 InsertPolicy::SplitAndInsert,
             );
+            occupied_track_indices.push(move_item.track_index);
         }
 
+        if let Some(link_group_id) = link_group_id {
+            let mut anchor_track_indices = source_track_indices;
+            anchor_track_indices.push(dest_track_index);
+            let spacer_track_indices = self.boundary_track_indices_for_link_groups(
+                &[link_group_id],
+                &anchor_track_indices,
+                &occupied_track_indices,
+            );
+            for track_index in spacer_track_indices {
+                self.insert_spacer_gap(
+                    track_index,
+                    moved_start,
+                    moved_duration,
+                    overlap_policy,
+                    InsertPolicy::SplitAndInsert,
+                    &mut used_ids,
+                );
+            }
+        }
+
+        self.sanitize();
         true
     }
 
-    /// Insert an item at a given time into the track at `dest_track_index`.
-    /// Returns the inserted item's id if insertion occurred.
-    pub fn insert_item_at_time(
-        &mut self,
-        dest_track_index: usize,
-        dest_time: Seconds,
-        item: Item,
-        overlap_policy: OverlapPolicy,
-        insert_policy: InsertPolicy,
-        linked_audio_clips: Option<Vec<Item>>,
-        linked_video_clip: Option<Item>,
-    ) -> Option<InsertItemAtTimeResult> {
-        if dest_track_index >= self.children.len() {
-            return None;
-        }
-        let touches_linked_group = matches!(item, Item::Clip(_))
-            && !self
-                .linked_groups_touched_by_insert_at_time(
-                    dest_track_index,
-                    dest_time,
-                    item.duration(),
-                    overlap_policy,
-                    insert_policy,
-                )
-                .is_empty();
-        if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
-        {
-            return self.insert_linked_item_at_time(
-                dest_track_index,
-                dest_time,
-                None,
-                item,
-                overlap_policy,
-                insert_policy,
-                linked_audio_clips,
-                linked_video_clip,
-            );
-        }
-
-        let inserted_id = crate::metadata::IdMetadataExt::get_id(&item);
-        self.children[dest_track_index].insert_at_time(
-            dest_time,
-            item,
-            overlap_policy,
-            insert_policy,
-        );
-        inserted_id.map(InsertItemAtTimeResult::ItemId)
-    }
-
-    /// Insert an item at an index into the track with `dest_track_id`.
-    /// Returns the inserted item's id if insertion occurred.
-    pub fn insert_item_at_index(
-        &mut self,
-        dest_track_id: &str,
-        dest_index: usize,
-        item: Item,
-        overlap_policy: OverlapPolicy,
-        linked_audio_clips: Option<Vec<Item>>,
-        linked_video_clip: Option<Item>,
-    ) -> Option<InsertItemAtTimeResult> {
-        let dest_track_index = match self.get_track_by_id(dest_track_id) {
-            Some((i, _)) => i,
-            None => return None,
-        };
-        if dest_track_index >= self.children.len() {
-            return None;
-        }
-
-        let touches_linked_group = matches!(item, Item::Clip(_))
-            && !self
-                .linked_groups_touched_by_insert_at_index(
-                    dest_track_index,
-                    dest_index,
-                    item.duration(),
-                    overlap_policy,
-                )
-                .is_empty();
-        if Self::has_linked_inputs(&linked_audio_clips, &linked_video_clip) || touches_linked_group
-        {
-            return self.insert_linked_item_at_time(
-                dest_track_index,
-                0.0,
-                Some(dest_index),
-                item,
-                overlap_policy,
-                InsertPolicy::InsertBefore,
-                linked_audio_clips,
-                linked_video_clip,
-            );
-        }
-
-        let inserted_id = crate::metadata::IdMetadataExt::get_id(&item);
-        self.children[dest_track_index].insert_at_index(dest_index, item, overlap_policy);
-        inserted_id.map(InsertItemAtTimeResult::ItemId)
-    }
-
-    /// Move an item identified by `item_id` to `dest_time` on the track with `dest_track_id`.
-    /// Returns true if the item was successfully moved.
-    pub fn move_item_at_time(
-        &mut self,
-        item_id: &str,
-        dest_track_id: &str,
-        dest_time: Seconds,
-        replace_with_gap: bool,
-        insert_policy: InsertPolicy,
-        overlap_policy: OverlapPolicy,
-    ) -> bool {
-        let item_to_move = match self.get_item(item_id) {
-            Some((_ti, _ii, it)) => it.clone(),
-            None => return false,
-        };
-        let dest_track_index = match self.get_track_by_id(dest_track_id) {
-            Some((i, _)) => i,
-            None => return false,
-        };
-        if let Some(items_to_move) = self.linked_move_items(item_id) {
-            return self.move_linked_items(
-                items_to_move,
-                dest_track_index,
-                replace_with_gap,
-                overlap_policy,
-                LinkedMovePlacement::Time {
-                    dest_time,
-                    insert_policy,
-                },
-            );
-        }
-
-        let backup = self.clone();
-        if self.delete_one_item(item_id, replace_with_gap).is_none() {
-            return false;
-        }
-
-        if self
-            .insert_item_at_time(
-                dest_track_index,
-                dest_time,
-                item_to_move,
-                overlap_policy,
-                insert_policy,
-                None,
-                None,
-            )
-            .is_some()
-        {
-            true
-        } else {
-            *self = backup;
-            false
-        }
-    }
-
-    /// Move an item identified by `item_id` to `dest_index` on the track with `dest_track_id`.
-    /// Returns true if the item was successfully moved.
-    pub fn move_item_at_index(
-        &mut self,
-        item_id: &str,
-        dest_track_id: &str,
-        dest_index: usize,
-        replace_with_gap: bool,
-        overlap_policy: OverlapPolicy,
-    ) -> bool {
-        let item_to_move = match self.get_item(item_id) {
-            Some((_ti, _ii, it)) => it.clone(),
-            None => return false,
-        };
-
-        let backup = self.clone();
-        let dest_track_index = match self.get_track_by_id(dest_track_id) {
-            Some((i, _)) => i,
-            None => return false,
-        };
-        if let Some(items_to_move) = self.linked_move_items(item_id) {
-            return self.move_linked_items(
-                items_to_move,
-                dest_track_index,
-                replace_with_gap,
-                overlap_policy,
-                LinkedMovePlacement::Index { dest_index },
-            );
-        }
-
-        if self.delete_one_item(item_id, replace_with_gap).is_none() {
-            return false;
-        }
-
-        if self
-            .insert_item_at_index(
-                dest_track_id,
-                dest_index,
-                item_to_move,
-                overlap_policy,
-                None,
-                None,
-            )
-            .is_some()
-        {
-            true
-        } else {
-            *self = backup;
-            false
-        }
-    }
-
-    /// Append a track to the stack.
-    pub fn add_track(&mut self, track: Track) {
-        self.children.push(track);
-    }
-
-    /// Insert a track at a specific index. Negative indices behave like Python's.
-    pub fn add_track_at(&mut self, track: Track, insertion_index: isize) {
-        let idx = clamp_insertion_index(self.children.len(), insertion_index);
-        self.children.insert(idx, track);
-    }
-
-    /// Delete a track by id. Returns the removed track on success.
-    pub fn delete_track(&mut self, id: &str) -> Option<Track> {
-        let (i, track) = self.get_track_by_id(id)?;
-        let touched_link_groups: Vec<_> = track
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
-                Item::Gap(_) => None,
-            })
-            .collect();
-        let removed = self.children.remove(i);
-        for link_group_id in touched_link_groups {
-            self.delete_link_group(link_group_id, true);
-        }
-        Some(removed)
-    }
 }
 
 fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
