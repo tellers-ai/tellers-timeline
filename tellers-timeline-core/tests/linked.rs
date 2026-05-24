@@ -157,6 +157,19 @@ fn active_target_url(item: &Item) -> Option<&str> {
         .map(String::as_str)
 }
 
+fn range_is_gap_backed_for_test(track: &Track, start: f64, end: f64) -> bool {
+    let mut pos = 0.0;
+    for item in &track.items {
+        let item_start = pos;
+        let item_end = pos + item.duration().max(0.0);
+        if item_end > start + 1e-9 && item_start < end - 1e-9 && !matches!(item, Item::Gap(_)) {
+            return false;
+        }
+        pos = item_end;
+    }
+    true
+}
+
 fn linked_clip_item(duration: f64, id: &str, link_group_id: i64) -> Item {
     let mut clip = clip(duration, Some(id));
     clip.metadata["Resolve_OTIO"] = serde_json::json!({
@@ -3034,6 +3047,83 @@ fn move_unlinked_item_pushes_full_linked_boundary_with_gap_companions() {
             stack.children[audio_track_index].items[spacer_index].duration(),
             1.0
         );
+    }
+}
+
+#[test]
+fn move_unlinked_item_pushes_full_linked_boundary_for_insert_policies() {
+    let cases = [
+        (InsertPolicy::SplitAndInsert, 0.0, 0.0, 2.0),
+        (InsertPolicy::InsertBefore, 1.5, 1.0, 2.0),
+        (InsertPolicy::InsertAfter, 0.5, 1.0, 2.0),
+        (InsertPolicy::InsertBeforeOrAfter, 1.2, 1.0, 2.0),
+    ];
+
+    for (insert_policy, dest_time, moved_start, linked_start) in cases {
+        let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+        video.items.push(Item::Clip(clip(1.0, Some("unlinked"))));
+
+        let mut stack = Stack::default();
+        stack.children.push(video);
+        let result = insert_with_audio(
+            &mut stack,
+            0,
+            1.0,
+            clip(2.0, Some("linked-video")),
+            vec![
+                audio_clip(2.0, "file:///linked-a1.wav", None),
+                audio_clip(2.0, "file:///linked-a2.wav", None),
+            ],
+        )
+        .unwrap();
+        let audio_ids: Vec<_> = result
+            .audio_clips
+            .iter()
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        assert!(stack.move_item_at_time(
+            "unlinked",
+            "v",
+            dest_time,
+            true,
+            insert_policy,
+            OverlapPolicy::Push,
+        ));
+
+        let (moved_track_index, moved_item_index, moved_item) =
+            stack.get_item("unlinked").unwrap();
+        assert_eq!(
+            stack.children[moved_track_index].start_time_of_item(moved_item_index),
+            moved_start,
+            "moved start for {insert_policy:?}"
+        );
+        assert_eq!(moved_item.duration(), 1.0);
+
+        let (linked_video_track_index, linked_video_item_index, linked_video) =
+            stack.get_item("linked-video").unwrap();
+        assert_eq!(
+            stack.children[linked_video_track_index].start_time_of_item(linked_video_item_index),
+            linked_start,
+            "linked video start for {insert_policy:?}"
+        );
+        assert_eq!(link_group_id(linked_video), result.link_group_id);
+
+        for audio_id in &audio_ids {
+            let (audio_track_index, audio_item_index, audio_item) =
+                stack.get_item(audio_id).unwrap();
+            let audio_track = &stack.children[audio_track_index];
+            assert_eq!(
+                audio_track.start_time_of_item(audio_item_index),
+                linked_start,
+                "linked audio start for {insert_policy:?}"
+            );
+            assert_eq!(link_group_id(audio_item), result.link_group_id);
+            assert!(
+                range_is_gap_backed_for_test(audio_track, moved_start, moved_start + 1.0),
+                "missing gap companion for {insert_policy:?}"
+            );
+        }
     }
 }
 
