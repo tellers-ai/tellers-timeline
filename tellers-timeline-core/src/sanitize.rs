@@ -8,7 +8,7 @@ impl Timeline {
 }
 
 impl Track {
-    pub fn sanitize(&mut self) {
+    pub(crate) fn sanitize(&mut self) {
         self.clamp_clips_to_available_ranges();
         self.clamp_negative_durations();
         self.remove_zero_length_items();
@@ -16,13 +16,13 @@ impl Track {
         self.remove_trailing_gap();
     }
 
-    pub fn clamp_clips_to_available_ranges(&mut self) {
+    pub(crate) fn clamp_clips_to_available_ranges(&mut self) {
         for it in &mut self.items {
             it.clamp_to_active_available_range();
         }
     }
 
-    pub fn clamp_negative_durations(&mut self) {
+    pub(crate) fn clamp_negative_durations(&mut self) {
         for it in &mut self.items {
             if it.duration() < 0.0 {
                 it.set_duration(0.0);
@@ -30,11 +30,11 @@ impl Track {
         }
     }
 
-    pub fn remove_zero_length_items(&mut self) {
+    pub(crate) fn remove_zero_length_items(&mut self) {
         self.items.retain(|it| it.duration() > 0.0);
     }
 
-    pub fn merge_adjacent_gaps(&mut self) {
+    pub(crate) fn merge_adjacent_gaps(&mut self) {
         if self.items.is_empty() {
             return;
         }
@@ -50,8 +50,12 @@ impl Track {
         self.items = merged;
     }
 
-    pub fn remove_trailing_gap(&mut self) {
-        if self.items.last().is_some_and(|item| matches!(item, Item::Gap(_))) {
+    pub(crate) fn remove_trailing_gap(&mut self) {
+        if self
+            .items
+            .last()
+            .is_some_and(|item| matches!(item, Item::Gap(_)))
+        {
             self.items.pop();
         }
     }

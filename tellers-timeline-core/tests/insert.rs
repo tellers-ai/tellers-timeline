@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
-    Clip, InsertPolicy, Item, MediaReference, OverlapPolicy, RationalTime, Seconds, TimeRange,
-    Track,
+    Clip, InsertPolicy, Item, MediaReference, OverlapPolicy, RationalTime, Seconds, Stack,
+    TimeRange, Track,
 };
 
 fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
@@ -158,52 +158,75 @@ fn make_clip_with_mixed_rates(
     })
 }
 
+fn stack_with_items(items: Vec<Item>) -> Stack {
+    let mut track = Track::default();
+    track.items = items;
+    Stack {
+        children: vec![track],
+        ..Stack::default()
+    }
+}
+
 #[test]
 fn insert_before_after_or_boundary() {
-    let mut track = Track::default();
-    track.append(make_clip(4.0, 0.0));
-    track.append(make_clip(6.0, 0.0));
+    let mut stack = stack_with_items(vec![make_clip(4.0, 0.0), make_clip(6.0, 0.0)]);
 
     // Insert before inside first clip -> snaps to its start index
-    track.insert_at_time(
+    stack.insert_item_at_time(
+        0,
         1.0,
         make_clip(1.0, 0.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
+        None,
+        None,
     );
+    let track = &stack.children[0];
     assert!(matches!(track.items[0], Item::Clip(_)));
 
     // Insert after inside first clip -> index after first
-    track.insert_at_time(
+    stack.insert_item_at_time(
+        0,
         1.5,
         make_clip(1.0, 0.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertAfter,
+        None,
+        None,
     );
+    let track = &stack.children[0];
     assert!(matches!(track.items[2], Item::Clip(_)));
 
     // Insert before or after: choose closer boundary
     let before_len = track.items.len();
-    track.insert_at_time(
+    stack.insert_item_at_time(
+        0,
         3.9,
         make_clip(0.5, 0.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBeforeOrAfter,
+        None,
+        None,
     );
+    let track = &stack.children[0];
     assert_eq!(track.items.len(), before_len + 1);
 }
 
 #[test]
 fn insert_missing_active_key_does_not_clamp_to_default_media() {
-    let mut track = Track::default();
+    let mut stack = stack_with_items(vec![]);
 
-    track.insert_at_time(
+    stack.insert_item_at_time(
+        0,
         0.0,
         make_clip_with_default_available_range(5.0, 3.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
+        None,
+        None,
     );
 
+    let track = &stack.children[0];
     match &track.items[0] {
         Item::Clip(clip) => {
             assert_eq!(clip.active_media_reference_key.as_deref(), None);
@@ -215,15 +238,19 @@ fn insert_missing_active_key_does_not_clamp_to_default_media() {
 
 #[test]
 fn insert_clamp_converts_rational_time_rates() {
-    let mut track = Track::default();
+    let mut stack = stack_with_items(vec![]);
 
-    track.insert_at_time(
+    stack.insert_item_at_time(
+        0,
         0.0,
         make_clip_with_mixed_rates(0.0, 120.0, 24.0, 1.0, 3.0, 1.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
+        None,
+        None,
     );
 
+    let track = &stack.children[0];
     match &track.items[0] {
         Item::Clip(clip) => {
             assert_eq!(clip.source_range.start_time.value, 24.0);
@@ -237,19 +264,21 @@ fn insert_clamp_converts_rational_time_rates() {
 
 #[test]
 fn insert_split_and_override() {
-    let mut track = Track::default();
-    track.append(make_clip(5.0, 0.0));
-    track.append(make_clip(5.0, 0.0));
+    let mut stack = stack_with_items(vec![make_clip(5.0, 0.0), make_clip(5.0, 0.0)]);
 
     // Insert across boundary with override: should split as needed and replace overlap
-    track.insert_at_time(
+    stack.insert_item_at_time(
+        0,
         3.0,
         make_clip(4.0, 0.0),
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
+        None,
+        None,
     );
 
     // Expect an item at 3.0 of duration 4.0
+    let track = &stack.children[0];
     let idx = track.get_item_at_time(3.1).unwrap();
     match &track.items[idx] {
         Item::Clip(c) => assert!((c.source_range.duration.value - 4.0).abs() < 1e-9),
@@ -259,16 +288,19 @@ fn insert_split_and_override() {
 
 #[test]
 fn insert_split_and_override_at_zero() {
-    let mut track = Track::default();
-    track.append(make_clip(5.0, 0.0));
+    let mut stack = stack_with_items(vec![make_clip(5.0, 0.0)]);
 
     // Insert across boundary with override: should split as needed and replace overlap
-    track.insert_at_time(
+    stack.insert_item_at_time(
+        0,
         0.0,
         make_clip(4.0, 0.0),
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
+        None,
+        None,
     );
+    let track = &stack.children[0];
     assert_eq!(track.items.len(), 2);
     assert_eq!(track.items[0].duration(), 4.0);
     assert_eq!(track.items[1].duration(), 1.0);

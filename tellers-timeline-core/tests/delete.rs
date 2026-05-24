@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
-    Clip, IdMetadataExt, Item, MediaReference, RationalTime, TimeRange, Track,
+    Clip, IdMetadataExt, Item, MediaReference, RationalTime, Stack, TimeRange, Track,
 };
 
 fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
@@ -43,16 +43,22 @@ fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
 #[test]
 fn delete_clip_by_index_no_gap() {
     let mut track = Track::default();
-    let c1 = match make_clip("c1", 5.0, 0.0) {
+    let mut c1 = match make_clip("c1", 5.0, 0.0) {
         Item::Clip(c) => c,
         _ => unreachable!(),
     };
+    c1.set_id(Some("c1".to_string()));
     let c2 = make_clip("c2", 3.0, 0.0);
-    track.append(Item::Clip(c1.clone()));
-    track.append(c2.clone());
+    track.items.push(Item::Clip(c1.clone()));
+    track.items.push(c2.clone());
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    let deleted = track.delete_clip(0, false);
-    assert!(deleted);
+    let deleted = stack.delete_item("c1", false);
+    assert_eq!(deleted.len(), 1);
+    let track = &stack.children[0];
     assert_eq!(track.items.len(), 1);
     match &track.items[0] {
         Item::Clip(c) => assert!((c.source_range.duration.value - 3.0).abs() < 1e-9),
@@ -63,12 +69,21 @@ fn delete_clip_by_index_no_gap() {
 #[test]
 fn delete_clip_by_index_with_gap_and_merge() {
     let mut track = Track::default();
-    track.append(make_clip("c1", 5.0, 0.0));
-    track.append(Item::Gap(tellers_timeline_core::Gap::make_gap(2.0)));
-    track.append(make_clip("c2", 3.0, 0.0));
+    let mut c1 = make_clip("c1", 5.0, 0.0);
+    c1.set_id(Some("c1".to_string()));
+    track.items.push(c1);
+    track
+        .items
+        .push(Item::Gap(tellers_timeline_core::Gap::make_gap(2.0)));
+    track.items.push(make_clip("c2", 3.0, 0.0));
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    let deleted = track.delete_clip(0, true);
-    assert!(deleted);
+    let deleted = stack.delete_item("c1", true);
+    assert_eq!(deleted.len(), 1);
+    let track = &stack.children[0];
     // Expect leading gap of 5.0 merged with following 2.0 -> 7.0, then c2
     assert_eq!(track.items.len(), 2);
     match (&track.items[0], &track.items[1]) {
@@ -90,12 +105,16 @@ fn delete_clip_via_getter_with_gap() {
     };
     let id = "id-c1".to_string();
     c1.set_id(Some(id.clone()));
-    track.append(Item::Clip(c1));
-    track.append(make_clip("c2", 6.0, 0.0));
+    track.items.push(Item::Clip(c1));
+    track.items.push(make_clip("c2", 6.0, 0.0));
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    let (idx, _it) = track.get_item_by_id(&id).expect("id should exist");
-    let deleted = track.delete_clip(idx, true);
-    assert!(deleted);
+    let deleted = stack.delete_item(&id, true);
+    assert_eq!(deleted.len(), 1);
+    let track = &stack.children[0];
     // Expect gap(4.0) then c2, and no adjacent gaps to merge
     assert_eq!(track.items.len(), 2);
     match (&track.items[0], &track.items[1]) {

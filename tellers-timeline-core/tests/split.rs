@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
-    Clip, Gap, Item, MediaReference, RationalTime, Seconds, TimeRange, Track,
+    Clip, IdMetadataExt, Item, MediaReference, RationalTime, Seconds, Stack, TimeRange, Track,
 };
 
 fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
@@ -43,10 +43,17 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
 #[test]
 fn split_clip_basic() {
     let mut track = Track::default();
-    track.append(make_clip(10.0, 0.0));
+    let mut clip = make_clip(10.0, 0.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    track.split_at_time(3.0);
+    assert!(stack.split_item_at_time("clip", 3.0));
 
+    let track = &stack.children[0];
     assert_eq!(track.items.len(), 2);
     match (&track.items[0], &track.items[1]) {
         (Item::Clip(c0), Item::Clip(c1)) => {
@@ -59,30 +66,19 @@ fn split_clip_basic() {
 }
 
 #[test]
-fn split_gap_basic() {
-    let mut track = Track::default();
-    track.append(Item::Gap(Gap::make_gap(5.0)));
-
-    track.split_at_time(2.0);
-
-    assert_eq!(track.items.len(), 2);
-    match (&track.items[0], &track.items[1]) {
-        (Item::Gap(g0), Item::Gap(g1)) => {
-            assert_eq!(g0.source_range.duration.value, 2.0);
-            assert_eq!(g1.source_range.duration.value, 3.0);
-        }
-        _ => panic!("expected two gaps after split"),
-    }
-}
-
-#[test]
 fn split_at_boundary_noop() {
     let mut track = Track::default();
-    track.append(make_clip(5.0, 0.0));
+    let mut clip = make_clip(5.0, 0.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    track.split_at_time(0.0);
-    assert_eq!(track.items.len(), 1);
+    assert!(stack.split_item_at_time("clip", 0.0));
+    assert_eq!(stack.children[0].items.len(), 1);
 
-    track.split_at_time(5.0);
-    assert_eq!(track.items.len(), 1);
+    assert!(stack.split_item_at_time("clip", 5.0));
+    assert_eq!(stack.children[0].items.len(), 1);
 }

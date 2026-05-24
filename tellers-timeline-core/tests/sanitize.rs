@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use tellers_timeline_core::{
-    Clip, Gap, IdMetadataExt, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline, Track,
-    TrackKind,
+    Clip, Gap, IdMetadataExt, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline,
+    Track, TrackKind,
 };
 
 fn clip(duration: f64, id: Option<&str>) -> Clip {
@@ -82,39 +82,56 @@ fn all_stack_ids(stack: &Stack) -> Vec<String> {
 }
 
 #[test]
-fn track_sanitize_removes_trailing_gap_after_merging() {
+fn stack_sanitize_removes_track_trailing_gap_after_merging() {
     let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
     track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));
     track.items.push(Item::Gap(Gap::make_gap(1.0)));
     track.items.push(Item::Gap(Gap::make_gap(2.0)));
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    track.sanitize();
+    stack.sanitize();
 
+    let track = &stack.children[0];
     assert_eq!(track.items.len(), 1);
     assert_eq!(track.items[0].get_id().as_deref(), Some("clip-1"));
 }
 
 #[test]
-fn track_sanitize_keeps_interior_gap() {
+fn stack_sanitize_keeps_track_interior_gap() {
     let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
     track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));
     track.items.push(Item::Gap(Gap::make_gap(2.0)));
     track.items.push(Item::Clip(clip(1.0, Some("clip-2"))));
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    track.sanitize();
+    stack.sanitize();
 
+    let track = &stack.children[0];
     assert_eq!(track.items.len(), 3);
     assert!(matches!(track.items[1], Item::Gap(_)));
     assert_eq!(track.items[1].duration(), 2.0);
 }
 
 #[test]
-fn track_sanitize_missing_active_key_does_not_clamp_to_default_media() {
+fn stack_sanitize_missing_active_key_does_not_clamp_to_default_media() {
     let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
-    track.items.push(Item::Clip(clip_with_missing_active_default_reference()));
+    track
+        .items
+        .push(Item::Clip(clip_with_missing_active_default_reference()));
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
 
-    track.sanitize();
+    stack.sanitize();
 
+    let track = &stack.children[0];
     match &track.items[0] {
         Item::Clip(clip) => {
             assert_eq!(clip.active_media_reference_key.as_deref(), None);
@@ -145,7 +162,10 @@ fn stack_sanitize_assigns_missing_timeline_ids_and_repairs_duplicates() {
     let unique: HashSet<_> = ids.iter().collect();
     assert_eq!(ids.len(), unique.len());
     assert!(ids.iter().all(|id| !id.is_empty()));
-    assert_eq!(stack.children[0].items[0].get_id().as_deref(), Some("same-id"));
+    assert_eq!(
+        stack.children[0].items[0].get_id().as_deref(),
+        Some("same-id")
+    );
 }
 
 #[test]
