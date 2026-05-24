@@ -1242,7 +1242,7 @@ fn track_boundary_group_info_reports_primary_and_bound_tracks() {
 }
 
 #[test]
-fn add_track_at_only_accepts_boundary_group_edges() {
+fn add_track_at_allows_insertion_inside_boundary_groups() {
     let mut stack = Stack::default();
     stack
         .children
@@ -1267,21 +1267,25 @@ fn add_track_at_only_accepts_boundary_group_edges() {
         .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
     stack.children.push(unlinked_video);
 
-    assert!(!stack.add_track_at(
+    assert!(stack.add_track_at(
         Track::new(TrackKind::Audio, Some("inside-linked-group".to_string())),
         1,
     ));
-    assert_eq!(stack.children.len(), 4);
+    assert_eq!(stack.children.len(), 5);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("linked-v"));
+    assert_eq!(
+        stack.children[1].get_id().as_deref(),
+        Some("inside-linked-group")
+    );
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("linked-v"));
 
     assert!(stack.add_track_at(
         Track::new(TrackKind::Audio, Some("between-groups".to_string())),
-        2,
+        3,
     ));
-    assert_eq!(stack.children.len(), 5);
+    assert_eq!(stack.children.len(), 6);
     assert_eq!(
-        stack.children[2].get_id().as_deref(),
+        stack.children[3].get_id().as_deref(),
         Some("between-groups")
     );
 }

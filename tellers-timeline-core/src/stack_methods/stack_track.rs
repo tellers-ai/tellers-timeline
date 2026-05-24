@@ -17,9 +17,6 @@ impl Stack {
     /// Insert a track at a specific index. Negative indices behave like Python's.
     pub fn add_track_at(&mut self, track: Track, insertion_index: isize) -> bool {
         let idx = super::clamp_insertion_index(self.children.len(), insertion_index);
-        if !self.is_track_group_boundary_index(idx) {
-            return false;
-        }
         self.children.insert(idx, track);
         self.sanitize();
         true
@@ -27,8 +24,7 @@ impl Stack {
 
     /// Move a track to a new insertion index.
     ///
-    /// Primary tracks move their whole boundary group to the same positions accepted by
-    /// `add_track_at`.
+    /// Primary tracks move their whole boundary group to boundary-group edges.
     /// Secondary tracks in a linked boundary can only move inside their current boundary group.
     pub fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         let Some((track_index, _)) = self.get_track_by_id(id) else {
