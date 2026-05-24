@@ -1,5 +1,26 @@
-use super::{resolve_link_group_id, track_is_empty_boundary, EPS};
-use crate::{IdMetadataExt, Item, Stack, TrackKind};
+use super::{resolve_link_group_id, EPS};
+use crate::{Gap, IdMetadataExt, Item, Stack, TrackKind};
+
+fn shift_track_index_after_insert(track_index: &mut usize, inserted_track_index: usize) {
+    if inserted_track_index <= *track_index {
+        *track_index += 1;
+    }
+}
+
+fn shift_replacement_tracks_after_insert(
+    replacements: &mut [(usize, usize, Item)],
+    inserted_track_index: usize,
+) {
+    for (track_index, _, _) in replacements {
+        shift_track_index_after_insert(track_index, inserted_track_index);
+    }
+}
+
+fn shift_insert_tracks_after_insert(insertions: &mut [(usize, Item)], inserted_track_index: usize) {
+    for (track_index, _) in insertions {
+        shift_track_index_after_insert(track_index, inserted_track_index);
+    }
+}
 
 impl Stack {
     pub fn replace_item(
@@ -61,6 +82,7 @@ impl Stack {
             return false;
         }
 
+        let mut replacements = Vec::new();
         for (track_index, item_index) in targets {
             let Some(existing) = self
                 .children
@@ -81,18 +103,20 @@ impl Stack {
             next.set_id(existing_id);
             next.set_duration(replacement_duration);
             Self::set_item_link_group(&mut next, link_group);
-
-            let Some(track) = self.children.get_mut(track_index) else {
-                *self = backup;
-                return false;
-            };
-            if !track.replace_item_by_index(item_index, next) {
-                *self = backup;
-                return false;
-            }
+            replacements.push((track_index, item_index, next));
         }
 
         let Some(link_group_id) = link_group else {
+            for (track_index, item_index, item) in replacements {
+                let Some(track) = self.children.get_mut(track_index) else {
+                    *self = backup;
+                    return false;
+                };
+                if !track.replace_item_by_index(item_index, item) {
+                    *self = backup;
+                    return false;
+                }
+            }
             self.sanitize();
             return true;
         };
@@ -100,6 +124,7 @@ impl Stack {
         let mut used_ids = self.collect_timeline_ids();
         let mut primary_track_index = selected_track_index;
         let mut created_track_indices = Vec::new();
+        let mut insertions = Vec::new();
         if let Some(video_item) = linked_inputs.video {
             let track_count_before_video = self.children.len();
             let Some(video_track_index) = self.find_or_create_video_track_for_audio(
@@ -113,10 +138,10 @@ impl Stack {
                 *self = backup;
                 return false;
             };
-            if self.children.len() > track_count_before_video
-                && video_track_index <= primary_track_index
-            {
-                primary_track_index += 1;
+            if self.children.len() > track_count_before_video {
+                shift_track_index_after_insert(&mut primary_track_index, video_track_index);
+                shift_replacement_tracks_after_insert(&mut replacements, video_track_index);
+                shift_insert_tracks_after_insert(&mut insertions, video_track_index);
             }
             let Some((video_item, _video_id)) = Self::prepare_linked_item(
                 video_item,
@@ -127,10 +152,7 @@ impl Stack {
                 *self = backup;
                 return false;
             };
-            if !self.insert_gap_only(video_track_index, selected_start, video_item) {
-                *self = backup;
-                return false;
-            }
+            insertions.push((video_track_index, video_item));
         }
 
         let mut inserted_audio_tracks = Vec::new();
@@ -151,11 +173,11 @@ impl Stack {
                 return false;
             };
             let reused_empty_boundary_track = self.children.len() == track_count_before_audio
-                && track_is_empty_boundary(&self.children[audio_track_index]);
-            if self.children.len() > track_count_before_audio
-                && audio_track_index <= primary_track_index
-            {
-                primary_track_index += 1;
+                && super::track_is_empty_boundary(&self.children[audio_track_index]);
+            if self.children.len() > track_count_before_audio {
+                shift_track_index_after_insert(&mut primary_track_index, audio_track_index);
+                shift_replacement_tracks_after_insert(&mut replacements, audio_track_index);
+                shift_insert_tracks_after_insert(&mut insertions, audio_track_index);
             }
             let Some((audio_item, _audio_id)) = Self::prepare_linked_item(
                 audio_item,
@@ -166,13 +188,61 @@ impl Stack {
                 *self = backup;
                 return false;
             };
-            if !self.insert_gap_only(audio_track_index, selected_start, audio_item) {
-                *self = backup;
-                return false;
-            }
+            insertions.push((audio_track_index, audio_item));
             inserted_audio_tracks.push(audio_track_index);
             if reused_empty_boundary_track {
                 inserted_audio_boundary_tracks.push(audio_track_index);
+            }
+        }
+
+        let boundary_groups = selected_link_group.into_iter().collect::<Vec<_>>();
+        let mut boundary_track_indices =
+            self.boundary_track_indices_for_anchors(&boundary_groups, &[primary_track_index], &[]);
+        for (track_index, _, _) in &replacements {
+            if !boundary_track_indices.contains(track_index) {
+                boundary_track_indices.push(*track_index);
+            }
+        }
+        for (track_index, _) in &insertions {
+            if !boundary_track_indices.contains(track_index) {
+                boundary_track_indices.push(*track_index);
+            }
+        }
+        boundary_track_indices.sort_unstable();
+        boundary_track_indices.dedup();
+
+        for track_index in boundary_track_indices {
+            if replacements
+                .iter()
+                .any(|(replacement_track_index, _, _)| *replacement_track_index == track_index)
+                || insertions
+                    .iter()
+                    .any(|(insertion_track_index, _)| *insertion_track_index == track_index)
+            {
+                continue;
+            }
+            let mut gap = Item::Gap(Gap::make_gap(replacement_duration));
+            Self::ensure_unique_item_id(&mut gap, &mut used_ids);
+            insertions.push((track_index, gap));
+        }
+
+        replacements.sort_by_key(|(track_index, _, _)| *track_index);
+        insertions.sort_by_key(|(track_index, _)| *track_index);
+
+        for (track_index, item_index, item) in replacements {
+            let Some(track) = self.children.get_mut(track_index) else {
+                *self = backup;
+                return false;
+            };
+            if !track.replace_item_by_index(item_index, item) {
+                *self = backup;
+                return false;
+            }
+        }
+        for (track_index, item) in insertions {
+            if !self.insert_gap_only(track_index, selected_start, item) {
+                *self = backup;
+                return false;
             }
         }
 
