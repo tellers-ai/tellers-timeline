@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use tellers_timeline_core::{
     Clip, IdMetadataExt, Item, MediaReference, RationalTime, Seconds, Stack, TimeRange, Track,
 };
@@ -81,4 +82,41 @@ fn split_at_boundary_noop() {
 
     assert!(stack.split_item_at_time("clip", 5.0));
     assert_eq!(stack.children[0].items.len(), 1);
+}
+
+#[test]
+fn split_item_at_time_sanitizes_stack() {
+    let mut first = Track::default();
+    first.set_id(Some("duplicate".to_string()));
+    let mut clip = make_clip(10.0, 0.0);
+    clip.set_id(Some("clip".to_string()));
+    first.items.push(clip);
+
+    let mut second = Track::default();
+    second.set_id(Some("duplicate".to_string()));
+    let mut other = make_clip(1.0, 0.0);
+    other.set_id(Some("clip".to_string()));
+    second.items.push(other);
+
+    let mut stack = Stack {
+        children: vec![first, second],
+        ..Stack::default()
+    };
+
+    assert!(stack.split_item_at_time("clip", 3.0));
+
+    let ids: Vec<_> = stack
+        .children
+        .iter()
+        .flat_map(|track| {
+            std::iter::once(track.get_id().expect("track id")).chain(
+                track
+                    .items
+                    .iter()
+                    .map(|item| item.get_id().expect("item id")),
+            )
+        })
+        .collect();
+    let unique: HashSet<_> = ids.iter().collect();
+    assert_eq!(ids.len(), unique.len());
 }

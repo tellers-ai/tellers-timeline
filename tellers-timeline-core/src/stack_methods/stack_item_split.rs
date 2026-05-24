@@ -57,6 +57,7 @@ impl Stack {
         for track_index in target_tracks {
             self.children[track_index].split_at_time(split_time);
         }
+        self.sanitize();
         true
     }
 }
