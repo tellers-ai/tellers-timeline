@@ -338,6 +338,80 @@ impl Stack {
         Some(insert_at)
     }
 
+    fn find_or_create_move_audio_track(
+        &mut self,
+        primary_track_index: usize,
+        dest_time: Seconds,
+        duration: Seconds,
+        created_track_indices: &mut Vec<usize>,
+        used_audio_indices: &[usize],
+    ) -> Option<usize> {
+        let end_time = dest_time + duration;
+        match self.children.get(primary_track_index)?.kind {
+            TrackKind::Video => {
+                let mut audio_start = primary_track_index;
+                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
+                    audio_start -= 1;
+                }
+
+                for audio_index in (audio_start..primary_track_index).rev() {
+                    if used_audio_indices.contains(&audio_index) {
+                        continue;
+                    }
+                    if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
+                        return Some(audio_index);
+                    }
+                }
+
+                let insert_at = if audio_start < primary_track_index {
+                    audio_start
+                } else {
+                    primary_track_index
+                };
+                self.children
+                    .insert(insert_at, self.new_numbered_track(TrackKind::Audio));
+                created_track_indices.push(insert_at);
+                Some(insert_at)
+            }
+            TrackKind::Audio => {
+                let mut audio_start = primary_track_index;
+                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
+                    audio_start -= 1;
+                }
+                let mut audio_end = primary_track_index + 1;
+                while audio_end < self.children.len()
+                    && self.children[audio_end].kind == TrackKind::Audio
+                {
+                    audio_end += 1;
+                }
+
+                let mut candidates: Vec<_> = (audio_start..audio_end)
+                    .filter(|track_index| {
+                        *track_index != primary_track_index
+                            && !used_audio_indices.contains(track_index)
+                            && range_is_gap_backed(
+                                &self.children[*track_index],
+                                dest_time,
+                                end_time,
+                            )
+                    })
+                    .collect();
+                candidates.sort_by_key(|track_index| {
+                    (track_index.abs_diff(primary_track_index), *track_index)
+                });
+                if let Some(track_index) = candidates.into_iter().next() {
+                    return Some(track_index);
+                }
+
+                self.children
+                    .insert(audio_end, self.new_numbered_track(TrackKind::Audio));
+                created_track_indices.push(audio_end);
+                Some(audio_end)
+            }
+            TrackKind::Other => None,
+        }
+    }
+
     fn find_or_create_video_track_for_audio(
         &mut self,
         audio_track_index: usize,
@@ -1724,6 +1798,7 @@ impl Stack {
             return false;
         };
         let selected_item = &items_to_move[selected_position];
+        let selected_source_track_index = selected_item.track_index;
         let Some(selected_id) = selected_item.item.get_id() else {
             return false;
         };
@@ -1795,24 +1870,29 @@ impl Stack {
             TrackKind::Other => {}
         }
 
-        for (position, move_item) in items_to_move.into_iter().enumerate() {
-            if position == selected_position {
-                continue;
-            }
+        let mut companion_items: Vec<_> = items_to_move
+            .into_iter()
+            .enumerate()
+            .filter(|(position, _)| *position != selected_position)
+            .collect();
+        companion_items.sort_by_key(|(_, move_item)| {
+            (
+                move_item.track_index.abs_diff(selected_source_track_index),
+                move_item.track_index,
+            )
+        });
+
+        for (_, move_item) in companion_items {
 
             match move_item.track_kind {
                 TrackKind::Audio => {
                     let track_count_before = self.children.len();
-                    let Some(track_index) = self.find_or_create_audio_track(
+                    let Some(track_index) = self.find_or_create_move_audio_track(
                         dest_track_index,
                         moved_start,
                         moved_duration,
                         &mut created_track_indices,
                         &used_audio_track_indices,
-                        &used_audio_boundary_indices,
-                        Some(link_group_id),
-                        true,
-                        overlap_policy,
                     ) else {
                         *self = backup;
                         return false;
