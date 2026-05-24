@@ -640,6 +640,26 @@ fn track_kind_from_str(s: &str) -> TrackKind {
     }
 }
 
+fn clamp_insertion_index(len: usize, index: isize) -> usize {
+    if index < 0 {
+        let pos = len as isize + index;
+        if pos <= 0 {
+            0
+        } else if pos >= len as isize {
+            len
+        } else {
+            pos as usize
+        }
+    } else {
+        let idx = index as usize;
+        if idx > len {
+            len
+        } else {
+            idx
+        }
+    }
+}
+
 fn overlap_policy_from_str(s: &str) -> OverlapPolicy {
     match s.to_ascii_lowercase().as_str() {
         "override" => OverlapPolicy::Override,
@@ -789,8 +809,16 @@ impl PyStack {
         self.inner.children.clear();
     }
     #[pyo3(signature = (track, insertion_index=-1))]
-    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> bool {
-        self.inner.add_track_at(track.inner, insertion_index)
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> PyResult<String> {
+        let insert_index = clamp_insertion_index(self.inner.children.len(), insertion_index);
+        if !self.inner.add_track_at(track.inner, insertion_index) {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Failed to add track",
+            ));
+        }
+        self.inner.children[insert_index].get_id().ok_or_else(|| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>("Inserted track has no id")
+        })
     }
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
@@ -1215,8 +1243,18 @@ impl PyTimeline {
         self.inner.tracks = stack.inner;
     }
     #[pyo3(signature = (track, insertion_index=-1))]
-    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> bool {
-        self.inner.add_track_at(track.inner, insertion_index)
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> PyResult<String> {
+        let insert_index = clamp_insertion_index(self.inner.tracks.children.len(), insertion_index);
+        if !self.inner.add_track_at(track.inner, insertion_index) {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Failed to add track",
+            ));
+        }
+        self.inner.tracks.children[insert_index]
+            .get_id()
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>("Inserted track has no id")
+            })
     }
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
