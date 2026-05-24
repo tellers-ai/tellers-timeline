@@ -297,6 +297,9 @@ fn resize_overlong_clip_down_with_clamp_uses_seconds_across_rates() {
     let mut clip = make_clip_with_rate_and_available_range(10.0, 0.0, 24.0, 5.0, 25.0);
     clip.set_id(Some("clip".to_string()));
     track.items.push(clip);
+    let mut following = make_clip_with_rate(3.0, 0.0, 30.0);
+    following.set_id(Some("following".to_string()));
+    track.items.push(following);
     let mut stack = Stack {
         children: vec![track],
         ..Stack::default()
@@ -321,6 +324,64 @@ fn resize_overlong_clip_down_with_clamp_uses_seconds_across_rates() {
             );
         }
         _ => panic!("expected clip"),
+    }
+
+    let (following_track_index, following_item_index, following_item) =
+        stack.get_item("following").unwrap();
+    assert_eq!(
+        stack.children[following_track_index].start_time_of_item(following_item_index),
+        2.0
+    );
+    assert_eq!(following_item.duration(), 3.0);
+    match &stack.children[following_track_index].items[following_item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.duration.rate, 30.0);
+            assert_eq!(clip.source_range.duration.value, 90.0);
+        }
+        _ => panic!("expected following clip"),
+    }
+}
+
+#[test]
+fn modify_overlong_clip_down_without_push_preserves_following_duration() {
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    let mut clip = make_clip_with_rate_and_available_range(10.0, 0.0, 24.0, 5.0, 25.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut following = make_clip_with_rate(3.0, 0.0, 30.0);
+    following.set_id(Some("following".to_string()));
+    track.items.push(following);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.modify_item("clip", 0.0, 2.0, true, false, false));
+
+    let (track_index, item_index, item) = stack.get_item("clip").unwrap();
+    assert_eq!(stack.children[track_index].start_time_of_item(item_index), 0.0);
+    assert_eq!(item.duration(), 2.0);
+    match &stack.children[track_index].items[item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.duration.rate, 24.0);
+            assert_eq!(clip.source_range.duration.value, 48.0);
+        }
+        _ => panic!("expected clip"),
+    }
+
+    let (following_track_index, following_item_index, following_item) =
+        stack.get_item("following").unwrap();
+    assert_eq!(
+        stack.children[following_track_index].start_time_of_item(following_item_index),
+        10.0
+    );
+    assert_eq!(following_item.duration(), 3.0);
+    match &stack.children[following_track_index].items[following_item_index] {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.duration.rate, 30.0);
+            assert_eq!(clip.source_range.duration.value, 90.0);
+        }
+        _ => panic!("expected following clip"),
     }
 }
 
