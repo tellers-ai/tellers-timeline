@@ -157,6 +157,16 @@ fn active_target_url(item: &Item) -> Option<&str> {
         .map(String::as_str)
 }
 
+fn linked_clip_item(duration: f64, id: &str, link_group_id: i64) -> Item {
+    let mut clip = clip(duration, Some(id));
+    clip.metadata = serde_json::json!({
+        "Resolve_OTIO": {
+            "Link Group ID": link_group_id
+        }
+    });
+    Item::Clip(clip)
+}
+
 fn insert_with_audio(
     stack: &mut Stack,
     dest_track_index: usize,
@@ -1196,6 +1206,9 @@ fn track_boundary_group_info_reports_primary_and_bound_tracks() {
         vec![audio_clip(4.0, "file:///linked-audio.wav", None)],
     )
     .expect("linked insert should succeed");
+    stack.children[1]
+        .items
+        .push(Item::Clip(clip(2.0, Some("mixed-unlinked-video"))));
 
     let mut unlinked_audio = Track::new(TrackKind::Audio, Some("unlinked-a".to_string()));
     unlinked_audio
@@ -1239,6 +1252,53 @@ fn track_boundary_group_info_reports_primary_and_bound_tracks() {
         Some("unlinked-v")
     );
     assert!(groups[2].bound_track_indices.is_empty());
+}
+
+#[test]
+fn track_boundary_group_info_merges_mixed_video_with_linked_audio_tracks() {
+    let mut stack = Stack::default();
+
+    let mut a2 = Track::new(TrackKind::Audio, Some("A2".to_string()));
+    a2.items.push(Item::Gap(Gap::make_gap(6.0)));
+    a2.items.push(linked_clip_item(219.0, "a2-g3", 3));
+    stack.children.push(a2);
+
+    let mut a1 = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    a1.items.push(linked_clip_item(2.0, "a1-g2", 2));
+    a1.items.push(Item::Gap(Gap::make_gap(4.0)));
+    a1.items.push(linked_clip_item(219.0, "a1-g3", 3));
+    a1.items.push(Item::Gap(Gap::make_gap(10.0)));
+    a1.items.push(linked_clip_item(50.0, "a1-g1", 1));
+    stack.children.push(a1);
+
+    for track_id in ["A3", "A4", "A5"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(track_id.to_string()));
+        audio.items.push(Item::Gap(Gap::make_gap(6.0)));
+        audio.items.push(linked_clip_item(219.0, &format!("{track_id}-g3"), 3));
+        stack.children.push(audio);
+    }
+
+    let mut video = Track::new(TrackKind::Video, Some("Video 1".to_string()));
+    video.items.push(linked_clip_item(2.0, "v-g2", 2));
+    video
+        .items
+        .push(Item::Clip(clip(4.0, Some("unlinked-video-1"))));
+    video.items.push(linked_clip_item(219.0, "v-g3", 3));
+    video.items.push(Item::Gap(Gap::make_gap(5.0)));
+    video
+        .items
+        .push(Item::Clip(clip(4.0, Some("unlinked-video-2"))));
+    video.items.push(Item::Gap(Gap::make_gap(1.0)));
+    video.items.push(linked_clip_item(50.0, "v-g1", 1));
+    stack.children.push(video);
+
+    let groups = stack.track_boundary_group_info();
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].track_indices, vec![0, 1, 2, 3, 4, 5]);
+    assert_eq!(groups[0].primary_track_index, 5);
+    assert_eq!(groups[0].primary_track_id.as_deref(), Some("Video 1"));
+    assert_eq!(groups[0].bound_track_indices, vec![0, 1, 2, 3, 4]);
 }
 
 #[test]

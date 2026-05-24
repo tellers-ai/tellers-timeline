@@ -165,11 +165,7 @@ impl Stack {
         let Some(right_track) = self.children.get(right) else {
             return false;
         };
-        if !track_has_linked_clip(left_track)
-            || !track_has_linked_clip(right_track)
-            || track_has_unlinked_clip(left_track)
-            || track_has_unlinked_clip(right_track)
-        {
+        if !track_has_linked_clip(left_track) || !track_has_linked_clip(right_track) {
             return false;
         }
         self.track_matches_primary_link_boundary(left, right)
@@ -196,13 +192,6 @@ impl Stack {
 fn track_has_linked_clip(track: &Track) -> bool {
     track.items.iter().any(|item| match item {
         Item::Clip(clip) => super::resolve_link_group_id(&clip.metadata).is_some(),
-        Item::Gap(_) => false,
-    })
-}
-
-fn track_has_unlinked_clip(track: &Track) -> bool {
-    track.items.iter().any(|item| match item {
-        Item::Clip(clip) => super::resolve_link_group_id(&clip.metadata).is_none(),
         Item::Gap(_) => false,
     })
 }
