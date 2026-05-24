@@ -702,7 +702,7 @@ fn insert_unlinked_clip_before_policy_pushes_linked_assets_from_boundary() {
 }
 
 #[test]
-fn insert_unlinked_clip_after_policy_does_not_touch_linked_assets() {
+fn insert_unlinked_clip_after_policy_adds_boundary_gap_companion() {
     let mut stack = Stack::default();
     stack
         .children
@@ -728,7 +728,7 @@ fn insert_unlinked_clip_after_policy_does_not_touch_linked_assets() {
         None,
     );
 
-    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
+    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::Linked(_))));
     let (video_track_index, video_item_index, _) = stack.get_item("linked-video").unwrap();
     let (audio_track_index, audio_item_index, _) = stack.get_item(&audio_id).unwrap();
     assert_eq!(
@@ -739,6 +739,60 @@ fn insert_unlinked_clip_after_policy_does_not_touch_linked_assets() {
         stack.children[audio_track_index].start_time_of_item(audio_item_index),
         2.0
     );
+    assert_eq!(stack.children[video_track_index].total_duration(), 5.0);
+    assert_eq!(stack.children[audio_track_index].total_duration(), 5.0);
+    assert!(range_is_gap_backed_for_test(
+        &stack.children[audio_track_index],
+        4.0,
+        5.0
+    ));
+}
+
+#[test]
+fn insert_unlinked_clip_at_index_after_boundary_adds_gap_companion() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        2.0,
+        clip(2.0, Some("linked-video")),
+        vec![audio_clip(2.0, "file:///linked-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    let primary_track_index = stack.get_item("linked-video").unwrap().0;
+    let primary_track_id = stack.children[primary_track_index].get_id().unwrap();
+
+    let insert_result = stack.insert_item_at_index(
+        &primary_track_id,
+        stack.children[primary_track_index].items.len(),
+        Item::Clip(clip(1.0, Some("inserted"))),
+        OverlapPolicy::Push,
+        None,
+        None,
+    );
+
+    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::Linked(_))));
+    let (video_track_index, video_item_index, _) = stack.get_item("linked-video").unwrap();
+    let (audio_track_index, audio_item_index, _) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        2.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        2.0
+    );
+    assert_eq!(stack.children[video_track_index].total_duration(), 5.0);
+    assert_eq!(stack.children[audio_track_index].total_duration(), 5.0);
+    assert!(range_is_gap_backed_for_test(
+        &stack.children[audio_track_index],
+        4.0,
+        5.0
+    ));
 }
 
 #[test]
@@ -1765,7 +1819,7 @@ fn append_linked_clip_at_index_with_override_uses_same_audio_track() {
 }
 
 #[test]
-fn insert_unlinked_clip_override_after_policy_does_not_gap_linked_asset() {
+fn insert_unlinked_clip_override_after_policy_adds_boundary_gap_companion() {
     let mut stack = Stack::default();
     stack
         .children
@@ -1791,7 +1845,7 @@ fn insert_unlinked_clip_override_after_policy_does_not_gap_linked_asset() {
         None,
     );
 
-    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
+    assert!(matches!(insert_result, Some(InsertItemAtTimeResult::Linked(_))));
     let (video_track_index, video_item_index, video_item) =
         stack.get_item("linked-video").unwrap();
     let (audio_track_index, audio_item_index, audio_item) = stack.get_item(&audio_id).unwrap();
@@ -1805,6 +1859,13 @@ fn insert_unlinked_clip_override_after_policy_does_not_gap_linked_asset() {
     );
     assert_eq!(video_item.duration(), 2.0);
     assert_eq!(audio_item.duration(), 2.0);
+    assert_eq!(stack.children[video_track_index].total_duration(), 5.0);
+    assert_eq!(stack.children[audio_track_index].total_duration(), 5.0);
+    assert!(range_is_gap_backed_for_test(
+        &stack.children[audio_track_index],
+        4.0,
+        5.0
+    ));
 }
 
 #[test]
@@ -2922,10 +2983,15 @@ fn move_unlinked_item_without_gap_pulls_later_linked_assets() {
         stack.children[video_track_index].timeline_ids(),
         vec!["linked-video", "unlinked"]
     );
-    assert_eq!(stack.children[audio_track_index].items.len(), 1);
+    assert_eq!(stack.children[audio_track_index].items.len(), 2);
     assert!(matches!(
         stack.children[audio_track_index].items[audio_item_index],
         Item::Clip(_)
+    ));
+    assert!(range_is_gap_backed_for_test(
+        &stack.children[audio_track_index],
+        2.0,
+        3.0
     ));
 }
 

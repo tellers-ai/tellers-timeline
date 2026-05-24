@@ -936,6 +936,70 @@ impl Stack {
         self.linked_groups_overlapping_range(track_index, start, affected_duration)
     }
 
+    fn linked_groups_for_insert_at_time_boundary(
+        &self,
+        track_index: usize,
+        dest_time: Seconds,
+        duration: Seconds,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) -> Vec<i64> {
+        let Some(track) = self.children.get(track_index) else {
+            return Vec::new();
+        };
+        let Some(start) = insertion_start_or_end_for_policy(track, dest_time, insert_policy) else {
+            return Vec::new();
+        };
+        let mut groups = self.linked_groups_touched_by_insert_at_time(
+            track_index,
+            dest_time,
+            duration,
+            overlap_policy,
+            insert_policy,
+        );
+        for group in self.linked_groups_adjacent_to_time(track_index, start) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        for group in self.linked_groups_adjacent_to_time(track_index, start + duration.max(0.0)) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        groups
+    }
+
+    fn linked_groups_for_insert_at_index_boundary(
+        &self,
+        track_index: usize,
+        dest_index: usize,
+        duration: Seconds,
+        overlap_policy: OverlapPolicy,
+    ) -> Vec<i64> {
+        let Some(track) = self.children.get(track_index) else {
+            return Vec::new();
+        };
+        let start = track.start_time_of_item(dest_index.min(track.items.len()));
+        let mut groups = self.linked_groups_touched_by_insert_at_index(
+            track_index,
+            dest_index,
+            duration,
+            overlap_policy,
+        );
+        for group in self.linked_groups_adjacent_to_time(track_index, start) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        for group in self.linked_groups_adjacent_to_time(track_index, start + duration.max(0.0)) {
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+        groups
+    }
+
     fn sync_changed_link_groups_after_resize(
         &mut self,
         before_states: &HashMap<String, LinkedClipState>,
@@ -1062,15 +1126,15 @@ impl Stack {
         {
             return None;
         }
-        let touched_link_groups = if let Some(dest_index) = dest_index {
-            self.linked_groups_touched_by_insert_at_index(
+        let boundary_link_groups = if let Some(dest_index) = dest_index {
+            self.linked_groups_for_insert_at_index_boundary(
                 dest_track_index,
                 dest_index,
                 modified_duration,
                 overlap_policy,
             )
         } else {
-            self.linked_groups_touched_by_insert_at_time(
+            self.linked_groups_for_insert_at_time_boundary(
                 dest_track_index,
                 dest_time,
                 modified_duration,
@@ -1170,10 +1234,10 @@ impl Stack {
             }
         }
 
-        let boundary_groups = if touched_link_groups.is_empty() && has_linked_clips {
+        let boundary_groups = if boundary_link_groups.is_empty() && has_linked_clips {
             self.linked_groups_adjacent_to_time(primary_track_index, start)
         } else {
-            touched_link_groups.clone()
+            boundary_link_groups.clone()
         };
         let mut boundary_track_indices =
             self.boundary_track_indices_for_anchors(&boundary_groups, &[primary_track_index], &[]);
@@ -1294,10 +1358,18 @@ impl Stack {
                     );
                 }
             } else {
+                let companion_overlap_policy = if matches!(item, Item::Gap(_))
+                    && overlap_policy == OverlapPolicy::Override
+                    && start >= self.children[track_index].total_duration() - EPS
+                {
+                    OverlapPolicy::Push
+                } else {
+                    overlap_policy
+                };
                 self.children[track_index].insert_at_time(
                     start,
                     item,
-                    overlap_policy,
+                    companion_overlap_policy,
                     InsertPolicy::SplitAndInsert,
                 );
             }
