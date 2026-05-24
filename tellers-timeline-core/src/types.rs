@@ -1441,8 +1441,11 @@ impl Timeline {
     pub fn add_track(&mut self, track: Track) {
         self.tracks.add_track(track);
     }
-    pub fn add_track_at(&mut self, track: Track, insertion_index: isize) {
-        self.tracks.add_track_at(track, insertion_index);
+    pub fn add_track_at(&mut self, track: Track, insertion_index: isize) -> bool {
+        self.tracks.add_track_at(track, insertion_index)
+    }
+    pub fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
+        self.tracks.reorder_track(id, insertion_index)
     }
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         self.tracks.delete_track(id)

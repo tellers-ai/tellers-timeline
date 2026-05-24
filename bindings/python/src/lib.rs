@@ -789,8 +789,11 @@ impl PyStack {
         self.inner.children.clear();
     }
     #[pyo3(signature = (track, insertion_index=-1))]
-    fn add_track(&mut self, track: PyTrack, insertion_index: isize) {
-        self.inner.add_track_at(track.inner, insertion_index);
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> bool {
+        self.inner.add_track_at(track.inner, insertion_index)
+    }
+    fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
+        self.inner.reorder_track(id, insertion_index)
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
@@ -1188,8 +1191,11 @@ impl PyTimeline {
         self.inner.tracks = stack.inner;
     }
     #[pyo3(signature = (track, insertion_index=-1))]
-    fn add_track(&mut self, track: PyTrack, insertion_index: isize) {
-        self.inner.add_track_at(track.inner, insertion_index);
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> bool {
+        self.inner.add_track_at(track.inner, insertion_index)
+    }
+    fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
+        self.inner.reorder_track(id, insertion_index)
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner

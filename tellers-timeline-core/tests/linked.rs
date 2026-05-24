@@ -1183,6 +1183,125 @@ fn boundary_keeps_linked_audio_video_unlinked_audio_and_unlinked_video_as_three_
 }
 
 #[test]
+fn add_track_at_only_accepts_boundary_group_edges() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("linked-v".to_string())));
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("linked-video")),
+        vec![audio_clip(4.0, "file:///linked-audio.wav", None)],
+    )
+    .expect("linked insert should succeed");
+
+    let mut unlinked_audio = Track::new(TrackKind::Audio, Some("unlinked-a".to_string()));
+    unlinked_audio
+        .items
+        .push(audio_clip(4.0, "file:///unlinked-audio.wav", None));
+    stack.children.push(unlinked_audio);
+    let mut unlinked_video = Track::new(TrackKind::Video, Some("unlinked-v".to_string()));
+    unlinked_video
+        .items
+        .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
+    stack.children.push(unlinked_video);
+
+    assert!(!stack.add_track_at(
+        Track::new(TrackKind::Audio, Some("inside-linked-group".to_string())),
+        1,
+    ));
+    assert_eq!(stack.children.len(), 4);
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("linked-v"));
+
+    assert!(stack.add_track_at(
+        Track::new(TrackKind::Audio, Some("between-groups".to_string())),
+        2,
+    ));
+    assert_eq!(stack.children.len(), 5);
+    assert_eq!(
+        stack.children[2].get_id().as_deref(),
+        Some("between-groups")
+    );
+}
+
+#[test]
+fn reorder_track_moves_primary_group_only_to_boundary_edges() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("linked-v".to_string())));
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("linked-video")),
+        vec![audio_clip(4.0, "file:///linked-audio.wav", None)],
+    )
+    .expect("linked insert should succeed");
+
+    let mut unlinked_audio = Track::new(TrackKind::Audio, Some("unlinked-a".to_string()));
+    unlinked_audio
+        .items
+        .push(audio_clip(4.0, "file:///unlinked-audio.wav", None));
+    stack.children.push(unlinked_audio);
+    let mut unlinked_video = Track::new(TrackKind::Video, Some("unlinked-v".to_string()));
+    unlinked_video
+        .items
+        .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
+    stack.children.push(unlinked_video);
+
+    assert!(!stack.reorder_track("linked-v", 1));
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("linked-v"));
+
+    assert!(stack.reorder_track("linked-v", 4));
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("unlinked-a"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("unlinked-v"));
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[3].get_id().as_deref(), Some("linked-v"));
+}
+
+#[test]
+fn reorder_track_keeps_secondary_tracks_inside_current_boundary() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("linked-v".to_string())));
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("linked-video")),
+        vec![audio_clip(4.0, "file:///linked-audio.wav", None)],
+    )
+    .expect("linked insert should succeed");
+
+    let mut unlinked_audio = Track::new(TrackKind::Audio, Some("unlinked-a".to_string()));
+    unlinked_audio
+        .items
+        .push(audio_clip(4.0, "file:///unlinked-audio.wav", None));
+    stack.children.push(unlinked_audio);
+    let mut unlinked_video = Track::new(TrackKind::Video, Some("unlinked-v".to_string()));
+    unlinked_video
+        .items
+        .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
+    stack.children.push(unlinked_video);
+
+    assert!(!stack.reorder_track("A1", 3));
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("linked-v"));
+
+    assert!(stack.reorder_track("A1", 2));
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("linked-v"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("unlinked-a"));
+    assert_eq!(stack.children[3].get_id().as_deref(), Some("unlinked-v"));
+}
+
+#[test]
 fn insert_audio_primary_with_fewer_audio_links_fills_remaining_audio_track_with_gap() {
     let mut stack = Stack::default();
     stack
