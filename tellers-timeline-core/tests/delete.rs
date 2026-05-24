@@ -125,3 +125,27 @@ fn delete_clip_via_getter_with_gap() {
         _ => panic!("unexpected items: {:#?}", track.items),
     }
 }
+
+#[test]
+fn delete_item_sanitizes_stack_after_successful_delete() {
+    let mut track = Track::default();
+    let mut c1 = make_clip("c1", 4.0, 0.0);
+    let mut c2 = make_clip("c2", 3.0, 0.0);
+    c1.set_id(Some("c1".to_string()));
+    c2.set_id(Some("c2".to_string()));
+    track.items.push(c1);
+    track.items.push(c2);
+    track
+        .items
+        .push(Item::Gap(tellers_timeline_core::Gap::make_gap(2.0)));
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    let deleted = stack.delete_item("c2", false);
+
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(stack.children[0].items.len(), 1);
+    assert!(matches!(stack.children[0].items[0], Item::Clip(_)));
+}

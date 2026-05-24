@@ -1,6 +1,6 @@
 import json
 
-from tellers_timeline import Clip, Item, MediaReference, Timeline, Track
+from tellers_timeline import Clip, Item, MediaReference, Stack, Timeline, Track
 
 
 def test_round_trip_simple():
@@ -34,3 +34,22 @@ def test_enabled_defaults_and_round_trips():
     assert parsed_clip.get_enabled() is False
     parsed_clip.set_enabled(True)
     assert parsed_clip.get_enabled() is True
+
+
+def test_timeline_add_track_returns_inserted_track_id():
+    timeline = Timeline()
+    track = Track(kind="audio", id="new-audio-track")
+
+    inserted_id = timeline.add_track(track)
+
+    assert inserted_id == "new-audio-track"
+    assert timeline.get_stack().tracks()[0].get_id() == inserted_id
+
+
+def test_stack_add_track_returns_sanitized_inserted_track_id():
+    stack = Stack([Track(kind="video", id="duplicate-track")])
+
+    inserted_id = stack.add_track(Track(kind="audio", id="duplicate-track"), 1)
+
+    assert inserted_id != "duplicate-track"
+    assert stack.tracks()[1].get_id() == inserted_id

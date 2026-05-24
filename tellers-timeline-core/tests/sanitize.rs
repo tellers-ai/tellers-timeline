@@ -81,6 +81,25 @@ fn all_stack_ids(stack: &Stack) -> Vec<String> {
     ids
 }
 
+fn set_link_group(clip: &mut Clip, link_group_id: i64) {
+    clip.metadata = serde_json::json!({
+        "Resolve_OTIO": {
+            "Link Group ID": link_group_id
+        }
+    });
+}
+
+fn link_group_id(item: &Item) -> Option<i64> {
+    match item {
+        Item::Clip(clip) => clip
+            .metadata
+            .get("Resolve_OTIO")
+            .and_then(|v| v.get("Link Group ID"))
+            .and_then(|v| v.as_i64()),
+        Item::Gap(_) => None,
+    }
+}
+
 #[test]
 fn stack_sanitize_removes_track_trailing_gap_after_merging() {
     let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
@@ -169,6 +188,26 @@ fn stack_sanitize_assigns_missing_timeline_ids_and_repairs_duplicates() {
 }
 
 #[test]
+fn stack_track_mutators_sanitize_after_mutation() {
+    let mut stack = Stack::default();
+    stack.add_track(Track::new(TrackKind::Video, Some("same-id".to_string())));
+
+    let mut inserted = Track::new(TrackKind::Audio, Some("same-id".to_string()));
+    inserted
+        .items
+        .push(Item::Clip(clip(1.0, Some("same-id"))));
+    inserted.items.push(Item::Gap(Gap::make_gap(2.0)));
+
+    stack.add_track_at(inserted, 0);
+
+    let ids = all_stack_ids(&stack);
+    let unique: HashSet<_> = ids.iter().collect();
+    assert_eq!(ids.len(), unique.len());
+    assert_eq!(stack.children[0].items.len(), 1);
+    assert!(matches!(stack.children[0].items[0], Item::Clip(_)));
+}
+
+#[test]
 fn timeline_sanitize_uses_stack_timeline_id_repair() {
     let mut timeline = Timeline::default();
     let mut track = Track::new(TrackKind::Video, Some("duplicate".to_string()));
@@ -180,4 +219,44 @@ fn timeline_sanitize_uses_stack_timeline_id_repair() {
     let ids = all_stack_ids(&timeline.tracks);
     let unique: HashSet<_> = ids.iter().collect();
     assert_eq!(ids.len(), unique.len());
+}
+
+#[test]
+fn stack_sanitize_removes_dangling_link_group() {
+    let mut linked = clip(2.0, Some("dangling"));
+    set_link_group(&mut linked, 42);
+    let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
+    track.items.push(Item::Clip(linked));
+
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    stack.sanitize();
+
+    assert_eq!(link_group_id(&stack.children[0].items[0]), None);
+}
+
+#[test]
+fn stack_sanitize_keeps_non_dangling_link_group() {
+    let mut video_clip = clip(2.0, Some("video"));
+    let mut audio_clip = clip(2.0, Some("audio"));
+    set_link_group(&mut video_clip, 42);
+    set_link_group(&mut audio_clip, 42);
+
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(Item::Clip(video_clip));
+    let mut audio = Track::new(TrackKind::Audio, Some("audio-track".to_string()));
+    audio.items.push(Item::Clip(audio_clip));
+
+    let mut stack = Stack {
+        children: vec![audio, video],
+        ..Stack::default()
+    };
+
+    stack.sanitize();
+
+    assert_eq!(link_group_id(&stack.children[0].items[0]), Some(42));
+    assert_eq!(link_group_id(&stack.children[1].items[0]), Some(42));
 }

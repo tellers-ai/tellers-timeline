@@ -640,6 +640,26 @@ fn track_kind_from_str(s: &str) -> TrackKind {
     }
 }
 
+fn clamp_insertion_index(len: usize, index: isize) -> usize {
+    if index < 0 {
+        let pos = len as isize + index;
+        if pos <= 0 {
+            0
+        } else if pos >= len as isize {
+            len
+        } else {
+            pos as usize
+        }
+    } else {
+        let idx = index as usize;
+        if idx > len {
+            len
+        } else {
+            idx
+        }
+    }
+}
+
 fn overlap_policy_from_str(s: &str) -> OverlapPolicy {
     match s.to_ascii_lowercase().as_str() {
         "override" => OverlapPolicy::Override,
@@ -789,8 +809,22 @@ impl PyStack {
         self.inner.children.clear();
     }
     #[pyo3(signature = (track, insertion_index=-1))]
-    fn add_track(&mut self, track: PyTrack, insertion_index: isize) {
-        self.inner.add_track_at(track.inner, insertion_index);
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> PyResult<String> {
+        let insert_index = clamp_insertion_index(self.inner.children.len(), insertion_index);
+        if !self.inner.add_track_at(track.inner, insertion_index) {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Failed to add track",
+            ));
+        }
+        self.inner.children[insert_index].get_id().ok_or_else(|| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>("Inserted track has no id")
+        })
+    }
+    fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
+        self.inner.reorder_track(id, insertion_index)
+    }
+    fn track_boundary_group_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_boundary_group_info_to_python(py, self.inner.track_boundary_group_info())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
@@ -1118,6 +1152,27 @@ fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
     None
 }
 
+fn track_boundary_group_info_to_python(
+    py: Python<'_>,
+    groups: Vec<tellers_timeline_core::TrackBoundaryGroupInfo>,
+) -> PyResult<Vec<PyObject>> {
+    groups
+        .into_iter()
+        .map(|group| {
+            let dict = PyDict::new(py);
+            dict.set_item("start_index", group.start_index)?;
+            dict.set_item("end_index", group.end_index)?;
+            dict.set_item("track_indices", group.track_indices)?;
+            dict.set_item("track_ids", group.track_ids)?;
+            dict.set_item("primary_track_index", group.primary_track_index)?;
+            dict.set_item("primary_track_id", group.primary_track_id)?;
+            dict.set_item("bound_track_indices", group.bound_track_indices)?;
+            dict.set_item("bound_track_ids", group.bound_track_ids)?;
+            Ok(dict.into_py(py))
+        })
+        .collect()
+}
+
 #[pyclass(name = "Timeline")]
 #[derive(Clone)]
 struct PyTimeline {
@@ -1188,8 +1243,24 @@ impl PyTimeline {
         self.inner.tracks = stack.inner;
     }
     #[pyo3(signature = (track, insertion_index=-1))]
-    fn add_track(&mut self, track: PyTrack, insertion_index: isize) {
-        self.inner.add_track_at(track.inner, insertion_index);
+    fn add_track(&mut self, track: PyTrack, insertion_index: isize) -> PyResult<String> {
+        let insert_index = clamp_insertion_index(self.inner.tracks.children.len(), insertion_index);
+        if !self.inner.add_track_at(track.inner, insertion_index) {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Failed to add track",
+            ));
+        }
+        self.inner.tracks.children[insert_index]
+            .get_id()
+            .ok_or_else(|| {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>("Inserted track has no id")
+            })
+    }
+    fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
+        self.inner.reorder_track(id, insertion_index)
+    }
+    fn track_boundary_group_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_boundary_group_info_to_python(py, self.inner.track_boundary_group_info())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner

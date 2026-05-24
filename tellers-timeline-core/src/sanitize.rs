@@ -1,5 +1,5 @@
 use crate::{IdMetadataExt, Item, Stack, Timeline, Track};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 impl Timeline {
     pub fn sanitize(&mut self) {
@@ -42,7 +42,9 @@ impl Track {
         for item in self.items.drain(..) {
             match (merged.last_mut(), &item) {
                 (Some(Item::Gap(prev)), Item::Gap(next)) => {
-                    prev.source_range.duration.value += next.source_range.duration.value;
+                    let duration =
+                        prev.source_range.duration.to_seconds() + next.source_range.duration.to_seconds();
+                    prev.source_range.duration.set_from_seconds(duration);
                 }
                 _ => merged.push(item),
             }
@@ -51,6 +53,9 @@ impl Track {
     }
 
     pub(crate) fn remove_trailing_gap(&mut self) {
+        if self.items.iter().all(|item| matches!(item, Item::Gap(_))) {
+            return;
+        }
         if self
             .items
             .last()
@@ -67,6 +72,7 @@ impl Stack {
             t.sanitize();
         }
         self.ensure_unique_timeline_ids();
+        self.cleanup_dangling_link_groups();
     }
 
     fn ensure_unique_timeline_ids(&mut self) {
@@ -75,6 +81,34 @@ impl Stack {
             ensure_unique_timeline_id(track, &mut used_ids);
             for item in &mut track.items {
                 ensure_unique_timeline_id(item, &mut used_ids);
+            }
+        }
+    }
+
+    fn cleanup_dangling_link_groups(&mut self) {
+        let mut counts: HashMap<i64, usize> = HashMap::new();
+        for track in &self.children {
+            for item in &track.items {
+                let Item::Clip(clip) = item else {
+                    continue;
+                };
+                if let Some(link_group_id) = resolve_link_group_id(&clip.metadata) {
+                    *counts.entry(link_group_id).or_default() += 1;
+                }
+            }
+        }
+
+        for track in &mut self.children {
+            for item in &mut track.items {
+                let Item::Clip(clip) = item else {
+                    continue;
+                };
+                let Some(link_group_id) = resolve_link_group_id(&clip.metadata) else {
+                    continue;
+                };
+                if counts.get(&link_group_id).copied().unwrap_or_default() < 2 {
+                    remove_resolve_link_group_id(&mut clip.metadata);
+                }
             }
         }
     }
@@ -97,4 +131,25 @@ fn new_unused_timeline_id(used_ids: &mut HashSet<String>) -> String {
             return id;
         }
     }
+}
+
+fn resolve_link_group_id(metadata: &serde_json::Value) -> Option<i64> {
+    metadata
+        .get("Resolve_OTIO")
+        .and_then(|v| v.get("Link Group ID"))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_u64().and_then(|n| i64::try_from(n).ok()))
+                .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+        })
+}
+
+fn remove_resolve_link_group_id(metadata: &mut serde_json::Value) -> bool {
+    let Some(resolve) = metadata
+        .get_mut("Resolve_OTIO")
+        .and_then(|value| value.as_object_mut())
+    else {
+        return false;
+    };
+    resolve.remove("Link Group ID").is_some()
 }

@@ -111,9 +111,9 @@ def test_insert_master_clip_with_multiple_linked_audio_clips():
 
     tracks = stack.tracks()
     assert [tracks[index].get_id() for _, index in result["audio_clips"]] == [
-        "A1",
-        "A2",
         "A3",
+        "A2",
+        "A1",
     ]
     primary_track, primary_index, primary_item = stack.get_item("master-video")
     assert tracks[primary_track].start_time_of_item(primary_index) == 2.0
@@ -315,6 +315,87 @@ def test_timeline_delete_track_removes_linked_assets_left_behind():
         for track in stack.tracks()
         for item in track.items()
     )
+
+
+def test_track_boundary_group_info_reports_primary_and_bound_tracks():
+    stack = Stack([Track(kind="video", id="linked-v")])
+    stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="linked-video"),
+        "override",
+        "split_and_insert",
+        [Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    stack.set_tracks(
+        stack.tracks()
+        + [
+            Track(
+                kind="audio",
+                id="unlinked-a",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            4.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///unlinked-a.wav")},
+                        )
+                    )
+                ],
+            ),
+            Track(
+                kind="video",
+                id="unlinked-v",
+                children=[
+                    Item.from_clip(
+                        Clip(
+                            4.0,
+                            {"DEFAULT_MEDIA": MediaReference("file:///unlinked-v.mov")},
+                            id="unlinked-video",
+                        )
+                    )
+                ],
+            ),
+        ]
+    )
+
+    groups = stack.track_boundary_group_info()
+
+    assert len(groups) == 3
+    assert groups[0]["start_index"] == 0
+    assert groups[0]["end_index"] == 2
+    assert groups[0]["track_indices"] == [0, 1]
+    assert groups[0]["track_ids"] == ["A1", "linked-v"]
+    assert groups[0]["primary_track_index"] == 1
+    assert groups[0]["primary_track_id"] == "linked-v"
+    assert groups[0]["bound_track_indices"] == [0]
+    assert groups[0]["bound_track_ids"] == ["A1"]
+
+    assert groups[1]["track_indices"] == [2]
+    assert groups[1]["primary_track_id"] == "unlinked-a"
+    assert groups[1]["bound_track_indices"] == []
+
+    assert groups[2]["track_indices"] == [3]
+    assert groups[2]["primary_track_id"] == "unlinked-v"
+    assert groups[2]["bound_track_indices"] == []
+
+
+def test_timeline_track_boundary_group_info_reports_primary_and_bound_tracks():
+    timeline = Timeline(Stack([Track(kind="video", id="linked-v")]))
+    stack = timeline.get_stack()
+    stack.insert_item_at_time(
+        0,
+        0.0,
+        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="linked-video"),
+        "override",
+        "split_and_insert",
+        [Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")})],
+    )
+    timeline.set_stack(stack)
+
+    groups = timeline.track_boundary_group_info()
+
+    assert groups[0]["primary_track_id"] == "linked-v"
+    assert groups[0]["bound_track_ids"] == ["A1"]
 
 
 def test_track_timeline_ids_returns_child_item_ids_in_order():
