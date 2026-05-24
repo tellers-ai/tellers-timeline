@@ -2971,6 +2971,73 @@ fn move_unlinked_item_with_gap_and_split_target_updates_linked_assets() {
 }
 
 #[test]
+fn move_unlinked_item_pushes_full_linked_boundary_with_gap_companions() {
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(1.0, Some("unlinked"))));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        1.0,
+        clip(2.0, Some("linked-video")),
+        vec![
+            audio_clip(2.0, "file:///linked-a1.wav", None),
+            audio_clip(2.0, "file:///linked-a2.wav", None),
+        ],
+    )
+    .unwrap();
+    let audio_ids: Vec<_> = result
+        .audio_clips
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect();
+
+    assert!(stack.move_item_at_time(
+        "unlinked",
+        "v",
+        0.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Push,
+    ));
+
+    let (video_track_index, video_item_index, moved_item) = stack.get_item("unlinked").unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        0.0
+    );
+    assert_eq!(moved_item.duration(), 1.0);
+
+    let (linked_video_track_index, linked_video_item_index, linked_video) =
+        stack.get_item("linked-video").unwrap();
+    assert_eq!(
+        stack.children[linked_video_track_index].start_time_of_item(linked_video_item_index),
+        2.0
+    );
+    assert_eq!(link_group_id(linked_video), result.link_group_id);
+
+    for audio_id in &audio_ids {
+        let (audio_track_index, audio_item_index, audio_item) = stack.get_item(audio_id).unwrap();
+        assert_eq!(
+            stack.children[audio_track_index].start_time_of_item(audio_item_index),
+            2.0
+        );
+        assert_eq!(link_group_id(audio_item), result.link_group_id);
+        let spacer_index = stack.children[audio_track_index].get_item_at_time(0.5).unwrap();
+        assert!(matches!(
+            stack.children[audio_track_index].items[spacer_index],
+            Item::Gap(_)
+        ));
+        assert_eq!(
+            stack.children[audio_track_index].items[spacer_index].duration(),
+            1.0
+        );
+    }
+}
+
+#[test]
 fn track_timeline_ids_returns_child_item_ids_in_order() {
     let mut track = Track::new(TrackKind::Video, Some("track".to_string()));
     track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));
