@@ -4,12 +4,14 @@ impl Stack {
     /// Append a track to the stack.
     pub fn add_track(&mut self, track: Track) {
         self.children.push(track);
+        self.sanitize();
     }
 
     /// Insert a track at a specific index. Negative indices behave like Python's.
     pub fn add_track_at(&mut self, track: Track, insertion_index: isize) {
         let idx = super::clamp_insertion_index(self.children.len(), insertion_index);
         self.children.insert(idx, track);
+        self.sanitize();
     }
 
     /// Delete a track by id. Returns the removed track on success.
@@ -27,6 +29,7 @@ impl Stack {
         for link_group_id in touched_link_groups {
             self.delete_link_group(link_group_id, true);
         }
+        self.sanitize();
         Some(removed)
     }
 }

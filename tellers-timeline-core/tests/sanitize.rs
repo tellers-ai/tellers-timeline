@@ -188,6 +188,26 @@ fn stack_sanitize_assigns_missing_timeline_ids_and_repairs_duplicates() {
 }
 
 #[test]
+fn stack_track_mutators_sanitize_after_mutation() {
+    let mut stack = Stack::default();
+    stack.add_track(Track::new(TrackKind::Video, Some("same-id".to_string())));
+
+    let mut inserted = Track::new(TrackKind::Audio, Some("same-id".to_string()));
+    inserted
+        .items
+        .push(Item::Clip(clip(1.0, Some("same-id"))));
+    inserted.items.push(Item::Gap(Gap::make_gap(2.0)));
+
+    stack.add_track_at(inserted, 0);
+
+    let ids = all_stack_ids(&stack);
+    let unique: HashSet<_> = ids.iter().collect();
+    assert_eq!(ids.len(), unique.len());
+    assert_eq!(stack.children[0].items.len(), 1);
+    assert!(matches!(stack.children[0].items[0], Item::Clip(_)));
+}
+
+#[test]
 fn timeline_sanitize_uses_stack_timeline_id_repair() {
     let mut timeline = Timeline::default();
     let mut track = Track::new(TrackKind::Video, Some("duplicate".to_string()));
