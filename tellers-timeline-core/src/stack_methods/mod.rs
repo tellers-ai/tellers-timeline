@@ -988,12 +988,18 @@ impl Stack {
         let mut used_audio_boundary_indices = Vec::new();
         for _ in &linked_inputs.audio {
             let track_count_before = self.children.len();
+            let mut unavailable_audio_track_indices = audio_track_indices.clone();
+            if self.children[primary_track_index].kind == TrackKind::Audio
+                && !unavailable_audio_track_indices.contains(&primary_track_index)
+            {
+                unavailable_audio_track_indices.push(primary_track_index);
+            }
             let Some(track_index) = self.find_or_create_audio_track(
                 primary_track_index,
                 start,
                 modified_duration,
                 &mut created_track_indices,
-                &audio_track_indices,
+                &unavailable_audio_track_indices,
                 &used_audio_boundary_indices,
                 link_group_id,
                 true,
