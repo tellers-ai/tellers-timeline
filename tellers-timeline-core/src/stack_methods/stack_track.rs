@@ -1,4 +1,5 @@
-use crate::{Item, Stack, Track, TrackKind};
+use super::TrackBoundaryGroupInfo;
+use crate::{IdMetadataExt, Item, Stack, Track, TrackKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TrackBoundaryGroup {
@@ -76,6 +77,40 @@ impl Stack {
         true
     }
 
+    /// Return boundary groups with their primary track and bound tracks.
+    pub fn track_boundary_group_info(&self) -> Vec<TrackBoundaryGroupInfo> {
+        self.track_boundary_ranges()
+            .into_iter()
+            .map(|group| {
+                let primary_track_index = self.primary_track_index_in_group(group);
+                let track_indices: Vec<_> = (group.start..group.end).collect();
+                let track_ids = track_indices
+                    .iter()
+                    .map(|index| self.children[*index].get_id())
+                    .collect();
+                let bound_track_indices: Vec<_> = track_indices
+                    .iter()
+                    .copied()
+                    .filter(|index| *index != primary_track_index)
+                    .collect();
+                let bound_track_ids = bound_track_indices
+                    .iter()
+                    .map(|index| self.children[*index].get_id())
+                    .collect();
+                TrackBoundaryGroupInfo {
+                    start_index: group.start,
+                    end_index: group.end,
+                    track_indices,
+                    track_ids,
+                    primary_track_index,
+                    primary_track_id: self.children[primary_track_index].get_id(),
+                    bound_track_indices,
+                    bound_track_ids,
+                }
+            })
+            .collect()
+    }
+
     /// Delete a track by id. Returns the removed track on success.
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         let (i, track) = self.get_track_by_id(id)?;
@@ -102,18 +137,18 @@ impl Stack {
         index == 0
             || index == self.children.len()
             || self
-                .track_boundary_groups()
+                .track_boundary_ranges()
                 .iter()
                 .any(|group| index == group.start || index == group.end)
     }
 
     fn track_boundary_group_at(&self, track_index: usize) -> Option<TrackBoundaryGroup> {
-        self.track_boundary_groups()
+        self.track_boundary_ranges()
             .into_iter()
             .find(|group| track_index >= group.start && track_index < group.end)
     }
 
-    fn track_boundary_groups(&self) -> Vec<TrackBoundaryGroup> {
+    fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
         let mut groups = Vec::new();
         let mut start = 0;
         while start < self.children.len() {
@@ -146,15 +181,19 @@ impl Stack {
     }
 
     fn is_primary_track_in_group(&self, track_index: usize, group: TrackBoundaryGroup) -> bool {
+        track_index == self.primary_track_index_in_group(group)
+    }
+
+    fn primary_track_index_in_group(&self, group: TrackBoundaryGroup) -> usize {
         if group.end <= group.start + 1 {
-            return true;
+            return group.start;
         }
         if let Some(video_index) = (group.start..group.end)
             .find(|index| self.children[*index].kind == TrackKind::Video)
         {
-            return track_index == video_index;
+            return video_index;
         }
-        track_index == group.start
+        group.start
     }
 }
 

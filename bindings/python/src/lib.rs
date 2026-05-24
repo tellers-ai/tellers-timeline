@@ -795,6 +795,9 @@ impl PyStack {
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
     }
+    fn track_boundary_group_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_boundary_group_info_to_python(py, self.inner.track_boundary_group_info())
+    }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
             .delete_track(id)
@@ -1121,6 +1124,27 @@ fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
     None
 }
 
+fn track_boundary_group_info_to_python(
+    py: Python<'_>,
+    groups: Vec<tellers_timeline_core::TrackBoundaryGroupInfo>,
+) -> PyResult<Vec<PyObject>> {
+    groups
+        .into_iter()
+        .map(|group| {
+            let dict = PyDict::new(py);
+            dict.set_item("start_index", group.start_index)?;
+            dict.set_item("end_index", group.end_index)?;
+            dict.set_item("track_indices", group.track_indices)?;
+            dict.set_item("track_ids", group.track_ids)?;
+            dict.set_item("primary_track_index", group.primary_track_index)?;
+            dict.set_item("primary_track_id", group.primary_track_id)?;
+            dict.set_item("bound_track_indices", group.bound_track_indices)?;
+            dict.set_item("bound_track_ids", group.bound_track_ids)?;
+            Ok(dict.into_py(py))
+        })
+        .collect()
+}
+
 #[pyclass(name = "Timeline")]
 #[derive(Clone)]
 struct PyTimeline {
@@ -1196,6 +1220,9 @@ impl PyTimeline {
     }
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
+    }
+    fn track_boundary_group_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_boundary_group_info_to_python(py, self.inner.track_boundary_group_info())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner

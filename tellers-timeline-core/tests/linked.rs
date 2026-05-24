@@ -1183,6 +1183,65 @@ fn boundary_keeps_linked_audio_video_unlinked_audio_and_unlinked_video_as_three_
 }
 
 #[test]
+fn track_boundary_group_info_reports_primary_and_bound_tracks() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("linked-v".to_string())));
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("linked-video")),
+        vec![audio_clip(4.0, "file:///linked-audio.wav", None)],
+    )
+    .expect("linked insert should succeed");
+
+    let mut unlinked_audio = Track::new(TrackKind::Audio, Some("unlinked-a".to_string()));
+    unlinked_audio
+        .items
+        .push(audio_clip(4.0, "file:///unlinked-audio.wav", None));
+    stack.children.push(unlinked_audio);
+    let mut unlinked_video = Track::new(TrackKind::Video, Some("unlinked-v".to_string()));
+    unlinked_video
+        .items
+        .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
+    stack.children.push(unlinked_video);
+
+    let groups = stack.track_boundary_group_info();
+
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].start_index, 0);
+    assert_eq!(groups[0].end_index, 2);
+    assert_eq!(groups[0].track_indices, vec![0, 1]);
+    assert_eq!(
+        groups[0].track_ids,
+        vec![Some("A1".to_string()), Some("linked-v".to_string())]
+    );
+    assert_eq!(groups[0].primary_track_index, 1);
+    assert_eq!(
+        groups[0].primary_track_id.as_deref(),
+        Some("linked-v")
+    );
+    assert_eq!(groups[0].bound_track_indices, vec![0]);
+    assert_eq!(groups[0].bound_track_ids, vec![Some("A1".to_string())]);
+
+    assert_eq!(groups[1].track_indices, vec![2]);
+    assert_eq!(
+        groups[1].primary_track_id.as_deref(),
+        Some("unlinked-a")
+    );
+    assert!(groups[1].bound_track_indices.is_empty());
+
+    assert_eq!(groups[2].track_indices, vec![3]);
+    assert_eq!(
+        groups[2].primary_track_id.as_deref(),
+        Some("unlinked-v")
+    );
+    assert!(groups[2].bound_track_indices.is_empty());
+}
+
+#[test]
 fn add_track_at_only_accepts_boundary_group_edges() {
     let mut stack = Stack::default();
     stack

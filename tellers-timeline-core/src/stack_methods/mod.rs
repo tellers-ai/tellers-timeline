@@ -29,6 +29,18 @@ pub enum InsertItemAtTimeResult {
     Linked(LinkedInsertResult),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackBoundaryGroupInfo {
+    pub start_index: usize,
+    pub end_index: usize,
+    pub track_indices: Vec<usize>,
+    pub track_ids: Vec<Option<String>>,
+    pub primary_track_index: usize,
+    pub primary_track_id: Option<String>,
+    pub bound_track_indices: Vec<usize>,
+    pub bound_track_ids: Vec<Option<String>>,
+}
+
 #[derive(Debug, Clone)]
 struct LinkedInputs {
     audio: Vec<Item>,
