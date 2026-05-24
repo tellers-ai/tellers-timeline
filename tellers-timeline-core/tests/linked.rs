@@ -2416,6 +2416,70 @@ fn move_item_at_time_moves_linked_group() {
 }
 
 #[test]
+fn move_linked_video_to_new_boundary_creates_audio_track_without_retiming() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip_with_media_range(3.0, 2.0, 0.0, 10.0),
+        vec![audio_clip(3.0, "file:///source-audio.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    let (source_audio_track_index, source_audio_item_index, _) = stack.get_item(&audio_id).unwrap();
+    let source_audio_track_id = stack.children[source_audio_track_index].get_id().unwrap();
+    if let Item::Clip(clip) =
+        &mut stack.children[source_audio_track_index].items[source_audio_item_index]
+    {
+        clip.source_range.start_time.value = 1.5;
+    }
+
+    let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
+    dest_video.items.push(Item::Gap(Gap::make_gap(10.0)));
+    stack.children.push(dest_video);
+
+    assert!(stack.move_item_at_time(
+        &result.primary_clip_id,
+        "dest-v",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track_index, video_item_index, video_item) =
+        stack.get_item(&result.primary_clip_id).unwrap();
+    let (audio_track_index, audio_item_index, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(
+        stack.children[video_track_index].get_id().as_deref(),
+        Some("dest-v")
+    );
+    assert_ne!(
+        stack.children[audio_track_index].get_id().as_deref(),
+        Some(source_audio_track_id.as_str())
+    );
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        4.0
+    );
+    assert_eq!(
+        stack.children[audio_track_index].start_time_of_item(audio_item_index),
+        4.0
+    );
+    assert_eq!(video_item.duration(), 3.0);
+    assert_eq!(audio_item.duration(), 3.0);
+    assert_eq!(source_start(video_item), 2.0);
+    assert_eq!(source_start(audio_item), 1.5);
+    assert_eq!(active_target_url(audio_item), Some("file:///source-audio.wav"));
+    assert_eq!(link_group_id(video_item), result.link_group_id);
+    assert_eq!(link_group_id(audio_item), result.link_group_id);
+}
+
+#[test]
 fn move_linked_item_at_time_does_not_cross_unlinked_destination_track() {
     let mut stack = Stack::default();
     stack

@@ -51,6 +51,7 @@ struct LinkedInputs {
 struct LinkedMoveItem {
     track_index: usize,
     item_index: usize,
+    track_kind: TrackKind,
     item: Item,
     is_selected: bool,
 }
@@ -83,6 +84,27 @@ enum LinkedMovePlacement {
     Index {
         dest_index: usize,
     },
+}
+
+fn shift_track_index_after_insert(track_index: &mut usize, inserted_track_index: usize) {
+    if inserted_track_index <= *track_index {
+        *track_index += 1;
+    }
+}
+
+fn shift_track_indices_after_insert(track_indices: &mut [usize], inserted_track_index: usize) {
+    for track_index in track_indices {
+        shift_track_index_after_insert(track_index, inserted_track_index);
+    }
+}
+
+fn shift_move_placements_after_insert(
+    placements: &mut [(usize, Item, bool)],
+    inserted_track_index: usize,
+) {
+    for (track_index, _, _) in placements {
+        shift_track_index_after_insert(track_index, inserted_track_index);
+    }
 }
 
 fn clamp_insertion_index(len: usize, index: isize) -> usize {
@@ -735,33 +757,6 @@ impl Stack {
             start = end;
         }
         true
-    }
-
-    fn boundary_track_indices_for_link_groups(
-        &self,
-        link_groups: &[i64],
-        anchor_track_indices: &[usize],
-        excluded_track_indices: &[usize],
-    ) -> Vec<usize> {
-        if link_groups.is_empty() {
-            return Vec::new();
-        }
-
-        let mut track_indices = Vec::new();
-        for anchor_track_index in anchor_track_indices {
-            for track_index in &self
-                .flatten_boundary_for_link_groups(*anchor_track_index, link_groups)
-                .track_indices
-            {
-                if excluded_track_indices.contains(track_index) {
-                    continue;
-                }
-                if !track_indices.contains(track_index) {
-                    track_indices.push(*track_index);
-                }
-            }
-        }
-        track_indices
     }
 
     fn boundary_track_indices_for_anchors(
@@ -1692,6 +1687,7 @@ impl Stack {
 
         let mut items = Vec::new();
         for (track_index, item_index) in targets {
+            let track_kind = self.children.get(track_index)?.kind.clone();
             let item = self
                 .children
                 .get(track_index)?
@@ -1703,6 +1699,7 @@ impl Stack {
             items.push(LinkedMoveItem {
                 track_index,
                 item_index,
+                track_kind,
                 item,
                 is_selected,
             });
@@ -1713,7 +1710,7 @@ impl Stack {
     fn move_linked_items(
         &mut self,
         items_to_move: Vec<LinkedMoveItem>,
-        dest_track_index: usize,
+        mut dest_track_index: usize,
         replace_with_gap: bool,
         overlap_policy: OverlapPolicy,
         placement: LinkedMovePlacement,
@@ -1723,10 +1720,6 @@ impl Stack {
             return false;
         }
 
-        let mut items_to_move = items_to_move;
-        for item in &mut items_to_move {
-            item.item.clamp_to_active_available_range();
-        }
         let Some(selected_position) = items_to_move.iter().position(|item| item.is_selected) else {
             return false;
         };
@@ -1748,23 +1741,6 @@ impl Stack {
         {
             return false;
         }
-
-        let source_track_indices: Vec<_> =
-            items_to_move.iter().map(|item| item.track_index).collect();
-        let mut anchor_track_indices = source_track_indices.clone();
-        anchor_track_indices.push(dest_track_index);
-        let mut boundary_track_indices = self.boundary_track_indices_for_link_groups(
-            &[link_group_id],
-            &anchor_track_indices,
-            &[],
-        );
-        for track_index in anchor_track_indices {
-            if !boundary_track_indices.contains(&track_index) {
-                boundary_track_indices.push(track_index);
-            }
-        }
-        boundary_track_indices.sort_unstable();
-        boundary_track_indices.dedup();
 
         let mut used_ids = self.collect_timeline_ids();
         let mut targets: Vec<_> = items_to_move
@@ -1804,25 +1780,132 @@ impl Stack {
             }
         };
 
-        let mut placements = Vec::new();
-        placements.push((
+        let mut placements = vec![(
             dest_track_index,
             items_to_move[selected_position].item.clone(),
             true,
-        ));
+        )];
+        let mut created_track_indices = Vec::new();
+        let mut used_audio_track_indices = Vec::new();
+        let mut used_audio_boundary_indices = Vec::new();
+        let mut used_video_track_indices = Vec::new();
+        match self.children[dest_track_index].kind {
+            TrackKind::Audio => used_audio_track_indices.push(dest_track_index),
+            TrackKind::Video => used_video_track_indices.push(dest_track_index),
+            TrackKind::Other => {}
+        }
+
         for (position, move_item) in items_to_move.into_iter().enumerate() {
             if position == selected_position {
                 continue;
             }
-            if placements
-                .iter()
-                .any(|(track_index, _, _)| *track_index == move_item.track_index)
-            {
-                *self = backup;
-                return false;
-            };
-            placements.push((move_item.track_index, move_item.item, false));
+
+            match move_item.track_kind {
+                TrackKind::Audio => {
+                    let track_count_before = self.children.len();
+                    let Some(track_index) = self.find_or_create_audio_track(
+                        dest_track_index,
+                        moved_start,
+                        moved_duration,
+                        &mut created_track_indices,
+                        &used_audio_track_indices,
+                        &used_audio_boundary_indices,
+                        Some(link_group_id),
+                        true,
+                        overlap_policy,
+                    ) else {
+                        *self = backup;
+                        return false;
+                    };
+                    let reused_empty_boundary_track = self.children.len() == track_count_before
+                        && track_is_empty_boundary(&self.children[track_index]);
+                    if self.children.len() > track_count_before {
+                        shift_track_index_after_insert(&mut dest_track_index, track_index);
+                        shift_move_placements_after_insert(&mut placements, track_index);
+                        shift_track_indices_after_insert(
+                            &mut used_audio_track_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_audio_boundary_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_video_track_indices,
+                            track_index,
+                        );
+                    }
+                    placements.push((track_index, move_item.item, false));
+                    used_audio_track_indices.push(track_index);
+                    if reused_empty_boundary_track {
+                        used_audio_boundary_indices.push(track_index);
+                    }
+                }
+                TrackKind::Video => {
+                    let track_count_before = self.children.len();
+                    let Some(mut track_index) = self.find_or_create_video_track_for_audio(
+                        dest_track_index,
+                        moved_start,
+                        moved_duration,
+                        &mut created_track_indices,
+                        Some(link_group_id),
+                        true,
+                        overlap_policy,
+                    ) else {
+                        *self = backup;
+                        return false;
+                    };
+                    if self.children.len() > track_count_before {
+                        shift_track_index_after_insert(&mut dest_track_index, track_index);
+                        shift_move_placements_after_insert(&mut placements, track_index);
+                        shift_track_indices_after_insert(
+                            &mut used_audio_track_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_audio_boundary_indices,
+                            track_index,
+                        );
+                        shift_track_indices_after_insert(
+                            &mut used_video_track_indices,
+                            track_index,
+                        );
+                    }
+                    if used_video_track_indices.contains(&track_index) {
+                        let insert_at = track_index;
+                        self.children
+                            .insert(insert_at, self.new_numbered_track(TrackKind::Video));
+                        created_track_indices.push(insert_at);
+                        shift_track_index_after_insert(&mut dest_track_index, insert_at);
+                        shift_move_placements_after_insert(&mut placements, insert_at);
+                        shift_track_indices_after_insert(&mut used_audio_track_indices, insert_at);
+                        shift_track_indices_after_insert(
+                            &mut used_audio_boundary_indices,
+                            insert_at,
+                        );
+                        shift_track_indices_after_insert(&mut used_video_track_indices, insert_at);
+                        track_index = insert_at;
+                    }
+                    placements.push((track_index, move_item.item, false));
+                    used_video_track_indices.push(track_index);
+                }
+                TrackKind::Other => {
+                    *self = backup;
+                    return false;
+                }
+            }
         }
+
+        let mut boundary_track_indices =
+            self.boundary_track_indices_for_anchors(&[link_group_id], &[dest_track_index], &[]);
+        for (track_index, _, _) in &placements {
+            if !boundary_track_indices.contains(track_index) {
+                boundary_track_indices.push(*track_index);
+            }
+        }
+        boundary_track_indices.sort_unstable();
+        boundary_track_indices.dedup();
+
         for track_index in boundary_track_indices {
             if placements
                 .iter()
@@ -1853,12 +1936,20 @@ impl Stack {
                     }
                 }
             } else {
-                self.children[track_index].insert_at_time(
-                    moved_start,
-                    item,
-                    overlap_policy,
-                    InsertPolicy::SplitAndInsert,
-                );
+                let moved_end = moved_start + item.duration().max(0.0);
+                if range_is_gap_backed(&self.children[track_index], moved_start, moved_end) {
+                    if !self.insert_gap_only(track_index, moved_start, item) {
+                        *self = backup;
+                        return false;
+                    }
+                } else {
+                    self.children[track_index].insert_at_time(
+                        moved_start,
+                        item,
+                        overlap_policy,
+                        InsertPolicy::SplitAndInsert,
+                    );
+                }
             }
         }
         if self.get_item(&selected_id).is_none() {
@@ -2000,10 +2091,14 @@ fn item_source_start(item: &Item) -> Seconds {
 fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
     match item {
         Item::Clip(clip) => {
-            clip.source_range.start_time.set_from_seconds(source_start_time);
+            clip.source_range
+                .start_time
+                .set_from_seconds(source_start_time);
         }
         Item::Gap(gap) => {
-            gap.source_range.start_time.set_from_seconds(source_start_time);
+            gap.source_range
+                .start_time
+                .set_from_seconds(source_start_time);
         }
     }
 }
