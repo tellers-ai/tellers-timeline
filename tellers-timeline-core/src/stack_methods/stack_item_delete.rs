@@ -12,13 +12,21 @@ impl Stack {
         }) {
             Some(id) => id,
             None => {
-                return self
+                let removed: Vec<_> = self
                     .delete_one_item(item_id, replace_with_gap)
                     .into_iter()
                     .collect();
+                if !removed.is_empty() {
+                    self.sanitize();
+                }
+                return removed;
             }
         };
 
-        self.delete_link_group(link_group_id, replace_with_gap)
+        let removed = self.delete_link_group(link_group_id, replace_with_gap);
+        if !removed.is_empty() {
+            self.sanitize();
+        }
+        removed
     }
 }
