@@ -1295,6 +1295,42 @@ impl Stack {
             .fold(new_duration.max(0.0), Seconds::min);
 
         let backup = self.clone();
+        if start_delta.abs() <= EPS {
+            let mut modified_track_indices = Vec::new();
+            for id in &target_ids {
+                let Some((track_index, item_index, _)) = self.get_item(id) else {
+                    *self = backup;
+                    return false;
+                };
+                let Some(track) = self.children.get_mut(track_index) else {
+                    *self = backup;
+                    return false;
+                };
+                let Some(item) = track.items.get_mut(item_index) else {
+                    *self = backup;
+                    return false;
+                };
+                item.set_duration(effective_duration);
+                if clamp_to_media {
+                    item.clamp_to_active_available_range();
+                }
+                track.sanitize();
+                modified_track_indices.push(track_index);
+            }
+            modified_track_indices.sort_unstable();
+            modified_track_indices.dedup();
+            if !self.sync_changed_link_groups_after_resize(
+                &before_states,
+                &modified_track_indices,
+                &excluded_ids,
+                overlap_policy,
+            ) {
+                *self = backup;
+                return false;
+            }
+            return true;
+        }
+
         let mut resized_items = Vec::new();
         let mut modified_track_indices = Vec::new();
         for id in &target_ids {

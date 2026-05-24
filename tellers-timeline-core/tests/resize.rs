@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
     Clip, Gap, IdMetadataExt, Item, MediaReference, OverlapPolicy, RationalTime, Seconds, Stack,
-    TimeRange, Track,
+    TimeRange, Track, TrackKind,
 };
 
 fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
@@ -134,6 +134,36 @@ fn resize_gap_duration_preserves_following_clip() {
     assert_eq!(clip_track_index, 0);
     assert_eq!(track.start_time_of_item(clip_item_index), 1.0);
     assert_eq!(clip_item.duration(), 3.0);
+}
+
+#[test]
+fn resize_audio_clip_duration_preserves_following_clip() {
+    let mut track = Track::new(TrackKind::Audio, Some("a".to_string()));
+    let mut first = make_clip(2.0, 0.0);
+    first.set_id(Some("first".to_string()));
+    let mut second = make_clip(3.0, 0.0);
+    second.set_id(Some("second".to_string()));
+    track.items.push(first);
+    track.items.push(second);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("first", 0.0, 4.0, OverlapPolicy::Override, false));
+
+    let (first_track_index, first_item_index, first_item) = stack.get_item("first").unwrap();
+    let (second_track_index, second_item_index, second_item) = stack.get_item("second").unwrap();
+    assert_eq!(first_track_index, 0);
+    assert_eq!(second_track_index, 0);
+    assert_eq!(first_item_index, 0);
+    assert_eq!(second_item_index, 1);
+    assert_eq!(first_item.duration(), 4.0);
+    assert_eq!(second_item.duration(), 3.0);
+    assert_eq!(
+        stack.children[second_track_index].start_time_of_item(second_item_index),
+        4.0
+    );
 }
 
 #[test]
