@@ -1,5 +1,5 @@
-use super::{resolve_link_group_id, EPS};
-use crate::{Gap, IdMetadataExt, Item, Stack, TrackKind};
+use super::{range_is_gap_backed, resolve_link_group_id, split_gap_boundary, EPS};
+use crate::{Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track, TrackKind};
 
 fn shift_track_index_after_insert(track_index: &mut usize, inserted_track_index: usize) {
     if inserted_track_index <= *track_index {
@@ -22,6 +22,34 @@ fn shift_insert_tracks_after_insert(insertions: &mut [(usize, Item)], inserted_t
     }
 }
 
+fn remove_gap_range(track: &mut Track, start: Seconds, end: Seconds) -> bool {
+    if !range_is_gap_backed(track, start, end) {
+        return false;
+    }
+
+    split_gap_boundary(track, end);
+    split_gap_boundary(track, start);
+
+    let mut pos = 0.0;
+    let mut index = 0;
+    while index < track.items.len() {
+        let duration = track.items[index].duration().max(0.0);
+        let item_start = pos;
+        let item_end = pos + duration;
+        if item_start >= start - EPS && item_end <= end + EPS {
+            if !matches!(track.items[index], Item::Gap(_)) {
+                return false;
+            }
+            track.items.remove(index);
+            pos = item_end;
+        } else {
+            pos = item_end;
+            index += 1;
+        }
+    }
+    true
+}
+
 impl Stack {
     pub fn replace_item(
         &mut self,
@@ -37,6 +65,7 @@ impl Stack {
         };
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
+        let selected_duration = selected_item.duration().max(0.0);
         let selected_link_group = match selected_item {
             Item::Clip(clip) => resolve_link_group_id(&clip.metadata),
             Item::Gap(_) => None,
@@ -121,6 +150,21 @@ impl Stack {
         }
 
         let Some(link_group_id) = link_group else {
+            let mut adjacent_link_groups =
+                self.linked_groups_adjacent_to_time(selected_track_index, selected_start);
+            for link_group in self.linked_groups_adjacent_to_time(
+                selected_track_index,
+                selected_start + selected_duration,
+            ) {
+                if !adjacent_link_groups.contains(&link_group) {
+                    adjacent_link_groups.push(link_group);
+                }
+            }
+            let boundary_track_indices = self.boundary_track_indices_for_anchors(
+                &adjacent_link_groups,
+                &[selected_track_index],
+                &[],
+            );
             for (track_index, item_index, item) in replacements {
                 let Some(track) = self.children.get_mut(track_index) else {
                     *self = backup;
@@ -129,6 +173,40 @@ impl Stack {
                 if !track.replace_item_by_index(item_index, item) {
                     *self = backup;
                     return false;
+                }
+            }
+            if (replacement_duration - selected_duration).abs() > EPS {
+                let mut used_ids = self.collect_timeline_ids();
+                for track_index in boundary_track_indices {
+                    if track_index == selected_track_index {
+                        continue;
+                    }
+                    if replacement_duration > selected_duration + EPS {
+                        let mut gap =
+                            Item::Gap(Gap::make_gap(replacement_duration - selected_duration));
+                        Self::ensure_unique_item_id(&mut gap, &mut used_ids);
+                        let Some(track) = self.children.get_mut(track_index) else {
+                            *self = backup;
+                            return false;
+                        };
+                        track.insert_at_time(
+                            selected_start + selected_duration,
+                            gap,
+                            OverlapPolicy::Push,
+                            InsertPolicy::SplitAndInsert,
+                        );
+                    } else {
+                        let shrink = selected_duration - replacement_duration;
+                        let end = selected_start + selected_duration;
+                        let Some(track) = self.children.get_mut(track_index) else {
+                            *self = backup;
+                            return false;
+                        };
+                        if !remove_gap_range(track, (end - shrink).max(selected_start), end) {
+                            *self = backup;
+                            return false;
+                        }
+                    }
                 }
             }
             self.sanitize();

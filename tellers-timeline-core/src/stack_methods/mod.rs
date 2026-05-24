@@ -2042,7 +2042,7 @@ impl Stack {
     }
 }
 
-fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
+pub(super) fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
     if start < -EPS || end < start - EPS {
         return false;
     }
@@ -2109,7 +2109,7 @@ fn range_has_blocking_clip(
     false
 }
 
-fn split_gap_boundary(track: &mut Track, time: Seconds) {
+pub(super) fn split_gap_boundary(track: &mut Track, time: Seconds) {
     let Some(index) = track.get_item_at_time(time) else {
         return;
     };

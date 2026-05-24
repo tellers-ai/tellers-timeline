@@ -3230,6 +3230,121 @@ fn replace_unlinked_item_only_replaces_selected_item() {
 }
 
 #[test]
+fn replace_unlinked_item_in_linked_boundary_adds_gap_companions() {
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(1.0, Some("unlinked"))));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        1.0,
+        clip(2.0, Some("linked-video")),
+        vec![
+            audio_clip(2.0, "file:///linked-a1.wav", None),
+            audio_clip(2.0, "file:///linked-a2.wav", None),
+        ],
+    )
+    .unwrap();
+    let audio_ids: Vec<_> = result
+        .audio_clips
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect();
+
+    assert!(stack.replace_item(
+        "unlinked",
+        Item::Clip(clip(1.5, Some("replacement"))),
+        None,
+        None,
+    ));
+
+    let (video_track_index, video_item_index, replaced_item) =
+        stack.get_item("unlinked").unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        0.0
+    );
+    assert_eq!(replaced_item.duration(), 1.5);
+    assert_eq!(link_group_id(replaced_item), None);
+    assert!(stack.get_item("replacement").is_none());
+
+    let (linked_video_track_index, linked_video_item_index, linked_video) =
+        stack.get_item("linked-video").unwrap();
+    assert_eq!(
+        stack.children[linked_video_track_index].start_time_of_item(linked_video_item_index),
+        1.5
+    );
+    assert_eq!(link_group_id(linked_video), result.link_group_id);
+
+    for audio_id in &audio_ids {
+        let (audio_track_index, audio_item_index, audio_item) = stack.get_item(audio_id).unwrap();
+        let audio_track = &stack.children[audio_track_index];
+        assert_eq!(audio_track.start_time_of_item(audio_item_index), 1.5);
+        assert_eq!(link_group_id(audio_item), result.link_group_id);
+        assert!(range_is_gap_backed_for_test(audio_track, 0.0, 1.5));
+    }
+}
+
+#[test]
+fn replace_unlinked_item_in_linked_boundary_removes_gap_companions() {
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(1.5, Some("unlinked"))));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        1.5,
+        clip(2.0, Some("linked-video")),
+        vec![
+            audio_clip(2.0, "file:///linked-a1.wav", None),
+            audio_clip(2.0, "file:///linked-a2.wav", None),
+        ],
+    )
+    .unwrap();
+    let audio_ids: Vec<_> = result
+        .audio_clips
+        .iter()
+        .map(|(id, _)| id.clone())
+        .collect();
+
+    assert!(stack.replace_item(
+        "unlinked",
+        Item::Clip(clip(1.0, Some("replacement"))),
+        None,
+        None,
+    ));
+
+    let (video_track_index, video_item_index, replaced_item) =
+        stack.get_item("unlinked").unwrap();
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        0.0
+    );
+    assert_eq!(replaced_item.duration(), 1.0);
+    assert_eq!(link_group_id(replaced_item), None);
+
+    let (linked_video_track_index, linked_video_item_index, linked_video) =
+        stack.get_item("linked-video").unwrap();
+    assert_eq!(
+        stack.children[linked_video_track_index].start_time_of_item(linked_video_item_index),
+        1.0
+    );
+    assert_eq!(link_group_id(linked_video), result.link_group_id);
+
+    for audio_id in &audio_ids {
+        let (audio_track_index, audio_item_index, audio_item) = stack.get_item(audio_id).unwrap();
+        let audio_track = &stack.children[audio_track_index];
+        assert_eq!(audio_track.start_time_of_item(audio_item_index), 1.0);
+        assert_eq!(link_group_id(audio_item), result.link_group_id);
+        assert!(range_is_gap_backed_for_test(audio_track, 0.0, 1.0));
+    }
+}
+
+#[test]
 fn replace_item_missing_active_reference_does_not_bind_default_media() {
     let mut stack = Stack::default();
     stack
