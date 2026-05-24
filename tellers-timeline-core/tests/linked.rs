@@ -939,6 +939,77 @@ fn insert_linked_clip_with_more_audio_links_creates_additional_audio_track() {
 }
 
 #[test]
+fn insert_linked_clip_with_more_audio_links_reuses_pushable_boundary_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+
+    let first = match stack.insert_item_at_time(
+        0,
+        2.0,
+        Item::Clip(clip(2.0, Some("first-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::SplitAndInsert,
+        Some(vec![audio_clip(2.0, "file:///first-a1.wav", None)]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("first linked insert should succeed"),
+    };
+    let first_audio_id = first.audio_clips[0].0.clone();
+    let first_audio_track = first.audio_clips[0].1;
+    let video_track_index = stack.get_item("first-video").unwrap().0;
+
+    let second = match stack.insert_item_at_time(
+        video_track_index,
+        0.0,
+        Item::Clip(clip(3.0, Some("second-video"))),
+        OverlapPolicy::Push,
+        InsertPolicy::SplitAndInsert,
+        Some(vec![
+            audio_clip(3.0, "file:///second-a1.wav", None),
+            audio_clip(3.0, "file:///second-a2.wav", None),
+        ]),
+        None,
+    ) {
+        Some(InsertItemAtTimeResult::Linked(result)) => result,
+        _ => panic!("second linked insert should succeed"),
+    };
+
+    assert_eq!(
+        stack
+            .children
+            .iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .count(),
+        2
+    );
+    assert_eq!(second.created_track_indices.len(), 1);
+    assert!(second
+        .audio_clips
+        .iter()
+        .any(|(_, track_index)| *track_index == first_audio_track));
+
+    let (first_audio_track_after, first_audio_index, first_audio_item) =
+        stack.get_item(&first_audio_id).unwrap();
+    assert_eq!(first_audio_track_after, first_audio_track);
+    assert_eq!(
+        stack.children[first_audio_track_after].start_time_of_item(first_audio_index),
+        5.0
+    );
+    assert_eq!(first_audio_item.duration(), 2.0);
+
+    let (first_video_track, first_video_index, first_video_item) =
+        stack.get_item("first-video").unwrap();
+    assert_eq!(
+        stack.children[first_video_track].start_time_of_item(first_video_index),
+        5.0
+    );
+    assert_eq!(first_video_item.duration(), 2.0);
+}
+
+#[test]
 fn insert_linked_clip_four_then_two_then_four_reuses_full_boundary() {
     let mut stack = Stack::default();
     stack

@@ -215,6 +215,7 @@ impl Stack {
         used_audio_boundary_indices: &[usize],
         link_group_id: Option<i64>,
         use_link_backed_track: bool,
+        overlap_policy: OverlapPolicy,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
         if self.children.get(track_index)?.kind == TrackKind::Video {
@@ -243,7 +244,9 @@ impl Stack {
                     end_time,
                     link_group_id,
                 );
-                if !has_blocking_clip {
+                let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
+                    && self.track_matches_primary_link_boundary(track_index, audio_index);
+                if !has_blocking_clip || can_push_existing_boundary {
                     if use_link_backed_track {
                         return Some(audio_index);
                     }
@@ -291,7 +294,9 @@ impl Stack {
             }
             let has_blocking_clip =
                 range_has_blocking_clip(&self.children[index], dest_time, end_time, link_group_id);
-            if !has_blocking_clip {
+            let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
+                && self.track_matches_primary_link_boundary(track_index, index);
+            if !has_blocking_clip || can_push_existing_boundary {
                 if use_link_backed_track {
                     return Some(index);
                 }
@@ -319,6 +324,7 @@ impl Stack {
         created_track_indices: &mut Vec<usize>,
         link_group_id: Option<i64>,
         use_link_backed_track: bool,
+        overlap_policy: OverlapPolicy,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
         let mut group_start = audio_track_index;
@@ -339,12 +345,15 @@ impl Stack {
             if range_is_gap_backed(&self.children[group_start], dest_time, end_time) {
                 return Some(group_start);
             }
-            if !range_has_blocking_clip(
+            let has_blocking_clip = range_has_blocking_clip(
                 &self.children[group_start],
                 dest_time,
                 end_time,
                 link_group_id,
-            ) {
+            );
+            let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
+                && self.track_matches_primary_link_boundary(audio_track_index, group_start);
+            if !has_blocking_clip || can_push_existing_boundary {
                 return use_link_backed_track.then_some(group_start);
             }
         }
@@ -1028,6 +1037,7 @@ impl Stack {
                 &mut created_track_indices,
                 link_group_id,
                 true,
+                overlap_policy,
             ) else {
                 *self = backup;
                 return None;
@@ -1063,6 +1073,7 @@ impl Stack {
                 &used_audio_boundary_indices,
                 link_group_id,
                 true,
+                overlap_policy,
             ) else {
                 *self = backup;
                 return None;

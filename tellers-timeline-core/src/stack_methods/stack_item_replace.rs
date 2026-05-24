@@ -148,6 +148,7 @@ impl Stack {
                 &mut created_track_indices,
                 Some(link_group_id),
                 false,
+                crate::OverlapPolicy::Override,
             ) else {
                 *self = backup;
                 return false;
@@ -182,6 +183,7 @@ impl Stack {
                 &inserted_audio_boundary_tracks,
                 Some(link_group_id),
                 false,
+                crate::OverlapPolicy::Override,
             ) else {
                 *self = backup;
                 return false;
