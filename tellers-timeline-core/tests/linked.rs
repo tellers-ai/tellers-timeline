@@ -2819,6 +2819,80 @@ fn move_linked_video_creates_only_missing_destination_audio_tracks() {
 }
 
 #[test]
+fn move_linked_video_does_not_reuse_audio_track_across_empty_destination_boundary() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![
+            audio_clip(3.0, "file:///a1.wav", None),
+            audio_clip(3.0, "file:///a2.wav", None),
+        ],
+    )
+    .unwrap();
+    let first_audio_id = result.audio_clips[0].0.clone();
+    let second_audio_id = result.audio_clips[1].0.clone();
+
+    let mut previous_audio = Track::new(TrackKind::Audio, Some("previous-a".to_string()));
+    previous_audio
+        .items
+        .push(audio_clip(1.0, "file:///previous-a.wav", None));
+    previous_audio.items[0].set_id(Some("previous-a-clip".to_string()));
+    previous_audio.items.push(Item::Gap(Gap::make_gap(9.0)));
+    let mut destination_boundary_audio =
+        Track::new(TrackKind::Audio, Some("dest-boundary-a".to_string()));
+    destination_boundary_audio
+        .items
+        .push(Item::Gap(Gap::make_gap(10.0)));
+    let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
+    dest_video.items.push(Item::Gap(Gap::make_gap(10.0)));
+    stack.children.push(previous_audio);
+    stack.children.push(destination_boundary_audio);
+    stack.children.push(dest_video);
+    let track_count = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "primary",
+        "dest-v",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count + 1);
+    assert_eq!(
+        stack.children[stack.get_item(&first_audio_id).unwrap().0]
+            .get_id()
+            .as_deref(),
+        Some("dest-boundary-a")
+    );
+    assert_ne!(
+        stack.children[stack.get_item(&second_audio_id).unwrap().0]
+            .get_id()
+            .as_deref(),
+        Some("previous-a")
+    );
+    assert_eq!(
+        stack.children[stack.get_item("primary").unwrap().0]
+            .get_id()
+            .as_deref(),
+        Some("dest-v")
+    );
+    for item_id in ["primary", &first_audio_id, &second_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 4.0);
+        assert_eq!(item.duration(), 3.0);
+        assert_eq!(link_group_id(item), result.link_group_id);
+    }
+}
+
+#[test]
 fn move_linked_audio_to_new_boundary_creates_video_track_without_retiming() {
     let mut stack = Stack::default();
     stack

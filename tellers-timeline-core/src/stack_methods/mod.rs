@@ -338,6 +338,7 @@ impl Stack {
         duration: Seconds,
         created_track_indices: &mut Vec<usize>,
         used_audio_indices: &[usize],
+        used_audio_boundary_indices: &[usize],
     ) -> Option<usize> {
         let end_time = dest_time + duration;
         match self.children.get(primary_track_index)?.kind {
@@ -347,8 +348,17 @@ impl Stack {
                     audio_start -= 1;
                 }
 
+                let mut crossed_used_audio_boundary = false;
                 for audio_index in (audio_start..primary_track_index).rev() {
                     if used_audio_indices.contains(&audio_index) {
+                        if used_audio_boundary_indices.contains(&audio_index) {
+                            crossed_used_audio_boundary = true;
+                        }
+                        continue;
+                    }
+                    if crossed_used_audio_boundary
+                        && !track_is_empty_boundary(&self.children[audio_index])
+                    {
                         continue;
                     }
                     if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
@@ -1989,6 +1999,7 @@ impl Stack {
                         moved_duration,
                         &mut created_track_indices,
                         &used_audio_track_indices,
+                        &used_audio_boundary_indices,
                     ) else {
                         *self = backup;
                         return false;
