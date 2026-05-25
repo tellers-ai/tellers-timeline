@@ -3857,7 +3857,7 @@ fn split_item_at_time_splits_linked_group() {
     );
     assert_eq!(
         link_group_id(&stack.children[0].items[1]),
-        result.link_group_id
+        Some(result.link_group_id.unwrap() + 1)
     );
     assert_eq!(
         link_group_id(&stack.children[result.audio_clips[0].1].items[0]),
@@ -3865,9 +3865,17 @@ fn split_item_at_time_splits_linked_group() {
     );
     assert_eq!(
         link_group_id(&stack.children[result.audio_clips[0].1].items[1]),
-        result.link_group_id
+        Some(result.link_group_id.unwrap() + 1)
     );
     assert!(stack.get_item(&audio_id).is_some());
+    assert_ne!(
+        stack.children[0].items[0].get_id(),
+        stack.children[0].items[1].get_id()
+    );
+    assert_ne!(
+        stack.children[result.audio_clips[0].1].items[0].get_id(),
+        stack.children[result.audio_clips[0].1].items[1].get_id()
+    );
 }
 
 #[test]
@@ -4005,7 +4013,7 @@ fn resize_primary_clip_over_itself_keeps_linked_group() {
 }
 
 #[test]
-fn resize_item_moves_linked_group_by_selected_delta() {
+fn resize_item_moves_selected_split_linked_group_by_selected_delta() {
     let mut stack = Stack::default();
     stack
         .children
@@ -4026,6 +4034,12 @@ fn resize_item_moves_linked_group_by_selected_delta() {
     let right_audio_id = stack.children[stack.get_item(&audio_id).unwrap().0].items[1]
         .get_id()
         .unwrap();
+    let right_link_group_id = link_group_id(stack.get_item(&right_video_id).unwrap().2);
+    assert_eq!(
+        right_link_group_id,
+        link_group_id(stack.get_item(&right_audio_id).unwrap().2)
+    );
+    assert_ne!(right_link_group_id, result.link_group_id);
 
     assert!(stack.resize_item("primary", 1.0, 1.0, OverlapPolicy::Override, false));
 
@@ -4038,12 +4052,9 @@ fn resize_item_moves_linked_group_by_selected_delta() {
         assert_eq!(item.duration(), 1.0);
     }
     for item_id in [&right_video_id, &right_audio_id] {
-        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
-        assert_eq!(
-            stack.children[track_index].start_time_of_item(item_index),
-            3.0
-        );
+        let (_, _, item) = stack.get_item(item_id).unwrap();
         assert_eq!(item.duration(), 1.0);
+        assert_eq!(link_group_id(item), right_link_group_id);
     }
 }
 
