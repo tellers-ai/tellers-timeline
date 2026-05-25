@@ -364,6 +364,9 @@ impl Stack {
                     if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
                         return Some(audio_index);
                     }
+                    if self.track_matches_primary_link_boundary(primary_track_index, audio_index) {
+                        return Some(audio_index);
+                    }
                 }
 
                 let insert_at = if audio_start < primary_track_index {
