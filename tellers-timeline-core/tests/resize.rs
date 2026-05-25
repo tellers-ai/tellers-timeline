@@ -515,7 +515,6 @@ fn resize_push_inserts_without_overriding() {
         ..Stack::default()
     };
 
-    // Push policy should not remove overlapped items; it inserts in sequence.
     let ok = stack.resize_item("c1", 2.0, 2.0, OverlapPolicy::Push, false);
     assert!(ok);
 
@@ -526,4 +525,57 @@ fn resize_push_inserts_without_overriding() {
         Item::Clip(c) => assert!((c.source_range.duration.value - 2.0).abs() < 1e-9),
         _ => panic!("expected clip after resize with push"),
     }
+}
+
+#[test]
+fn resize_push_start_earlier_consumes_leading_overlap_without_pushing_tail() {
+    let mut track = Track::default();
+    track.items.push(make_clip(5.0, 0.0));
+    let mut b = make_clip(5.0, 0.0);
+    b.set_id(Some("b".to_string()));
+    track.items.push(b);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("b", 2.0, 8.0, OverlapPolicy::Push, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 2);
+    assert_eq!(track.start_time_of_item(0), 0.0);
+    assert_eq!(track.items[0].duration(), 2.0);
+    assert_eq!(track.start_time_of_item(1), 2.0);
+    assert_eq!(track.items[1].duration(), 8.0);
+    assert_eq!(track.items[1].get_id().as_deref(), Some("b"));
+    assert_eq!(track.total_duration(), 10.0);
+}
+
+#[test]
+fn resize_push_start_earlier_extends_end_without_moving_overlap_to_tail() {
+    let mut track = Track::default();
+    track.items.push(make_clip(5.0, 0.0));
+    let mut b = make_clip(5.0, 0.0);
+    b.set_id(Some("b".to_string()));
+    track.items.push(b);
+    let mut c = make_clip(5.0, 0.0);
+    c.set_id(Some("c".to_string()));
+    track.items.push(c);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("b", 2.0, 10.0, OverlapPolicy::Push, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 3);
+    assert_eq!(track.start_time_of_item(0), 0.0);
+    assert_eq!(track.items[0].duration(), 2.0);
+    assert_eq!(track.start_time_of_item(1), 2.0);
+    assert_eq!(track.items[1].duration(), 10.0);
+    assert_eq!(track.items[1].get_id().as_deref(), Some("b"));
+    assert_eq!(track.start_time_of_item(2), 12.0);
+    assert_eq!(track.items[2].duration(), 5.0);
+    assert_eq!(track.items[2].get_id().as_deref(), Some("c"));
 }

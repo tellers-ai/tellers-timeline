@@ -1529,6 +1529,81 @@ impl Stack {
             return true;
         }
 
+        if overlap_policy == OverlapPolicy::Push && start_delta < -EPS {
+            let mut resized_items = Vec::new();
+            let mut modified_track_indices = Vec::new();
+
+            for id in &target_ids {
+                let Some((track_index, item_index, item)) = self.get_item(id) else {
+                    *self = backup;
+                    return false;
+                };
+                let old_start = self.children[track_index].start_time_of_item(item_index);
+                let target_start = old_start + start_delta;
+                let old_duration = item.duration().max(0.0);
+                let old_end = old_start + old_duration;
+
+                modified_track_indices.push(track_index);
+                let mut item = item.clone();
+                item.set_duration(effective_duration);
+                if clamp_to_media {
+                    item.clamp_to_active_available_range();
+                }
+                resized_items.push((
+                    track_index,
+                    item_index,
+                    target_start,
+                    old_duration,
+                    old_end,
+                    item,
+                ));
+            }
+
+            let mut removals = resized_items
+                .iter()
+                .map(|(track_index, item_index, _, old_duration, _, _)| {
+                    (*track_index, *item_index, *old_duration)
+                })
+                .collect::<Vec<_>>();
+            removals.sort_unstable_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
+
+            for (track_index, item_index, old_duration) in removals {
+                let Some(track) = self.children.get_mut(track_index) else {
+                    *self = backup;
+                    return false;
+                };
+                if item_index >= track.items.len() {
+                    *self = backup;
+                    return false;
+                }
+                track.items.remove(item_index);
+                track
+                    .items
+                    .insert(item_index, Item::Gap(Gap::make_gap(old_duration)));
+            }
+
+            for (track_index, _, target_start, _, old_end, item) in resized_items {
+                let Some(track) = self.children.get_mut(track_index) else {
+                    *self = backup;
+                    return false;
+                };
+                replace_track_range_with_item(track, target_start, old_end, item);
+            }
+            modified_track_indices.sort_unstable();
+            modified_track_indices.dedup();
+            if !self.sync_changed_link_groups_after_resize(
+                &before_states,
+                &modified_track_indices,
+                &excluded_ids,
+                overlap_policy,
+            ) {
+                *self = backup;
+                return false;
+            }
+            self.sanitize_preserving_all_gap_tracks();
+            return true;
+        }
+
         let mut resized_items = Vec::new();
         let mut modified_track_indices = Vec::new();
         for id in &target_ids {
@@ -2291,6 +2366,28 @@ fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
                 .set_from_seconds(source_start_time);
         }
     }
+}
+
+fn replace_track_range_with_item(
+    track: &mut Track,
+    range_start: Seconds,
+    range_end: Seconds,
+    item: Item,
+) {
+    let start = range_start.max(0.0);
+    let end = range_end.max(start);
+
+    track.split_at_time(start);
+    track.split_at_time(end);
+
+    let start_index = track.get_item_at_time(start).unwrap_or(track.items.len());
+    let end_index = track.get_item_at_time(end).unwrap_or(track.items.len());
+
+    if end_index > start_index {
+        track.items.drain(start_index..end_index);
+    }
+    track.items.insert(start_index, item);
+    track.sanitize_preserving_all_gap_track();
 }
 
 fn insertion_start_for_policy(
