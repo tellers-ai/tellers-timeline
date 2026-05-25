@@ -16,6 +16,16 @@ impl Track {
         self.remove_trailing_gap();
     }
 
+    pub(crate) fn sanitize_preserving_all_gap_track(&mut self) {
+        self.clamp_clips_to_available_ranges();
+        self.clamp_negative_durations();
+        self.remove_zero_length_items();
+        self.merge_adjacent_gaps();
+        if !self.items.iter().all(|item| matches!(item, Item::Gap(_))) {
+            self.remove_trailing_gap();
+        }
+    }
+
     pub(crate) fn clamp_clips_to_available_ranges(&mut self) {
         for it in &mut self.items {
             it.clamp_to_active_available_range();
@@ -53,9 +63,6 @@ impl Track {
     }
 
     pub(crate) fn remove_trailing_gap(&mut self) {
-        if self.items.iter().all(|item| matches!(item, Item::Gap(_))) {
-            return;
-        }
         if self
             .items
             .last()
@@ -70,6 +77,14 @@ impl Stack {
     pub fn sanitize(&mut self) {
         for t in &mut self.children {
             t.sanitize();
+        }
+        self.ensure_unique_timeline_ids();
+        self.cleanup_dangling_link_groups();
+    }
+
+    pub(crate) fn sanitize_preserving_all_gap_tracks(&mut self) {
+        for t in &mut self.children {
+            t.sanitize_preserving_all_gap_track();
         }
         self.ensure_unique_timeline_ids();
         self.cleanup_dangling_link_groups();

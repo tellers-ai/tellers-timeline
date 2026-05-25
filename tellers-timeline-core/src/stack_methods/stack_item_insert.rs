@@ -48,7 +48,7 @@ impl Stack {
             overlap_policy,
             insert_policy,
         );
-        self.sanitize();
+        self.sanitize_preserving_all_gap_tracks();
         Some(InsertItemAtTimeResult::ItemId(inserted_id))
     }
 
@@ -96,7 +96,7 @@ impl Stack {
         let mut used_ids = self.collect_timeline_ids();
         let inserted_id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
         self.children[dest_track_index].insert_at_index(dest_index, item, overlap_policy);
-        self.sanitize();
+        self.sanitize_preserving_all_gap_tracks();
         Some(InsertItemAtTimeResult::ItemId(inserted_id))
     }
 }
