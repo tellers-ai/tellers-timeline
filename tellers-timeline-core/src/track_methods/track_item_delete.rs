@@ -21,6 +21,11 @@ impl Track {
                 self.sanitize();
                 true
             }
+            Item::Gap(_) if !replace_with_gap => {
+                self.items.remove(index);
+                self.sanitize();
+                true
+            }
             Item::Gap(_) => false,
         }
     }

@@ -230,6 +230,31 @@ fn resize_gap_duration_preserves_following_clip() {
 }
 
 #[test]
+fn modify_gap_to_negative_duration_removes_gap() {
+    let mut track = Track::default();
+    track
+        .items
+        .push(Item::Gap(Gap::new(2.0, Some("gap".to_string()))));
+    let mut clip = make_clip(3.0, 0.0);
+    clip.set_id(Some("clip".to_string()));
+    track.items.push(clip);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.modify_item("gap", 0.0, -0.001, true, false, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 1);
+    assert!(matches!(track.items[0], Item::Clip(_)));
+    assert!(stack.get_item("gap").is_none());
+    let (_, clip_item_index, clip_item) = stack.get_item("clip").unwrap();
+    assert_eq!(track.start_time_of_item(clip_item_index), 0.0);
+    assert_eq!(clip_item.duration(), 3.0);
+}
+
+#[test]
 fn resize_audio_clip_duration_preserves_following_clip() {
     let mut track = Track::new(TrackKind::Audio, Some("a".to_string()));
     let mut first = make_clip(2.0, 0.0);
@@ -410,7 +435,10 @@ fn modify_overlong_clip_down_without_push_preserves_following_duration() {
     assert!(stack.modify_item("clip", 0.0, 2.0, true, false, false));
 
     let (track_index, item_index, item) = stack.get_item("clip").unwrap();
-    assert_eq!(stack.children[track_index].start_time_of_item(item_index), 0.0);
+    assert_eq!(
+        stack.children[track_index].start_time_of_item(item_index),
+        0.0
+    );
     assert_eq!(item.duration(), 2.0);
     match &stack.children[track_index].items[item_index] {
         Item::Clip(clip) => {
@@ -450,7 +478,10 @@ fn modify_item_uses_seconds_for_rational_time_source_and_duration() {
     assert!(stack.modify_item("clip", 2.0, 2.0, false, true, false));
 
     let (track_index, item_index, item) = stack.get_item("clip").unwrap();
-    assert_eq!(stack.children[track_index].start_time_of_item(item_index), 1.0);
+    assert_eq!(
+        stack.children[track_index].start_time_of_item(item_index),
+        1.0
+    );
     assert_eq!(item.duration(), 2.0);
     match &stack.children[track_index].items[item_index] {
         Item::Clip(clip) => {
@@ -578,4 +609,58 @@ fn resize_push_start_earlier_extends_end_without_moving_overlap_to_tail() {
     assert_eq!(track.start_time_of_item(2), 12.0);
     assert_eq!(track.items[2].duration(), 5.0);
     assert_eq!(track.items[2].get_id().as_deref(), Some("c"));
+}
+
+#[test]
+fn resize_zero_duration_removes_item_without_leaving_gap() {
+    let mut track = Track::default();
+    track.items.push(make_clip(5.0, 0.0));
+    let mut b = make_clip(5.0, 0.0);
+    b.set_id(Some("b".to_string()));
+    track.items.push(b);
+    let mut c = make_clip(5.0, 0.0);
+    c.set_id(Some("c".to_string()));
+    track.items.push(c);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("b", 5.0, 0.0, OverlapPolicy::Override, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 2);
+    assert_eq!(track.start_time_of_item(0), 0.0);
+    assert_eq!(track.items[0].duration(), 5.0);
+    assert_eq!(track.start_time_of_item(1), 5.0);
+    assert_eq!(track.items[1].duration(), 5.0);
+    assert_eq!(track.items[1].get_id().as_deref(), Some("c"));
+    assert_eq!(track.total_duration(), 10.0);
+}
+
+#[test]
+fn resize_negative_duration_removes_item_without_leaving_gap() {
+    let mut track = Track::default();
+    track.items.push(make_clip(5.0, 0.0));
+    let mut b = make_clip(5.0, 0.0);
+    b.set_id(Some("b".to_string()));
+    track.items.push(b);
+    let mut c = make_clip(5.0, 0.0);
+    c.set_id(Some("c".to_string()));
+    track.items.push(c);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.resize_item("b", 5.0, -1.0, OverlapPolicy::Override, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 2);
+    assert_eq!(track.start_time_of_item(0), 0.0);
+    assert_eq!(track.items[0].duration(), 5.0);
+    assert_eq!(track.start_time_of_item(1), 5.0);
+    assert_eq!(track.items[1].duration(), 5.0);
+    assert_eq!(track.items[1].get_id().as_deref(), Some("c"));
+    assert_eq!(track.total_duration(), 10.0);
 }
