@@ -50,7 +50,7 @@ impl Track {
 
         if item.duration() <= EPS {
             self.items.insert(insert_index, item);
-            self.sanitize();
+            self.sanitize_preserving_all_gap_track();
             return;
         }
 
@@ -85,7 +85,7 @@ impl Track {
         }
 
         self.items.insert(insert_index, item);
-        self.sanitize();
+        self.sanitize_preserving_all_gap_track();
     }
 
     /// Insert an item at a timeline time, controlling how overlaps are handled
@@ -117,7 +117,7 @@ impl Track {
             self.items
                 .push(Item::Gap(crate::types::Gap::make_gap(gap_duration)));
             self.items.push(item);
-            self.sanitize();
+            self.sanitize_preserving_all_gap_track();
             return;
         }
 

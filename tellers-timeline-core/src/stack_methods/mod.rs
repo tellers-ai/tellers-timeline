@@ -1118,7 +1118,7 @@ impl Stack {
                 return false;
             }
             track.items.remove(item_index);
-            track.sanitize();
+            track.sanitize_preserving_all_gap_track();
         }
 
         for (_, track_index, start, item) in items {
@@ -1464,7 +1464,7 @@ impl Stack {
                 return false;
             };
             item.set_duration(new_duration.max(0.0));
-            track.sanitize();
+            track.sanitize_preserving_all_gap_track();
             if !self.sync_changed_link_groups_after_resize(
                 &before_states,
                 &[selected_track_index],
@@ -1474,7 +1474,7 @@ impl Stack {
                 *self = backup;
                 return false;
             }
-            self.sanitize();
+            self.sanitize_preserving_all_gap_tracks();
             return true;
         }
         let excluded_ids: HashSet<_> = target_ids.iter().cloned().collect();
@@ -1511,7 +1511,7 @@ impl Stack {
                 if clamp_to_media {
                     item.clamp_to_active_available_range();
                 }
-                track.sanitize();
+                track.sanitize_preserving_all_gap_track();
                 modified_track_indices.push(track_index);
             }
             modified_track_indices.sort_unstable();
@@ -1525,7 +1525,7 @@ impl Stack {
                 *self = backup;
                 return false;
             }
-            self.sanitize();
+            self.sanitize_preserving_all_gap_tracks();
             return true;
         }
 
@@ -1561,7 +1561,7 @@ impl Stack {
                 return false;
             }
             track.items.remove(item_index);
-            track.sanitize();
+            track.sanitize_preserving_all_gap_track();
         }
 
         for (track_index, target_start, item) in resized_items {
@@ -1587,7 +1587,7 @@ impl Stack {
             *self = backup;
             return false;
         }
-        self.sanitize();
+        self.sanitize_preserving_all_gap_tracks();
         true
     }
 
@@ -1615,7 +1615,7 @@ impl Stack {
             let replace_with_gap =
                 !matches!(self.children[track_index].items[item_index], Item::Gap(_));
             self.delete_item(item_id, replace_with_gap);
-            self.sanitize();
+            self.sanitize_preserving_all_gap_tracks();
             return true;
         }
 
@@ -1637,7 +1637,7 @@ impl Stack {
             let backup = self.clone();
             let before_states = self.linked_clip_states();
             self.children[track_index].items[item_index].set_duration(effective_duration);
-            self.sanitize();
+            self.sanitize_preserving_all_gap_tracks();
             if !self.sync_changed_link_groups_after_resize(
                 &before_states,
                 &[track_index],
@@ -1658,7 +1658,7 @@ impl Stack {
                     source_delta,
                     effective_duration,
                 );
-                self.sanitize();
+                self.sanitize_preserving_all_gap_tracks();
                 return true;
             }
 
@@ -1666,7 +1666,7 @@ impl Stack {
             if !resize_from_start && duration_delta > 0.0 {
                 let targets = self.linked_clip_targets_for_item(item_id);
                 self.resize_linked_clips_with_trailing_gap(targets, effective_duration);
-                self.sanitize();
+                self.sanitize_preserving_all_gap_tracks();
                 return true;
             }
         }
@@ -1690,7 +1690,7 @@ impl Stack {
             },
             clamp_to_media,
         );
-        self.sanitize();
+        self.sanitize_preserving_all_gap_tracks();
         resized
     }
 
@@ -2147,7 +2147,7 @@ impl Stack {
             return false;
         }
 
-        self.sanitize();
+        self.sanitize_preserving_all_gap_tracks();
         true
     }
 }

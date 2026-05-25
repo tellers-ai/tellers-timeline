@@ -119,6 +119,26 @@ fn stack_sanitize_removes_track_trailing_gap_after_merging() {
 }
 
 #[test]
+fn stack_sanitize_removes_all_gap_track_items() {
+    let mut single_gap = Track::new(TrackKind::Video, Some("single-gap".to_string()));
+    single_gap.items.push(Item::Gap(Gap::make_gap(1.0)));
+
+    let mut adjacent_gaps = Track::new(TrackKind::Audio, Some("adjacent-gaps".to_string()));
+    adjacent_gaps.items.push(Item::Gap(Gap::make_gap(1.0)));
+    adjacent_gaps.items.push(Item::Gap(Gap::make_gap(2.0)));
+
+    let mut stack = Stack {
+        children: vec![single_gap, adjacent_gaps],
+        ..Stack::default()
+    };
+
+    stack.sanitize();
+
+    assert!(stack.children[0].items.is_empty());
+    assert!(stack.children[1].items.is_empty());
+}
+
+#[test]
 fn stack_sanitize_keeps_track_interior_gap() {
     let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
     track.items.push(Item::Clip(clip(1.0, Some("clip-1"))));

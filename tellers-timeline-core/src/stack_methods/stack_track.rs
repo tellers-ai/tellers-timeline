@@ -122,7 +122,7 @@ impl Stack {
         for link_group_id in touched_link_groups {
             self.delete_link_group(link_group_id, true);
         }
-        self.sanitize();
+        self.sanitize_preserving_all_gap_tracks();
         Some(removed)
     }
 

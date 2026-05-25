@@ -209,7 +209,7 @@ impl Stack {
                     }
                 }
             }
-            self.sanitize();
+            self.sanitize_preserving_all_gap_tracks();
             return true;
         };
 
@@ -340,7 +340,7 @@ impl Stack {
             }
         }
 
-        self.sanitize();
+        self.sanitize_preserving_all_gap_tracks();
         true
     }
 }
