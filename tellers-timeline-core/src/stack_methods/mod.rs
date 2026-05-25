@@ -339,7 +339,6 @@ impl Stack {
         created_track_indices: &mut Vec<usize>,
         used_audio_indices: &[usize],
         used_audio_boundary_indices: &[usize],
-        overlap_policy: OverlapPolicy,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
         match self.children.get(primary_track_index)?.kind {
@@ -365,12 +364,7 @@ impl Stack {
                     if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
                         return Some(audio_index);
                     }
-                    let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
-                        && self.track_matches_primary_link_boundary(
-                            primary_track_index,
-                            audio_index,
-                        );
-                    if can_push_existing_boundary {
+                    if self.track_matches_primary_link_boundary(primary_track_index, audio_index) {
                         return Some(audio_index);
                     }
                 }
@@ -2009,7 +2003,6 @@ impl Stack {
                         &mut created_track_indices,
                         &used_audio_track_indices,
                         &used_audio_boundary_indices,
-                        overlap_policy,
                     ) else {
                         *self = backup;
                         return false;

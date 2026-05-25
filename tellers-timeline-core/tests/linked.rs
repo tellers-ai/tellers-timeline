@@ -2829,6 +2829,74 @@ fn move_linked_video_reuses_destination_boundary_with_existing_linked_clip() {
 }
 
 #[test]
+fn move_linked_video_override_reuses_destination_boundary_with_existing_linked_clip() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
+    let source_result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("moving-video")),
+        vec![audio_clip(3.0, "file:///moving-audio.wav", None)],
+    )
+    .unwrap();
+    let moving_audio_id = source_result.audio_clips[0].0.clone();
+
+    let mut dest_audio = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
+    dest_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
+    let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
+    dest_video.items.push(Item::Gap(Gap::make_gap(10.0)));
+    stack.children.push(dest_audio);
+    stack.children.push(dest_video);
+    let dest_video_index = stack
+        .get_track_by_id("dest-v")
+        .map(|(index, _)| index)
+        .unwrap();
+    let dest_result = insert_with_audio(
+        &mut stack,
+        dest_video_index,
+        0.0,
+        clip(2.0, Some("existing-video")),
+        vec![audio_clip(2.0, "file:///existing-audio.wav", None)],
+    )
+    .unwrap();
+    let existing_audio_id = dest_result.audio_clips[0].0.clone();
+    let track_count = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "moving-video",
+        "dest-v",
+        0.0,
+        true,
+        InsertPolicy::InsertBefore,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count);
+    assert_eq!(
+        stack.children[stack.get_item("moving-video").unwrap().0]
+            .get_id()
+            .as_deref(),
+        Some("dest-v")
+    );
+    let (moving_audio_track, moving_audio_index, moving_audio_item) =
+        stack.get_item(&moving_audio_id).unwrap();
+    assert_eq!(
+        stack.children[moving_audio_track].get_id().as_deref(),
+        Some("dest-a")
+    );
+    assert_eq!(
+        stack.children[moving_audio_track].start_time_of_item(moving_audio_index),
+        0.0
+    );
+    assert_eq!(link_group_id(moving_audio_item), source_result.link_group_id);
+    assert!(stack.get_item("existing-video").is_none());
+    assert!(stack.get_item(&existing_audio_id).is_none());
+}
+
+#[test]
 fn move_linked_video_creates_only_missing_destination_audio_tracks() {
     let mut stack = Stack::default();
     stack
