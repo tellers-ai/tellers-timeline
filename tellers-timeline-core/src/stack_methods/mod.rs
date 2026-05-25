@@ -716,7 +716,7 @@ impl Stack {
     fn flatten_boundary_for_link_groups(
         &self,
         anchor_track_index: usize,
-        _link_groups: &[i64],
+        link_groups: &[i64],
     ) -> FlattenedBoundary {
         if anchor_track_index >= self.children.len() {
             return FlattenedBoundary {
@@ -744,6 +744,23 @@ impl Stack {
                 }
                 track_indices.reverse();
                 track_indices.push(anchor_track_index);
+                if !link_groups.is_empty() {
+                    for track_index in (anchor_track_index + 1)..self.children.len() {
+                        if self.children[track_index].kind != TrackKind::Audio {
+                            break;
+                        }
+                        if track_is_empty_boundary(&self.children[track_index]) {
+                            track_indices.push(track_index);
+                            break;
+                        }
+                        if !self
+                            .track_matches_primary_link_boundary(anchor_track_index, track_index)
+                        {
+                            break;
+                        }
+                        track_indices.push(track_index);
+                    }
+                }
             }
             TrackKind::Audio => {
                 let mut audio_start = anchor_track_index;
@@ -755,6 +772,17 @@ impl Stack {
                         break;
                     }
                     audio_start = previous;
+                }
+                if !link_groups.is_empty() {
+                    let previous_video_index = audio_start.checked_sub(1);
+                    if let Some(video_index) = previous_video_index {
+                        if self.children[video_index].kind == TrackKind::Video
+                            && self
+                                .track_matches_primary_link_boundary(anchor_track_index, video_index)
+                        {
+                            track_indices.push(video_index);
+                        }
+                    }
                 }
                 for track_index in audio_start..self.children.len() {
                     if self.children[track_index].kind != TrackKind::Audio {
