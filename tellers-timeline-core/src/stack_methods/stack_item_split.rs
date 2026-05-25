@@ -23,7 +23,8 @@ impl Stack {
             return true;
         }
 
-        let targets = super::resolve_link_group_id(&selected_clip.metadata)
+        let selected_link_group_id = super::resolve_link_group_id(&selected_clip.metadata);
+        let targets = selected_link_group_id
             .map(|link_group_id| self.linked_group_targets(link_group_id))
             .filter(|targets| targets.len() > 1)
             .unwrap_or_else(|| vec![(selected_track_index, selected_item_index)]);
@@ -49,14 +50,28 @@ impl Stack {
             }
         }
 
+        let right_link_group_id = (targets.len() > 1).then(|| self.next_link_group_id());
         let mut target_tracks: Vec<_> = targets
-            .into_iter()
-            .map(|(track_index, _)| track_index)
+            .iter()
+            .map(|(track_index, _)| *track_index)
             .collect();
         target_tracks.sort_unstable();
         target_tracks.dedup();
         for track_index in target_tracks {
             self.children[track_index].split_at_time(split_time);
+        }
+        if let Some(link_group_id) = right_link_group_id {
+            for (track_index, item_index) in &targets {
+                let Some(Item::Clip(clip)) = self
+                    .children
+                    .get_mut(*track_index)
+                    .and_then(|track| track.items.get_mut(item_index + 1))
+                else {
+                    *self = backup;
+                    return false;
+                };
+                super::set_resolve_link_group_id(&mut clip.metadata, link_group_id);
+            }
         }
         self.sanitize();
         true

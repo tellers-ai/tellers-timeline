@@ -643,9 +643,18 @@ def test_split_item_at_time_splits_linked_group():
     assert stack.tracks()[audio_track].items()[0].duration() == 2.0
     assert stack.tracks()[audio_track].items()[1].duration() == 2.0
     assert maybe_link_group_id(stack.tracks()[video_track].items()[0]) == result["link_group_id"]
-    assert maybe_link_group_id(stack.tracks()[video_track].items()[1]) == result["link_group_id"]
     assert maybe_link_group_id(stack.tracks()[audio_track].items()[0]) == result["link_group_id"]
-    assert maybe_link_group_id(stack.tracks()[audio_track].items()[1]) == result["link_group_id"]
+    right_link_group_id = result["link_group_id"] + 1
+    assert maybe_link_group_id(stack.tracks()[video_track].items()[1]) == right_link_group_id
+    assert maybe_link_group_id(stack.tracks()[audio_track].items()[1]) == right_link_group_id
+    assert (
+        stack.tracks()[video_track].items()[0].get_id()
+        != stack.tracks()[video_track].items()[1].get_id()
+    )
+    assert (
+        stack.tracks()[audio_track].items()[0].get_id()
+        != stack.tracks()[audio_track].items()[1].get_id()
+    )
 
 
 def test_split_unlinked_item_only_splits_selected_track():
@@ -1259,7 +1268,7 @@ def test_resize_video_updates_linked_audio_with_same_initial_boundary():
     assert audio_item.duration() == new_duration
 
 
-def test_resize_item_moves_linked_group_by_selected_delta():
+def test_resize_item_moves_selected_split_linked_group_by_selected_delta():
     stack = Stack([Track(kind="video", id="v")])
     result = stack.insert_item_at_time(
         0,
@@ -1275,6 +1284,9 @@ def test_resize_item_moves_linked_group_by_selected_delta():
     audio_track = stack.get_item(audio_id)[0]
     right_video_id = stack.tracks()[primary_track].items()[1].get_id()
     right_audio_id = stack.tracks()[audio_track].items()[1].get_id()
+    right_link_group_id = maybe_link_group_id(stack.get_item(right_video_id)[2])
+    assert right_link_group_id == maybe_link_group_id(stack.get_item(right_audio_id)[2])
+    assert right_link_group_id != result["link_group_id"]
 
     assert stack.resize_item("primary", 1.0, 1.0, "override", False)
 
@@ -1283,6 +1295,6 @@ def test_resize_item_moves_linked_group_by_selected_delta():
         assert stack.tracks()[track_index].start_time_of_item(item_index) == 1.0
         assert item.duration() == 1.0
     for item_id in [right_video_id, right_audio_id]:
-        track_index, item_index, item = stack.get_item(item_id)
-        assert stack.tracks()[track_index].start_time_of_item(item_index) == 3.0
+        _, _, item = stack.get_item(item_id)
         assert item.duration() == 1.0
+        assert maybe_link_group_id(item) == right_link_group_id
