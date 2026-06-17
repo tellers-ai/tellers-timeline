@@ -1590,7 +1590,7 @@ impl Stack {
             return true;
         }
 
-        if overlap_policy == OverlapPolicy::Push && start_delta < -EPS {
+        if start_delta < -EPS {
             let mut resized_items = Vec::new();
             let mut modified_track_indices = Vec::new();
 
@@ -1765,7 +1765,15 @@ impl Stack {
             (old_timeline_start + effective_source_start - old_source_start).max(0.0);
         let is_gap = matches!(self.children[track_index].items[item_index], Item::Gap(_));
         let is_clip = matches!(self.children[track_index].items[item_index], Item::Clip(_));
-        let source_delta = effective_source_start - old_source_start;
+        let mut source_delta = effective_source_start - old_source_start;
+        if is_clip && resize_from_start && !push_following {
+            let unclamped_timeline_start = old_timeline_start + source_delta;
+            if unclamped_timeline_start < 0.0 {
+                source_delta = -old_timeline_start;
+                effective_source_start = old_source_start + source_delta;
+                effective_duration = old_duration - source_delta;
+            }
+        }
         let effective_push_following =
             push_following || (is_gap && effective_duration < old_duration);
 
@@ -1807,12 +1815,11 @@ impl Stack {
             }
         }
 
-        let resize_timeline_start =
-            if is_clip && effective_push_following && resize_from_start && source_delta > 0.0 {
-                old_timeline_start
-            } else {
-                new_timeline_start
-            };
+        let resize_timeline_start = if is_clip && effective_push_following && resize_from_start {
+            old_timeline_start
+        } else {
+            new_timeline_start
+        };
 
         let resized = self.resize_item_with_source_start(
             item_id,
