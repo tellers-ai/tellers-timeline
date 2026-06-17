@@ -343,6 +343,52 @@ fn modify_clip_right_extension_overrides_multiple_following_clips() {
 }
 
 #[test]
+fn modify_clip_left_extension_at_timeline_start_preserves_right_side() {
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    let mut first = make_clip(1.0, 0.0);
+    first.set_id(Some("first".to_string()));
+    let mut second = make_clip(5.0, 2.0);
+    second.set_id(Some("second".to_string()));
+    let mut third = make_clip(3.0, 0.0);
+    third.set_id(Some("third".to_string()));
+    let mut fourth = make_clip(3.0, 0.0);
+    fourth.set_id(Some("fourth".to_string()));
+    track.items.push(first);
+    track.items.push(second);
+    track.items.push(third);
+    track.items.push(fourth);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.modify_item("second", 0.0, 7.0, false, true, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 3, "{:?}", track.items);
+    let (second_track_index, second_item_index, second_item) = stack.get_item("second").unwrap();
+    let third_item_index = 1;
+    let fourth_item_index = 2;
+    let third_item = &track.items[third_item_index];
+    let fourth_item = &track.items[fourth_item_index];
+    assert_eq!(second_track_index, 0);
+    assert_eq!(second_item_index, 0);
+    match second_item {
+        Item::Clip(clip) => {
+            assert_eq!(clip.source_range.start_time.to_seconds(), 1.0);
+            assert_eq!(clip.source_range.duration.to_seconds(), 6.0);
+        }
+        _ => panic!("expected resized clip"),
+    }
+    assert_eq!(track.start_time_of_item(third_item_index), 6.0);
+    assert_eq!(third_item.get_id().as_deref(), Some("third"));
+    assert_eq!(third_item.duration(), 3.0);
+    assert_eq!(track.start_time_of_item(fourth_item_index), 9.0);
+    assert_eq!(fourth_item.get_id().as_deref(), Some("fourth"));
+    assert_eq!(fourth_item.duration(), 3.0);
+}
+
+#[test]
 fn resize_item_sets_rational_time_duration_from_seconds() {
     let mut track = Track::new(TrackKind::Audio, Some("a".to_string()));
     let mut first = make_clip_with_rate(2.0, 0.0, 24.0);
