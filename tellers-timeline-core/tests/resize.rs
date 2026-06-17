@@ -312,6 +312,37 @@ fn modify_clip_right_extension_overrides_following_clip() {
 }
 
 #[test]
+fn modify_clip_right_extension_overrides_multiple_following_clips() {
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    let mut first = make_clip(2.0, 0.0);
+    first.set_id(Some("first".to_string()));
+    let mut second = make_clip(3.0, 0.0);
+    second.set_id(Some("second".to_string()));
+    let mut third = make_clip(4.0, 0.0);
+    third.set_id(Some("third".to_string()));
+    track.items.push(first);
+    track.items.push(second);
+    track.items.push(third);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.modify_item("first", 0.0, 7.0, false, false, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 2);
+    let (first_track_index, first_item_index, first_item) = stack.get_item("first").unwrap();
+    let third_item_index = 1;
+    let third_item = &track.items[third_item_index];
+    assert_eq!(first_track_index, 0);
+    assert_eq!(first_item_index, 0);
+    assert_eq!(first_item.duration(), 7.0);
+    assert_eq!(third_item.duration(), 2.0);
+    assert_eq!(track.start_time_of_item(third_item_index), 7.0);
+}
+
+#[test]
 fn resize_item_sets_rational_time_duration_from_seconds() {
     let mut track = Track::new(TrackKind::Audio, Some("a".to_string()));
     let mut first = make_clip_with_rate(2.0, 0.0, 24.0);
