@@ -4536,7 +4536,7 @@ fn resize_audio_linked_item_push_updates_video_and_following_group() {
 }
 
 #[test]
-fn resize_audio_linked_item_override_preserves_following_group_when_start_is_unchanged() {
+fn resize_audio_linked_item_override_trims_following_group_when_start_is_unchanged() {
     let mut stack = Stack::default();
     stack
         .children
@@ -4571,13 +4571,12 @@ fn resize_audio_linked_item_override_preserves_following_group_when_start_is_unc
         );
         assert_eq!(item.duration(), 3.0);
     }
-    for item_id in ["second-video", &second_audio_id] {
-        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
-        assert_eq!(
-            stack.children[track_index].start_time_of_item(item_index),
-            3.0
-        );
-        assert_eq!(item.duration(), 2.0);
+    assert!(stack.get_item("second-video").is_none());
+    assert!(stack.get_item(&second_audio_id).is_none());
+    for track in &stack.children {
+        assert_eq!(track.items.len(), 2);
+        assert_eq!(track.start_time_of_item(1), 3.0);
+        assert_eq!(track.items[1].duration(), 1.0);
     }
 }
 

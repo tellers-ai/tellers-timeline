@@ -255,7 +255,7 @@ fn modify_gap_to_negative_duration_removes_gap() {
 }
 
 #[test]
-fn resize_audio_clip_duration_preserves_following_clip() {
+fn resize_audio_clip_extension_overrides_following_clip() {
     let mut track = Track::new(TrackKind::Audio, Some("a".to_string()));
     let mut first = make_clip(2.0, 0.0);
     first.set_id(Some("first".to_string()));
@@ -271,17 +271,75 @@ fn resize_audio_clip_duration_preserves_following_clip() {
     assert!(stack.resize_item("first", 0.0, 4.0, OverlapPolicy::Override, false));
 
     let (first_track_index, first_item_index, first_item) = stack.get_item("first").unwrap();
-    let (second_track_index, second_item_index, second_item) = stack.get_item("second").unwrap();
+    let second_item_index = 1;
+    let second_item = &stack.children[first_track_index].items[second_item_index];
     assert_eq!(first_track_index, 0);
-    assert_eq!(second_track_index, 0);
     assert_eq!(first_item_index, 0);
-    assert_eq!(second_item_index, 1);
     assert_eq!(first_item.duration(), 4.0);
-    assert_eq!(second_item.duration(), 3.0);
+    assert_eq!(second_item.duration(), 1.0);
     assert_eq!(
-        stack.children[second_track_index].start_time_of_item(second_item_index),
+        stack.children[first_track_index].start_time_of_item(second_item_index),
         4.0
     );
+}
+
+#[test]
+fn modify_clip_right_extension_overrides_following_clip() {
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    let mut first = make_clip(2.0, 0.0);
+    first.set_id(Some("first".to_string()));
+    let mut second = make_clip(3.0, 0.0);
+    second.set_id(Some("second".to_string()));
+    track.items.push(first);
+    track.items.push(second);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.modify_item("first", 0.0, 4.0, false, false, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 2);
+    let (first_track_index, first_item_index, first_item) = stack.get_item("first").unwrap();
+    let second_item_index = 1;
+    let second_item = &track.items[second_item_index];
+    assert_eq!(first_track_index, 0);
+    assert_eq!(first_item_index, 0);
+    assert_eq!(first_item.duration(), 4.0);
+    assert_eq!(second_item.duration(), 1.0);
+    assert_eq!(track.start_time_of_item(second_item_index), 4.0);
+}
+
+#[test]
+fn modify_clip_right_extension_overrides_multiple_following_clips() {
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    let mut first = make_clip(2.0, 0.0);
+    first.set_id(Some("first".to_string()));
+    let mut second = make_clip(3.0, 0.0);
+    second.set_id(Some("second".to_string()));
+    let mut third = make_clip(4.0, 0.0);
+    third.set_id(Some("third".to_string()));
+    track.items.push(first);
+    track.items.push(second);
+    track.items.push(third);
+    let mut stack = Stack {
+        children: vec![track],
+        ..Stack::default()
+    };
+
+    assert!(stack.modify_item("first", 0.0, 7.0, false, false, false));
+
+    let track = &stack.children[0];
+    assert_eq!(track.items.len(), 2);
+    let (first_track_index, first_item_index, first_item) = stack.get_item("first").unwrap();
+    let third_item_index = 1;
+    let third_item = &track.items[third_item_index];
+    assert_eq!(first_track_index, 0);
+    assert_eq!(first_item_index, 0);
+    assert_eq!(first_item.duration(), 7.0);
+    assert_eq!(third_item.duration(), 2.0);
+    assert_eq!(track.start_time_of_item(third_item_index), 7.0);
 }
 
 #[test]
@@ -301,11 +359,8 @@ fn resize_item_sets_rational_time_duration_from_seconds() {
     assert!(stack.resize_item("first", 0.0, 3.0, OverlapPolicy::Override, false));
 
     let (first_track_index, first_item_index, first_item) = stack.get_item("first").unwrap();
-    let (second_track_index, second_item_index, _) = stack.get_item("second").unwrap();
-    assert_eq!(
-        stack.children[second_track_index].start_time_of_item(second_item_index),
-        3.0
-    );
+    assert!(stack.get_item("second").is_none());
+    assert_eq!(stack.children[first_track_index].items.len(), 1);
     match &stack.children[first_track_index].items[first_item_index] {
         Item::Clip(clip) => {
             assert_eq!(clip.source_range.duration.rate, 24.0);
@@ -402,20 +457,8 @@ fn resize_overshoot_with_clamp_uses_clip_rate_not_media_rate() {
         _ => panic!("expected clip"),
     }
 
-    let (following_track_index, following_item_index, following_item) =
-        stack.get_item("following").unwrap();
-    assert_eq!(
-        stack.children[following_track_index].start_time_of_item(following_item_index),
-        5.0
-    );
-    assert_eq!(following_item.duration(), 3.0);
-    match &stack.children[following_track_index].items[following_item_index] {
-        Item::Clip(clip) => {
-            assert_eq!(clip.source_range.duration.rate, 30.0);
-            assert_eq!(clip.source_range.duration.value, 90.0);
-        }
-        _ => panic!("expected following clip"),
-    }
+    assert!(stack.get_item("following").is_none());
+    assert_eq!(stack.children[track_index].items.len(), 1);
 }
 
 #[test]
