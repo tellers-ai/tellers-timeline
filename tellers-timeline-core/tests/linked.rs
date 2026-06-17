@@ -4756,6 +4756,55 @@ fn modify_linked_item_left_extension_preserves_following_group() {
 }
 
 #[test]
+fn modify_linked_item_left_extension_with_push_keeps_start_and_pushes_following_group() {
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(5.0)));
+    video.items.push(linked_clip_item_with_source_start(
+        5.0,
+        3.0,
+        "first-video",
+        1,
+    ));
+    video.items.push(linked_clip_item(3.0, "second-video", 2));
+
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(5.0)));
+    audio.items.push(linked_clip_item_with_source_start(
+        5.0,
+        3.0,
+        "first-audio",
+        1,
+    ));
+    audio.items.push(linked_clip_item(3.0, "second-audio", 2));
+
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    assert!(stack.modify_item("first-video", 0.0, 8.0, false, true, true));
+
+    for item_id in ["first-video", "first-audio"] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            5.0
+        );
+        assert_eq!(source_start(item), 0.0);
+        assert_eq!(item.duration(), 8.0);
+        assert_eq!(link_group_id(item), Some(1));
+    }
+    for item_id in ["second-video", "second-audio"] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            13.0
+        );
+        assert_eq!(item.duration(), 3.0);
+        assert_eq!(link_group_id(item), Some(2));
+    }
+}
+
+#[test]
 fn resize_audio_linked_item_override_updates_video_and_trims_following_group() {
     let mut stack = Stack::default();
     stack

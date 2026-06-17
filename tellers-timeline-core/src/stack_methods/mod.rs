@@ -1815,12 +1815,11 @@ impl Stack {
             }
         }
 
-        let resize_timeline_start =
-            if is_clip && effective_push_following && resize_from_start && source_delta > 0.0 {
-                old_timeline_start
-            } else {
-                new_timeline_start
-            };
+        let resize_timeline_start = if is_clip && effective_push_following && resize_from_start {
+            old_timeline_start
+        } else {
+            new_timeline_start
+        };
 
         let resized = self.resize_item_with_source_start(
             item_id,
