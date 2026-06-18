@@ -20,13 +20,13 @@ impl Stack {
             Some((i, _)) => i,
             None => return false,
         };
-        if let Some(items_to_move) = self.linked_move_items(item_id) {
-            return self.move_linked_items(
+        if let Some(items_to_move) = self.synced_move_items(item_id) {
+            return self.move_synced_items(
                 items_to_move,
                 dest_track_index,
                 replace_with_gap,
                 overlap_policy,
-                super::LinkedMovePlacement::Time {
+                super::SyncedMovePlacement::Time {
                     dest_time,
                     insert_policy,
                 },
@@ -77,13 +77,13 @@ impl Stack {
             Some((i, _)) => i,
             None => return false,
         };
-        if let Some(items_to_move) = self.linked_move_items(item_id) {
-            return self.move_linked_items(
+        if let Some(items_to_move) = self.synced_move_items(item_id) {
+            return self.move_synced_items(
                 items_to_move,
                 dest_track_index,
                 replace_with_gap,
                 overlap_policy,
-                super::LinkedMovePlacement::Index { dest_index },
+                super::SyncedMovePlacement::Index { dest_index },
             );
         }
 

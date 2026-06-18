@@ -1,0 +1,54 @@
+name: Auto-version bindings
+
+# Derives the Python package version from the commit count (0.1.<count>) on every push
+# to main, so every commit produces a distinct, monotonically-increasing version.
+#
+# Why: consumers (tellers-app / tellers-backend) install tellers-timeline from a git rev.
+# Poetry/pip cache the built wheel by name+version, so when the rev changes but the
+# version string stays the same, the stale wheel is reused and the update is missed.
+# Bumping the version on every commit guarantees the cache is invalidated.
+#
+# The bump commit is tagged "[skip ci]" so it does not retrigger any workflow.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: auto-version
+  cancel-in-progress: false
+
+jobs:
+  version:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Derive and write version
+        run: |
+          set -euo pipefail
+          version="0.1.$(git rev-list --count HEAD)"
+          echo "Setting bindings version to ${version}"
+          python3 - "${version}" <<'PY'
+          import pathlib, re, sys
+          version = sys.argv[1]
+          for path in ("bindings/python/pyproject.toml", "bindings/python/Cargo.toml"):
+              p = pathlib.Path(path)
+              text = p.read_text()
+              new = re.sub(r'(?m)^version = "[^"]+"', f'version = "{version}"', text, count=1)
+              if new != text:
+                  p.write_text(new)
+          PY
+          if git diff --quiet; then
+            echo "Version already up to date; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: auto-version bindings to ${version} [skip ci]"
+          git push

@@ -110,17 +110,17 @@ impl Stack {
     /// Delete a track by id. Returns the removed track on success.
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         let (i, track) = self.get_track_by_id(id)?;
-        let touched_link_groups: Vec<_> = track
+        let touched_sync_clips_ids: Vec<_> = track
             .items
             .iter()
             .filter_map(|item| match item {
-                Item::Clip(clip) => super::resolve_link_group_id(&clip.metadata),
+                Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata),
                 Item::Gap(_) => None,
             })
             .collect();
         let removed = self.children.remove(i);
-        for link_group_id in touched_link_groups {
-            self.delete_link_group(link_group_id, true);
+        for sync_clips_id in touched_sync_clips_ids {
+            self.delete_sync_clips(sync_clips_id, true);
         }
         self.sanitize_preserving_all_gap_tracks();
         Some(removed)
@@ -165,11 +165,11 @@ impl Stack {
         let Some(right_track) = self.children.get(right) else {
             return false;
         };
-        if !track_has_linked_clip(left_track) || !track_has_linked_clip(right_track) {
+        if !track_has_synced_clip(left_track) || !track_has_synced_clip(right_track) {
             return false;
         }
-        self.track_matches_primary_link_boundary(left, right)
-            || self.track_matches_primary_link_boundary(right, left)
+        self.track_matches_primary_sync_boundary(left, right)
+            || self.track_matches_primary_sync_boundary(right, left)
     }
 
     fn is_primary_track_in_group(&self, track_index: usize, group: TrackBoundaryGroup) -> bool {
@@ -189,9 +189,9 @@ impl Stack {
     }
 }
 
-fn track_has_linked_clip(track: &Track) -> bool {
+fn track_has_synced_clip(track: &Track) -> bool {
     track.items.iter().any(|item| match item {
-        Item::Clip(clip) => super::resolve_link_group_id(&clip.metadata).is_some(),
+        Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata).is_some(),
         Item::Gap(_) => false,
     })
 }

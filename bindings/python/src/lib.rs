@@ -939,12 +939,12 @@ impl PyStack {
                 linked_video_clip,
             ) {
                 Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
-                Some(InsertItemAtTimeResult::Linked(result)) => {
+                Some(InsertItemAtTimeResult::Synced(result)) => {
                     let dict = PyDict::new(py);
                     dict.set_item("primary_clip_id", result.primary_clip_id)?;
                     dict.set_item("audio_clips", result.audio_clips)?;
-                    dict.set_item("linked_video_clip_id", result.linked_video_clip_id)?;
-                    dict.set_item("link_group_id", result.link_group_id)?;
+                    dict.set_item("linked_video_clip_id", result.synced_video_clip_id)?;
+                    dict.set_item("link_group_id", result.sync_clips_id)?;
                     dict.set_item("created_track_indices", result.created_track_indices)?;
                     Ok(Some(dict.into_py(py)))
                 }
@@ -1014,12 +1014,12 @@ impl PyStack {
                 )
             {
                 Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
-                Some(InsertItemAtTimeResult::Linked(result)) => {
+                Some(InsertItemAtTimeResult::Synced(result)) => {
                     let dict = PyDict::new(py);
                     dict.set_item("primary_clip_id", result.primary_clip_id)?;
                     dict.set_item("audio_clips", result.audio_clips)?;
-                    dict.set_item("linked_video_clip_id", result.linked_video_clip_id)?;
-                    dict.set_item("link_group_id", result.link_group_id)?;
+                    dict.set_item("linked_video_clip_id", result.synced_video_clip_id)?;
+                    dict.set_item("link_group_id", result.sync_clips_id)?;
                     dict.set_item("created_track_indices", result.created_track_indices)?;
                     Ok(Some(dict.into_py(py)))
                 }
@@ -1032,10 +1032,10 @@ impl PyStack {
         }
     }
     fn unlink_item(&mut self, item_ids: Vec<String>) -> usize {
-        self.inner.unlink_item(&item_ids)
+        self.inner.unsync_item(&item_ids)
     }
     fn link_item(&mut self, item_ids: Vec<String>) -> Option<i64> {
-        self.inner.link_item(&item_ids)
+        self.inner.sync_item(&item_ids)
     }
     fn move_item_at_time(
         &mut self,

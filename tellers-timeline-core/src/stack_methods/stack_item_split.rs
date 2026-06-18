@@ -23,9 +23,9 @@ impl Stack {
             return true;
         }
 
-        let selected_link_group_id = super::resolve_link_group_id(&selected_clip.metadata);
-        let targets = selected_link_group_id
-            .map(|link_group_id| self.linked_group_targets(link_group_id))
+        let selected_sync_clips_id = super::resolve_sync_clips_id(&selected_clip.metadata);
+        let targets = selected_sync_clips_id
+            .map(|sync_clips_id| self.synced_clips_targets(sync_clips_id))
             .filter(|targets| targets.len() > 1)
             .unwrap_or_else(|| vec![(selected_track_index, selected_item_index)]);
         let backup = self.clone();
@@ -50,7 +50,7 @@ impl Stack {
             }
         }
 
-        let right_link_group_id = (targets.len() > 1).then(|| self.next_link_group_id());
+        let right_sync_clips_id = (targets.len() > 1).then(|| self.next_sync_clips_id());
         let mut target_tracks: Vec<_> = targets
             .iter()
             .map(|(track_index, _)| *track_index)
@@ -60,7 +60,7 @@ impl Stack {
         for track_index in target_tracks {
             self.children[track_index].split_at_time(split_time);
         }
-        if let Some(link_group_id) = right_link_group_id {
+        if let Some(sync_clips_id) = right_sync_clips_id {
             for (track_index, item_index) in &targets {
                 let Some(Item::Clip(clip)) = self
                     .children
@@ -70,7 +70,7 @@ impl Stack {
                     *self = backup;
                     return false;
                 };
-                super::set_resolve_link_group_id(&mut clip.metadata, link_group_id);
+                super::set_resolve_sync_clips_id(&mut clip.metadata, sync_clips_id);
             }
         }
         self.sanitize();

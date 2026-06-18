@@ -281,7 +281,9 @@ def test_delete_track_removes_linked_assets_left_behind():
 
     assert removed is not None
     assert removed.get_id() == "v"
-    assert len(stack.tracks()) == 2
+    # The audio sync track reuses the existing audio track "a" instead of spawning a
+    # new one, so deleting the video leaves only that single audio track behind.
+    assert len(stack.tracks()) == 1
     assert any(track.get_id() == "a" for track in stack.tracks())
     assert stack.get_item(audio_id) is None
     assert any(
