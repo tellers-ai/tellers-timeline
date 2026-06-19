@@ -609,6 +609,80 @@ impl Stack {
         targets
     }
 
+    fn item_is_unsynced(item: &Item) -> bool {
+        match item {
+            Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata).is_none(),
+            Item::Gap(_) => true,
+        }
+    }
+
+    /// Every track in the cluster has an unsynced item at `column_start` with `duration`.
+    /// This is the column shape produced by `insert_synced_item_at_time` padding.
+    fn is_cluster_column_at(
+        &self,
+        cluster: &[usize],
+        column_start: Seconds,
+        duration: Seconds,
+    ) -> bool {
+        cluster.len() > 1
+            && cluster.iter().all(|&track_index| {
+                let Some(track) = self.children.get(track_index) else {
+                    return false;
+                };
+                let Some(item_index) = track.get_item_at_time(column_start) else {
+                    return false;
+                };
+                (track.start_time_of_item(item_index) - column_start).abs() <= EPS
+                    && Self::item_is_unsynced(&track.items[item_index])
+                    && (track.items[item_index].duration() - duration).abs() <= EPS
+            })
+    }
+
+    /// Resize an insert-style cluster column: unsynced items at the same start on
+    /// every bound track, then realign synced assets across the cluster.
+    fn apply_cluster_column_duration_change(
+        &mut self,
+        item_id: &str,
+        cluster: &[usize],
+        column_start: Seconds,
+        old_duration: Seconds,
+        new_duration: Seconds,
+        source_start_time: Seconds,
+        clamp_to_media: bool,
+    ) -> bool {
+        for &track_index in cluster {
+            let Some(track) = self.children.get_mut(track_index) else {
+                return false;
+            };
+            let Some(item_index) = track.get_item_at_time(column_start) else {
+                return false;
+            };
+            if (track.start_time_of_item(item_index) - column_start).abs() > EPS {
+                return false;
+            }
+            let item = &mut track.items[item_index];
+            if !Self::item_is_unsynced(item) {
+                return false;
+            }
+            if (item.duration() - old_duration).abs() > EPS {
+                return false;
+            }
+            if item.get_id().as_deref() == Some(item_id) {
+                if let Item::Clip(clip) = item {
+                    let _ = clip;
+                    set_item_source_start(item, source_start_time);
+                }
+            }
+            item.set_duration(new_duration);
+            if clamp_to_media {
+                item.clamp_to_active_available_range();
+            }
+            track.sanitize_preserving_all_gap_track();
+        }
+
+        true
+    }
+
     fn synced_clip_states(&self) -> HashMap<String, SyncedClipState> {
         let mut states = HashMap::new();
         for (track_index, track) in self.children.iter().enumerate() {
@@ -1679,6 +1753,47 @@ impl Stack {
         }
         let effective_push_following =
             push_following || (is_gap && effective_duration < old_duration);
+
+        let cluster = self.boundary_group_indices(track_index);
+        let is_cluster_column = self.is_cluster_column_at(
+            &cluster,
+            old_timeline_start,
+            old_duration,
+        );
+        if is_cluster_column
+            && (new_timeline_start - old_timeline_start).abs() <= EPS
+            && (effective_duration - old_duration).abs() > EPS
+        {
+            let backup = self.clone();
+            let before_states = self.synced_clip_states();
+            if !self.apply_cluster_column_duration_change(
+                item_id,
+                &cluster,
+                old_timeline_start,
+                old_duration,
+                effective_duration,
+                effective_source_start,
+                clamp_to_media,
+            ) {
+                return false;
+            }
+            self.sanitize_preserving_all_gap_tracks();
+            let overlap_policy = if effective_push_following {
+                OverlapPolicy::Push
+            } else {
+                OverlapPolicy::Override
+            };
+            if !self.sync_changed_groups_after_resize(
+                &before_states,
+                &cluster,
+                &HashSet::new(),
+                overlap_policy,
+            ) {
+                *self = backup;
+                return false;
+            }
+            return true;
+        }
 
         if is_gap && effective_duration < old_duration {
             let backup = self.clone();
