@@ -2971,6 +2971,30 @@ fn synced_delete_keeps_touched_tracks_without_remaining_clips() {
 }
 
 #[test]
+fn synced_delete_without_gap_collapses_sync_clips() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+
+    let removed = stack.delete_item("primary", false);
+    assert_eq!(removed.len(), 2);
+    assert!(stack.children.iter().all(|track| track.items.is_empty()));
+}
+
+#[test]
 fn delete_unsynced_item_only_removes_selected_item() {
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
     video.items.push(Item::Clip(clip(3.0, Some("primary"))));
