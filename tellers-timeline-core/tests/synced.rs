@@ -2995,6 +2995,8 @@ fn move_item_at_time_moves_synced_clips() {
 
     let (video_track, video_index, video_item) = stack.get_item("primary").unwrap();
     let (audio_track, audio_index, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(stack.children[video_track].get_id().as_deref(), Some("v"));
+    assert_eq!(stack.children[audio_track].get_id().as_deref(), Some("a"));
     assert_eq!(
         stack.children[video_track].start_time_of_item(video_index),
         stack.children[audio_track].start_time_of_item(audio_index)
