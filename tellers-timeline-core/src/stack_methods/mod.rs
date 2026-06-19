@@ -244,11 +244,53 @@ impl Stack {
         true
     }
 
+    fn sync_split_id_policy_for_inserted_item(item: &Item) -> SyncSplitIdPolicy {
+        match item {
+            Item::Clip(clip) if resolve_sync_clips_id(&clip.metadata).is_some() => {
+                SyncSplitIdPolicy::KeepShared
+            }
+            _ => SyncSplitIdPolicy::AssignNewIdToRight,
+        }
+    }
+
+    fn apply_sync_splits_for_column_insert(
+        &mut self,
+        start: Seconds,
+        duration: Seconds,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+        id_policy: SyncSplitIdPolicy,
+    ) -> bool {
+        let mut split_times = Vec::new();
+        if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
+            split_times.push(start);
+        }
+        if overlap_policy == OverlapPolicy::Override && duration > EPS {
+            if !split_times
+                .iter()
+                .any(|time| (*time - start).abs() <= EPS)
+            {
+                split_times.push(start);
+            }
+            if matches!(id_policy, SyncSplitIdPolicy::KeepShared) {
+                split_times.push(start + duration);
+            }
+        }
+        split_times.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+        split_times.dedup_by(|left, right| (*left - *right).abs() <= EPS);
+        for split_time in split_times {
+            if !self.split_sync_clips_at_time(split_time, id_policy) {
+                return false;
+            }
+        }
+        true
+    }
+
     fn prepare_sync_splits_for_insert(
         &mut self,
         track_index: usize,
         insert_time: Seconds,
-        item_duration: Seconds,
+        item: &Item,
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) {
@@ -259,16 +301,14 @@ impl Stack {
         ) else {
             return;
         };
-        if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
-            let _ = self.split_sync_clips_at_time(start, SyncSplitIdPolicy::KeepShared);
-        }
-        if overlap_policy == OverlapPolicy::Override && item_duration > EPS {
-            let _ = self.split_sync_clips_at_time(start, SyncSplitIdPolicy::KeepShared);
-            let _ = self.split_sync_clips_at_time(
-                start + item_duration,
-                SyncSplitIdPolicy::KeepShared,
-            );
-        }
+        let id_policy = Self::sync_split_id_policy_for_inserted_item(item);
+        let _ = self.apply_sync_splits_for_column_insert(
+            start,
+            item.duration().max(0.0),
+            insert_policy,
+            overlap_policy,
+            id_policy,
+        );
     }
 
     fn insert_at_time_with_sync_splits(
@@ -282,7 +322,7 @@ impl Stack {
         self.prepare_sync_splits_for_insert(
             track_index,
             insert_time,
-            item.duration().max(0.0),
+            &item,
             insert_policy,
             overlap_policy,
         );
@@ -1634,6 +1674,20 @@ impl Stack {
         }
         column.sort_by_key(|(track_index, _)| *track_index);
 
+        if overlap_policy == OverlapPolicy::Override
+            && matches!(insert_policy, InsertPolicy::SplitAndInsert)
+            && !self.apply_sync_splits_for_column_insert(
+                start,
+                modified_duration,
+                insert_policy,
+                overlap_policy,
+                SyncSplitIdPolicy::AssignNewIdToRight,
+            )
+        {
+            *self = backup;
+            return None;
+        }
+
         // Insert the whole column. The primary lands at the requested position
         // with the caller's insert policy; every other track receives its item
         // at the same resolved start with the same overlap policy, splitting at
@@ -2829,26 +2883,15 @@ impl Stack {
             SyncedMovePlacement::Time { insert_policy, .. } => insert_policy,
             SyncedMovePlacement::Index { .. } => InsertPolicy::SplitAndInsert,
         };
-        let mut split_times = Vec::new();
-        if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
-            split_times.push(moved_start);
-        }
-        if overlap_policy == OverlapPolicy::Override && moved_duration > EPS {
-            if !split_times
-                .iter()
-                .any(|time| (*time - moved_start).abs() <= EPS)
-            {
-                split_times.push(moved_start);
-            }
-            split_times.push(moved_start + moved_duration);
-        }
-        split_times.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
-        split_times.dedup_by(|left, right| (*left - *right).abs() <= EPS);
-        for split_time in split_times {
-            if !self.split_sync_clips_at_time(split_time, SyncSplitIdPolicy::KeepShared) {
-                *self = backup;
-                return false;
-            }
+        if !self.apply_sync_splits_for_column_insert(
+            moved_start,
+            moved_duration,
+            insert_policy,
+            overlap_policy,
+            SyncSplitIdPolicy::KeepShared,
+        ) {
+            *self = backup;
+            return false;
         }
 
         for (track_index, item, is_selected) in placements {

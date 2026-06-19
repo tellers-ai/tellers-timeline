@@ -6067,6 +6067,63 @@ fn move_synced_clip_with_reused_link_group_id_splits_long_column_on_video() {
 }
 
 #[test]
+fn move_unsynced_image_into_synced_clip_override_assigns_new_link_group_to_right() {
+    const SYNC_ID: i64 = 2;
+    const SYNC_DUR: f64 = 42.0;
+    const IMAGE_DUR: f64 = 5.0;
+    const LEAD: f64 = 5.0;
+
+    let mut audio = Track::new(TrackKind::Audio, Some("A3".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    audio.items.push(synced_clip_item(SYNC_DUR, "sync-audio", SYNC_ID));
+
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    video.items.push(synced_clip_item(SYNC_DUR, "sync-video", SYNC_ID));
+    video
+        .items
+        .push(Item::Clip(clip(IMAGE_DUR, Some("screenshot"))));
+
+    let mut stack = Stack::default();
+    stack.children.push(audio);
+    stack.children.push(video);
+
+    assert!(stack.move_item_at_time(
+        "screenshot",
+        "v",
+        20.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(
+        sync_clips_id(stack.get_item("sync-video").unwrap().2),
+        Some(SYNC_ID)
+    );
+
+    let (_, video_track) = stack.get_track_by_id("v").unwrap();
+    let sync_group_ids: Vec<_> = video_track
+        .items
+        .iter()
+        .filter_map(sync_clips_id)
+        .collect();
+    assert_eq!(sync_group_ids, vec![SYNC_ID, SYNC_ID + 1]);
+    assert_eq!(
+        sync_clips_id(stack.get_item("screenshot").unwrap().2),
+        None
+    );
+
+    let (_, audio_track) = stack.get_track_by_id("A3").unwrap();
+    let audio_sync_group_ids: Vec<_> = audio_track
+        .items
+        .iter()
+        .filter_map(sync_clips_id)
+        .collect();
+    assert_eq!(audio_sync_group_ids, vec![SYNC_ID, SYNC_ID + 1]);
+}
+
+#[test]
 fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
     let times = [0.0_f64, 2.0, 3.0, 4.0, 6.0, 8.0];
     let overlaps = [OverlapPolicy::Override, OverlapPolicy::Push];
