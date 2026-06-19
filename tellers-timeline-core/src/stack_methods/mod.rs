@@ -2236,6 +2236,21 @@ impl Stack {
         Some(items)
     }
 
+    fn is_intra_cluster_sync_move(
+        &self,
+        dest_track_index: usize,
+        items_to_move: &[SyncedMoveItem],
+    ) -> bool {
+        let cluster: HashSet<usize> = self
+            .boundary_group_indices(dest_track_index)
+            .into_iter()
+            .collect();
+        cluster.contains(&dest_track_index)
+            && items_to_move
+                .iter()
+                .all(|item| cluster.contains(&item.track_index))
+    }
+
     fn stack_item_start_time(&self, item_id: &str) -> Option<Seconds> {
         let (track_index, item_index, _) = self.get_item(item_id)?;
         Some(self.children[track_index].start_time_of_item(item_index))
@@ -2509,6 +2524,9 @@ impl Stack {
             TrackKind::Other => {}
         }
 
+        let intra_cluster_move =
+            backup.is_intra_cluster_sync_move(dest_track_index, &items_to_move);
+
         let mut sync_track_items: Vec<_> = items_to_move
             .into_iter()
             .enumerate()
@@ -2522,6 +2540,19 @@ impl Stack {
         });
 
         for (_, move_item) in sync_track_items {
+            if intra_cluster_move {
+                let track_index = move_item.track_index;
+                match move_item.track_kind {
+                    TrackKind::Audio => used_audio_track_indices.push(track_index),
+                    TrackKind::Video => used_video_track_indices.push(track_index),
+                    TrackKind::Other => {
+                        *self = backup;
+                        return false;
+                    }
+                }
+                placements.push((track_index, move_item.item, false));
+                continue;
+            }
 
             match move_item.track_kind {
                 TrackKind::Audio => {

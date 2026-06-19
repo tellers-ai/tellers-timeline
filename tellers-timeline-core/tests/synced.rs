@@ -1855,6 +1855,65 @@ fn move_synced_set_on_same_track_in_cluster_preserves_track_and_cluster_count() 
 }
 
 #[test]
+fn move_synced_set_within_same_cluster_preserves_original_tracks_when_moving_from_audio() {
+    let mut stack = Stack::default();
+
+    for id in ["A1", "A2", "A3"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio.items.push(synced_clip_item_with_rate(
+            62.88,
+            0.0,
+            &format!("{id}-g3"),
+            3,
+            25.0,
+        ));
+        stack.children.push(audio);
+    }
+
+    let mut video = Track::new(TrackKind::Video, Some("video".to_string()));
+    video.items.push(synced_clip_item_with_rate(62.88, 0.0, "v-g3", 3, 25.0));
+    stack.children.push(video);
+
+    let video_track_before = stack.get_track_by_id("video").unwrap().0;
+    let track_count = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "A1-g3",
+        "A1",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count);
+    let (video_track, video_index, _) = stack.get_item("v-g3").unwrap();
+    assert_eq!(
+        video_track, video_track_before,
+        "video must stay on its original track when moving within the sync cluster"
+    );
+    assert_eq!(
+        stack.children[video_track].get_id().as_deref(),
+        Some("video")
+    );
+    assert_eq!(
+        stack.children[video_track].start_time_of_item(video_index),
+        4.0
+    );
+    for (id, track_id) in [("A1-g3", "A1"), ("A2-g3", "A2"), ("A3-g3", "A3")] {
+        let (audio_track, audio_index, _) = stack.get_item(id).unwrap();
+        assert_eq!(
+            stack.children[audio_track].get_id().as_deref(),
+            Some(track_id)
+        );
+        assert_eq!(
+            stack.children[audio_track].start_time_of_item(audio_index),
+            4.0
+        );
+    }
+}
+
+#[test]
 fn move_unsynced_clip_between_video_tracks_in_cluster_preserves_track_and_cluster_count() {
     let mut stack = Stack::default();
 
