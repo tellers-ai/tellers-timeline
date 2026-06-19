@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
-    Clip, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, MediaReference,
-    OverlapPolicy, RationalTime, Seconds, Stack, TimeRange, Track,
+    Clip, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, MediaReference, OverlapPolicy,
+    RationalTime, Seconds, Stack, TimeRange, Track, TrackKind,
 };
 
 fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
@@ -167,6 +167,43 @@ fn stack_with_items(items: Vec<Item>) -> Stack {
     }
 }
 
+fn identified_clip(id: &str, duration: Seconds) -> Item {
+    let mut item = make_clip(duration, 0.0);
+    item.set_id(Some(id.to_string()));
+    item
+}
+
+fn stack_with_lower_audio_and_video_above() -> Stack {
+    let audio = Track::new(TrackKind::Audio, Some("audio-below".to_string()));
+    let mut video = Track::new(TrackKind::Video, Some("video-above".to_string()));
+    video.items = vec![
+        identified_clip("video-1", 4.0),
+        identified_clip("video-2", 4.0),
+    ];
+    Stack {
+        children: vec![audio, video],
+        ..Stack::default()
+    }
+}
+
+fn assert_track_ids(track: &Track, expected_ids: &[&str]) {
+    let ids = track
+        .items
+        .iter()
+        .map(|item| item.get_id().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, expected_ids);
+}
+
+fn assert_track_durations(track: &Track, expected_durations: &[Seconds]) {
+    let durations = track
+        .items
+        .iter()
+        .map(|item| item.duration())
+        .collect::<Vec<_>>();
+    assert_eq!(durations, expected_durations);
+}
+
 #[test]
 fn insert_before_after_or_boundary() {
     let mut stack = stack_with_items(vec![make_clip(4.0, 0.0), make_clip(6.0, 0.0)]);
@@ -236,13 +273,8 @@ fn insert_plain_item_at_index_without_id_returns_assigned_id() {
     let mut stack = stack_with_items(vec![make_clip(1.0, 0.0)]);
     let track_id = stack.children[0].get_id().unwrap();
 
-    let result = stack.insert_item_at_index(
-        &track_id,
-        1,
-        make_clip(1.0, 0.0),
-        OverlapPolicy::Push,
-        None,
-    );
+    let result =
+        stack.insert_item_at_index(&track_id, 1, make_clip(1.0, 0.0), OverlapPolicy::Push, None);
 
     let Some(InsertItemAtTimeResult::ItemId(inserted_id)) = result else {
         panic!("expected inserted id");
@@ -348,4 +380,40 @@ fn insert_split_and_override_at_zero() {
         }
         _ => panic!("expected two clips after insert"),
     }
+}
+
+#[test]
+fn insert_plain_item_override_only_edits_destination_track() {
+    let mut stack = stack_with_lower_audio_and_video_above();
+
+    stack.insert_item_at_time(
+        0,
+        0.0,
+        identified_clip("music", 8.0),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+        None,
+    );
+
+    assert_track_ids(&stack.children[1], &["video-1", "video-2"]);
+    assert_track_durations(&stack.children[1], &[4.0, 4.0]);
+    assert_track_ids(&stack.children[0], &["music"]);
+}
+
+#[test]
+fn insert_plain_item_push_only_edits_destination_track() {
+    let mut stack = stack_with_lower_audio_and_video_above();
+
+    stack.insert_item_at_time(
+        0,
+        0.0,
+        identified_clip("music", 8.0),
+        OverlapPolicy::Push,
+        InsertPolicy::SplitAndInsert,
+        None,
+    );
+
+    assert_track_ids(&stack.children[1], &["video-1", "video-2"]);
+    assert_track_durations(&stack.children[1], &[4.0, 4.0]);
+    assert_track_ids(&stack.children[0], &["music"]);
 }
