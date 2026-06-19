@@ -209,7 +209,6 @@ class Stack:
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
         linked_audio_clips: Optional[list[Union[Item, Clip]]] = None,
-        linked_video_clip: Optional[Union[Item, Clip]] = None,
     ) -> Optional[Union[str, dict[str, Any]]]: ...
     def get_metadata_json(self) -> str: ...
     def set_metadata_json(self, value: str) -> None: ...
@@ -221,7 +220,6 @@ class Stack:
         item: Union[Item, Clip, Gap],
         overlap_policy: OverlapPolicy,
         linked_audio_clips: Optional[list[Union[Item, Clip]]] = None,
-        linked_video_clip: Optional[Union[Item, Clip]] = None,
     ) -> Optional[Union[str, dict[str, Any]]]: ...
     def unlink_item(self, item_ids: list[str]) -> int: ...
     def link_item(self, item_ids: list[str]) -> Optional[int]: ...
@@ -257,7 +255,6 @@ class Stack:
         item_id: str,
         item: Union[Item, Clip, Gap],
         linked_audio_clips: Optional[list[Union[Item, Clip]]] = None,
-        linked_video_clip: Optional[Union[Item, Clip]] = None,
     ) -> bool: ...
 
 class Timeline:

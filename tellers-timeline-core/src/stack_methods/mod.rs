@@ -44,7 +44,6 @@ pub struct TrackBoundaryGroupInfo {
 #[derive(Debug, Clone)]
 struct SyncedInputs {
     audio: Vec<Item>,
-    video: Option<Item>,
 }
 
 #[derive(Debug, Clone)]
@@ -706,15 +705,6 @@ impl Stack {
     }
 
     fn synced_inputs_match_duration(duration: Seconds, inputs: &SyncedInputs) -> bool {
-        if let Some(video_item) = &inputs.video {
-            let Some(video_duration) = Self::sanitized_clip_duration(video_item) else {
-                return false;
-            };
-            if (video_duration - duration).abs() > EPS {
-                return false;
-            }
-        }
-
         for audio_item in &inputs.audio {
             let Some(audio_duration) = Self::sanitized_clip_duration(audio_item) else {
                 return false;
@@ -727,46 +717,18 @@ impl Stack {
         true
     }
 
-    fn same_item_content_ignoring_timeline_id(left: &Item, right: &Item) -> bool {
-        let mut left = left.clone();
-        let mut right = right.clone();
-        left.set_id(None);
-        right.set_id(None);
-        left == right
-    }
-
-    fn remove_item_from_synced_video_input(item: &Item, synced_video_clip: &mut Option<Item>) {
-        if synced_video_clip.as_ref().is_some_and(|synced_item| {
-            Self::same_item_content_ignoring_timeline_id(item, synced_item)
-        }) {
-            *synced_video_clip = None;
-        }
-    }
-
-    fn normalize_synced_inputs(
-        item: &Item,
-        synced_audio_clips: Option<Vec<Item>>,
-        synced_video_clip: Option<Item>,
-    ) -> SyncedInputs {
+    fn normalize_synced_inputs(synced_audio_clips: Option<Vec<Item>>) -> SyncedInputs {
         let mut inputs = SyncedInputs {
             audio: synced_audio_clips.unwrap_or_default(),
-            video: synced_video_clip,
         };
-        Self::remove_item_from_synced_video_input(item, &mut inputs.video);
         for item in &mut inputs.audio {
             item.clamp_to_active_available_range();
-        }
-        if let Some(video) = &mut inputs.video {
-            video.clamp_to_active_available_range();
         }
         inputs
     }
 
-    fn has_synced_inputs(
-        synced_audio_clips: &Option<Vec<Item>>,
-        synced_video_clip: &Option<Item>,
-    ) -> bool {
-        synced_audio_clips.is_some() || synced_video_clip.is_some()
+    fn has_synced_inputs(synced_audio_clips: &Option<Vec<Item>>) -> bool {
+        synced_audio_clips.is_some()
     }
 
     fn flatten_track_segments(&self, track_index: usize) -> Vec<BoundarySegment> {
@@ -1209,18 +1171,12 @@ impl Stack {
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
         synced_audio_clips: Option<Vec<Item>>,
-        synced_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
         let mut primary_item = item;
         primary_item.clamp_to_active_available_range();
-        let synced_inputs =
-            Self::normalize_synced_inputs(&primary_item, synced_audio_clips, synced_video_clip);
-        let has_synced_clips = !synced_inputs.audio.is_empty() || synced_inputs.video.is_some();
+        let synced_inputs = Self::normalize_synced_inputs(synced_audio_clips);
+        let has_synced_clips = !synced_inputs.audio.is_empty();
         if has_synced_clips && !matches!(primary_item, Item::Clip(_)) {
-            return None;
-        }
-        if synced_inputs.video.is_some() && self.children[dest_track_index].kind != TrackKind::Audio
-        {
             return None;
         }
 
@@ -1263,34 +1219,6 @@ impl Stack {
         let mut primary_track_index = dest_track_index;
         let mut created_track_indices = Vec::new();
         let mut audio_track_indices = Vec::new();
-        let mut video_track_index = None;
-
-        if synced_inputs.video.is_some() {
-            let track_count_before = self.children.len();
-            let Some(track_index) = self.find_or_create_video_track_for_audio(
-                primary_track_index,
-                start,
-                modified_duration,
-                &mut created_track_indices,
-                sync_clips_id,
-                true,
-                overlap_policy,
-            ) else {
-                *self = backup;
-                return None;
-            };
-            if self.children.len() > track_count_before {
-                if track_index <= primary_track_index {
-                    primary_track_index += 1;
-                }
-                for audio_track_index in &mut audio_track_indices {
-                    if track_index <= *audio_track_index {
-                        *audio_track_index += 1;
-                    }
-                }
-            }
-            video_track_index = Some(track_index);
-        }
 
         let mut used_audio_boundary_indices = Vec::new();
         for _ in &synced_inputs.audio {
@@ -1320,11 +1248,6 @@ impl Stack {
             if self.children.len() > track_count_before {
                 if track_index <= primary_track_index {
                     primary_track_index += 1;
-                }
-                if let Some(video_index) = &mut video_track_index {
-                    if track_index <= *video_index {
-                        *video_index += 1;
-                    }
                 }
                 for audio_track_index in &mut audio_track_indices {
                     if track_index <= *audio_track_index {
@@ -1359,11 +1282,6 @@ impl Stack {
         }
         if !boundary_track_indices.contains(&primary_track_index) {
             boundary_track_indices.push(primary_track_index);
-        }
-        if let Some(video_track_index) = video_track_index {
-            if !boundary_track_indices.contains(&video_track_index) {
-                boundary_track_indices.push(video_track_index);
-            }
         }
         for audio_track_index in &audio_track_indices {
             if !boundary_track_indices.contains(audio_track_index) {
@@ -1424,22 +1342,6 @@ impl Stack {
         // every track splits/pushes identically and the group stays aligned.
         // ---------------------------------------------------------------------
         let mut column = vec![(primary_track_index, primary_item)];
-        let mut synced_video_clip_id = None;
-        if let (Some(video_track_index), Some(video_item)) =
-            (video_track_index, synced_inputs.video)
-        {
-            let Some((video_item, video_id)) = Self::prepare_synced_item(
-                video_item,
-                modified_duration,
-                sync_clips_id,
-                &mut used_ids,
-            ) else {
-                *self = backup;
-                return None;
-            };
-            column.push((video_track_index, video_item));
-            synced_video_clip_id = Some(video_id);
-        }
 
         let mut audio_clips = Vec::new();
         for (audio_item, audio_track_index) in
@@ -1515,7 +1417,7 @@ impl Stack {
         Some(InsertItemAtTimeResult::Synced(SyncedInsertResult {
             primary_clip_id: primary_id,
             audio_clips,
-            synced_video_clip_id,
+            synced_video_clip_id: None,
             sync_clips_id,
             created_track_indices,
         }))

@@ -366,7 +366,7 @@ dependencies = [
 
 [[package]]
 name = "tellers-timeline-python"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "pyo3",
  "pyo3-build-config",

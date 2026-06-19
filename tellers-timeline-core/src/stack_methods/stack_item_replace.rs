@@ -56,7 +56,6 @@ impl Stack {
         item_id: &str,
         item: Item,
         synced_audio_clips: Option<Vec<Item>>,
-        synced_video_clip: Option<Item>,
     ) -> bool {
         let Some((selected_track_index, selected_item_index, selected_item)) =
             self.get_item(item_id)
@@ -71,17 +70,8 @@ impl Stack {
             Item::Gap(_) => None,
         };
         let synced_audio_input_provided = synced_audio_clips.is_some();
-        let synced_video_input_provided = synced_video_clip.is_some();
-        let synced_inputs =
-            Self::normalize_synced_inputs(&item, synced_audio_clips, synced_video_clip);
-        if synced_inputs.video.is_some()
-            && self.children[selected_track_index].kind != TrackKind::Audio
-        {
-            return false;
-        }
-        let should_link = selected_sync_clips.is_some()
-            || !synced_inputs.audio.is_empty()
-            || synced_inputs.video.is_some();
+        let synced_inputs = Self::normalize_synced_inputs(synced_audio_clips);
+        let should_link = selected_sync_clips.is_some() || !synced_inputs.audio.is_empty();
         let sync_clips =
             selected_sync_clips.or_else(|| should_link.then(|| self.next_sync_clips_id()));
         let targets = selected_sync_clips
@@ -114,7 +104,6 @@ impl Stack {
         }
 
         let mut synced_audio_inputs = synced_inputs.audio.into_iter();
-        let mut synced_video_input = synced_inputs.video;
         let mut replacements = Vec::new();
         for (track_index, item_index) in targets {
             let Some(track) = self.children.get(track_index) else {
@@ -135,10 +124,6 @@ impl Stack {
             } else if synced_audio_input_provided && track_kind == TrackKind::Audio {
                 synced_audio_inputs
                     .next()
-                    .unwrap_or_else(|| Item::Gap(Gap::make_gap(replacement_duration)))
-            } else if synced_video_input_provided && track_kind == TrackKind::Video {
-                synced_video_input
-                    .take()
                     .unwrap_or_else(|| Item::Gap(Gap::make_gap(replacement_duration)))
             } else {
                 existing.clone()
@@ -217,36 +202,6 @@ impl Stack {
         let mut primary_track_index = selected_track_index;
         let mut created_track_indices = Vec::new();
         let mut insertions = Vec::new();
-        if let Some(video_item) = synced_video_input {
-            let track_count_before_video = self.children.len();
-            let Some(video_track_index) = self.find_or_create_video_track_for_audio(
-                primary_track_index,
-                selected_start,
-                replacement_duration,
-                &mut created_track_indices,
-                Some(sync_clips_id),
-                false,
-                crate::OverlapPolicy::Override,
-            ) else {
-                *self = backup;
-                return false;
-            };
-            if self.children.len() > track_count_before_video {
-                shift_track_index_after_insert(&mut primary_track_index, video_track_index);
-                shift_replacement_tracks_after_insert(&mut replacements, video_track_index);
-                shift_insert_tracks_after_insert(&mut insertions, video_track_index);
-            }
-            let Some((video_item, _video_id)) = Self::prepare_synced_item(
-                video_item,
-                replacement_duration,
-                Some(sync_clips_id),
-                &mut used_ids,
-            ) else {
-                *self = backup;
-                return false;
-            };
-            insertions.push((video_track_index, video_item));
-        }
 
         let mut inserted_audio_tracks = Vec::new();
         let mut inserted_audio_boundary_tracks = Vec::new();

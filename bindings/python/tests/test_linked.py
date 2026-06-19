@@ -225,27 +225,6 @@ def test_delete_unlinked_item_only_removes_selected_item():
     assert stack.get_item("unlinked-audio") is not None
 
 
-def test_delete_item_removes_video_asset_linked_to_audio_primary():
-    stack = Stack([Track(kind="audio")])
-    result = stack.insert_item_at_time(
-        0,
-        0.0,
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio"),
-        "override",
-        "split_and_insert",
-        None,
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
-    )
-
-    removed = stack.delete_item("audio", True)
-
-    assert len(removed) == 2
-    assert stack.get_item("audio") is None
-    assert stack.get_item("video") is None
-    for track in stack.tracks():
-        assert all(item.is_gap() for item in track.items())
-
-
 def test_delete_item_keeps_empty_linked_tracks():
     stack = Stack([Track(kind="video")])
     stack.insert_item_at_time(
@@ -556,7 +535,7 @@ def test_replace_item_can_add_linked_audio_clip():
     assert maybe_link_group_id(primary) is not None
 
 
-def test_replace_item_keeps_same_content_audio_and_removes_same_content_video_input():
+def test_replace_item_keeps_same_content_audio():
     stack = Stack(
         [
             Track(
@@ -593,33 +572,6 @@ def test_replace_item_keeps_same_content_audio_and_removes_same_content_video_in
         if item.is_clip()
     ]
     assert len(audio_items) == 2
-
-    stack = Stack(
-        [
-            Track(
-                kind="video",
-                children=[
-                    Item.from_clip(
-                        Clip(
-                            3.0,
-                            {"DEFAULT_MEDIA": MediaReference("file:///video.mov")},
-                            id="primary",
-                        )
-                    )
-                ],
-            )
-        ]
-    )
-
-    assert stack.replace_item(
-        "primary",
-        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.mov")}, id="replacement"),
-        None,
-        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.mov")}, id="other"),
-    )
-    assert len(stack.tracks()) == 1
-    assert stack.get_item("primary") is not None
-    assert stack.get_item("replacement") is None
 
 
 def test_split_item_at_time_splits_linked_group():
@@ -724,69 +676,6 @@ def test_replace_item_rejects_linked_audio_with_different_duration():
     assert stack.get_item("audio") is None
 
 
-def test_replace_item_rejects_linked_video_with_different_duration():
-    stack = Stack(
-        [
-            Track(
-                kind="audio",
-                children=[
-                    Item.from_clip(
-                        Clip(
-                            4.0,
-                            {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")},
-                            id="audio",
-                        )
-                    )
-                ],
-            )
-        ]
-    )
-
-    assert not stack.replace_item(
-        "audio",
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.wav")}),
-        None,
-        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
-    )
-    assert len(stack.tracks()) == 1
-    assert stack.tracks()[0].kind == "audio"
-    assert stack.get_item("audio")[2].duration() == 4.0
-    assert stack.get_item("video") is None
-
-
-def test_replace_item_can_add_linked_video_clip_for_audio():
-    stack = Stack(
-        [
-            Track(
-                kind="audio",
-                children=[
-                    Item.from_clip(
-                        Clip(
-                            4.0,
-                            {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")},
-                            id="audio",
-                        )
-                    )
-                ],
-            )
-        ]
-    )
-
-    assert stack.replace_item(
-        "audio",
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///replacement.wav")}),
-        None,
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
-    )
-
-    assert stack.tracks()[0].kind == "video"
-    assert stack.tracks()[1].kind == "audio"
-    audio = stack.get_item("audio")[2]
-    video = stack.get_item("video")[2]
-    assert maybe_link_group_id(audio) == maybe_link_group_id(video)
-    assert maybe_link_group_id(audio) is not None
-
-
 def test_link_item_links_arbitrary_existing_clips_with_new_group():
     primary = Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary")
     audio = Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio")
@@ -853,31 +742,6 @@ def test_insert_linked_clip_clamps_against_available_range():
     assert item.duration() == 5.0
 
 
-def test_insert_item_at_time_can_link_video_clip_for_audio_primary():
-    stack = Stack([Track(kind="audio")])
-
-    result = stack.insert_item_at_time(
-        0,
-        0.0,
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio"),
-        "override",
-        "split_and_insert",
-        None,
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
-    )
-
-    assert result is not None
-    assert result["primary_clip_id"] == "audio"
-    assert result["linked_video_clip_id"] == "video"
-    assert result["created_track_indices"] == [0]
-    assert stack.tracks()[0].kind == "video"
-    assert stack.tracks()[0].get_id() == "V1"
-    assert stack.tracks()[0].get_name() == "V1"
-    assert stack.tracks()[1].kind == "audio"
-    assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
-    assert maybe_link_group_id(stack.get_item("video")[2]) == result["link_group_id"]
-
-
 def test_insert_item_at_index_returns_linked_ids():
     stack = Stack([Track(kind="video", id="v", children=[Item.from_gap(Gap(5.0))])])
 
@@ -897,7 +761,7 @@ def test_insert_item_at_index_returns_linked_ids():
     assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
 
 
-def test_insert_item_at_time_keeps_same_content_audio_and_removes_same_content_video_input():
+def test_insert_item_at_time_keeps_same_content_audio():
     stack = Stack([Track(kind="video")])
 
     result = stack.insert_item_at_time(
@@ -913,23 +777,6 @@ def test_insert_item_at_time_keeps_same_content_audio_and_removes_same_content_v
     assert len(result["audio_clips"]) == 1
     assert result["link_group_id"] is not None
     assert len(stack.tracks()) == 2
-    assert stack.get_item("primary") is not None
-
-    stack = Stack([Track(kind="video")])
-    result = stack.insert_item_at_time(
-        0,
-        0.0,
-        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
-        "override",
-        "split_and_insert",
-        None,
-        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="other"),
-    )
-
-    assert result is not None
-    assert result["linked_video_clip_id"] is None
-    assert result["link_group_id"] is None
-    assert len(stack.tracks()) == 1
     assert stack.get_item("primary") is not None
 
 
@@ -949,53 +796,6 @@ def test_insert_item_at_time_rejects_linked_audio_with_different_duration():
     assert len(stack.tracks()) == 1
     assert stack.get_item("primary") is None
     assert stack.get_item("audio") is None
-
-
-def test_insert_item_at_time_rejects_linked_video_with_different_duration():
-    stack = Stack([Track(kind="audio")])
-
-    result = stack.insert_item_at_time(
-        0,
-        0.0,
-        Clip(4.0, {"DEFAULT_MEDIA": MediaReference("file:///audio.wav")}, id="audio"),
-        "override",
-        "split_and_insert",
-        None,
-        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="video"),
-    )
-
-    assert result is None
-    assert len(stack.tracks()) == 1
-    assert stack.tracks()[0].kind == "audio"
-    assert stack.get_item("audio") is None
-    assert stack.get_item("video") is None
-
-
-def test_linked_video_clip_requires_clip_item():
-    stack = Stack([Track(kind="audio", children=[Item.from_gap(Gap(3.0, id="gap"))])])
-
-    assert_type_error_message(
-        lambda: stack.insert_item_at_time(
-            0,
-            0.0,
-            Gap(3.0),
-            "override",
-            "split_and_insert",
-            None,
-            Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}),
-        ),
-        "linked_video_clip can only be used when item is a Clip",
-    )
-
-    assert_type_error_message(
-        lambda: stack.replace_item(
-            "gap",
-            Gap(3.0),
-            None,
-            Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}),
-        ),
-        "linked_video_clip can only be used when item is a Clip",
-    )
 
 
 def test_move_item_at_time_moves_linked_group():

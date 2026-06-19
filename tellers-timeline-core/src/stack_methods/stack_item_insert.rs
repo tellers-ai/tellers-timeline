@@ -12,7 +12,6 @@ impl Stack {
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
         synced_audio_clips: Option<Vec<Item>>,
-        synced_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
         if dest_track_index >= self.children.len() {
             return None;
@@ -24,9 +23,7 @@ impl Stack {
             overlap_policy,
             insert_policy,
         );
-        if Self::has_synced_inputs(&synced_audio_clips, &synced_video_clip)
-            || !boundary_sync_clips.is_empty()
-        {
+        if Self::has_synced_inputs(&synced_audio_clips) || !boundary_sync_clips.is_empty() {
             return self.insert_synced_item_at_time(
                 dest_track_index,
                 dest_time,
@@ -35,7 +32,6 @@ impl Stack {
                 overlap_policy,
                 insert_policy,
                 synced_audio_clips,
-                synced_video_clip,
             );
         }
 
@@ -61,7 +57,6 @@ impl Stack {
         item: Item,
         overlap_policy: OverlapPolicy,
         synced_audio_clips: Option<Vec<Item>>,
-        synced_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
         let dest_track_index = match self.get_track_by_id(dest_track_id) {
             Some((i, _)) => i,
@@ -77,9 +72,7 @@ impl Stack {
             item.duration(),
             overlap_policy,
         );
-        if Self::has_synced_inputs(&synced_audio_clips, &synced_video_clip)
-            || !boundary_sync_clips.is_empty()
-        {
+        if Self::has_synced_inputs(&synced_audio_clips) || !boundary_sync_clips.is_empty() {
             return self.insert_synced_item_at_time(
                 dest_track_index,
                 0.0,
@@ -88,7 +81,6 @@ impl Stack {
                 overlap_policy,
                 InsertPolicy::InsertBefore,
                 synced_audio_clips,
-                synced_video_clip,
             );
         }
 
