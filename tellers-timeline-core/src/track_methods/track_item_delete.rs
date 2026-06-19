@@ -1,10 +1,9 @@
 use crate::{Item, Track};
 
 impl Track {
-    /// Delete the clip at a given index. If `replace_with_gap` is true, insert a gap of the
-    /// same duration at that position and merge adjacent gaps.
-    /// Returns whether a deletion occurred.
-    pub(crate) fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> bool {
+    /// Remove the clip or gap at `index`, optionally inserting a gap of the same
+    /// duration. Does not run track sanitize; callers batch sanitize at the stack level.
+    pub(crate) fn delete_clip_at(&mut self, index: usize, replace_with_gap: bool) -> bool {
         if index >= self.items.len() {
             return false;
         }
@@ -17,16 +16,27 @@ impl Track {
                         index.min(self.items.len()),
                         Item::Gap(crate::types::Gap::make_gap(removed_duration)),
                     );
+                    self.merge_adjacent_gaps();
                 }
-                self.sanitize();
                 true
             }
             Item::Gap(_) if !replace_with_gap => {
                 self.items.remove(index);
-                self.sanitize();
                 true
             }
             Item::Gap(_) => false,
+        }
+    }
+
+    /// Delete the clip at a given index. If `replace_with_gap` is true, insert a gap of the
+    /// same duration at that position and merge adjacent gaps.
+    /// Returns whether a deletion occurred.
+    pub(crate) fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> bool {
+        if self.delete_clip_at(index, replace_with_gap) {
+            self.sanitize();
+            true
+        } else {
+            false
         }
     }
 }
