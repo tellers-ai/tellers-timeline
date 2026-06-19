@@ -1,5 +1,5 @@
-use super::{range_is_gap_backed, resolve_sync_clips_id, split_gap_boundary, EPS};
-use crate::{Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track, TrackKind};
+use super::{resolve_sync_clips_id, EPS};
+use crate::{Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Stack, TrackKind};
 
 fn shift_track_index_after_insert(track_index: &mut usize, inserted_track_index: usize) {
     if inserted_track_index <= *track_index {
@@ -20,34 +20,6 @@ fn shift_insert_tracks_after_insert(insertions: &mut [(usize, Item)], inserted_t
     for (track_index, _) in insertions {
         shift_track_index_after_insert(track_index, inserted_track_index);
     }
-}
-
-fn remove_gap_range(track: &mut Track, start: Seconds, end: Seconds) -> bool {
-    if !range_is_gap_backed(track, start, end) {
-        return false;
-    }
-
-    split_gap_boundary(track, end);
-    split_gap_boundary(track, start);
-
-    let mut pos = 0.0;
-    let mut index = 0;
-    while index < track.items.len() {
-        let duration = track.items[index].duration().max(0.0);
-        let item_start = pos;
-        let item_end = pos + duration;
-        if item_start >= start - EPS && item_end <= end + EPS {
-            if !matches!(track.items[index], Item::Gap(_)) {
-                return false;
-            }
-            track.items.remove(index);
-            pos = item_end;
-        } else {
-            pos = item_end;
-            index += 1;
-        }
-    }
-    true
 }
 
 impl Stack {
@@ -187,7 +159,7 @@ impl Stack {
                             *self = backup;
                             return false;
                         };
-                        if !remove_gap_range(track, (end - shrink).max(selected_start), end) {
+                        if !super::remove_gap_range(track, (end - shrink).max(selected_start), end) {
                             *self = backup;
                             return false;
                         }

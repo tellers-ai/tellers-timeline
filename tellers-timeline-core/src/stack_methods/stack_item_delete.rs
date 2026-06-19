@@ -1,32 +1,16 @@
 use crate::{Item, Stack};
 
 impl Stack {
-    /// Delete an item by id across all tracks. Synced clips with the same Resolve
-    /// link group are deleted too. If replace_with_gap is true and a removed item
-    /// has a positive duration, a gap of equal duration is inserted.
+    /// Delete an item by id. Synced clips in the same link group are deleted
+    /// together. When `replace_with_gap` is true, each removed clip is replaced
+    /// with a gap of the same duration. When false, the column is collapsed
+    /// across the sync track cluster.
     /// Returns removed items with their source track indices.
     pub fn delete_item(&mut self, item_id: &str, replace_with_gap: bool) -> Vec<(usize, Item)> {
-        let sync_clips_id = match self.get_item(item_id).and_then(|(_, _, item)| match item {
-            Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
-        }) {
-            Some(id) => id,
-            None => {
-                let removed: Vec<_> = self
-                    .delete_one_item(item_id, replace_with_gap)
-                    .into_iter()
-                    .collect();
-                if !removed.is_empty() {
-                    self.sanitize();
-                }
-                return removed;
-            }
-        };
-
-        let removed = self.delete_sync_clips(sync_clips_id, replace_with_gap);
-        if !removed.is_empty() {
-            self.sanitize();
+        if replace_with_gap {
+            self.delete_item_replace_with_gap(item_id)
+        } else {
+            self.delete_item_collapse(item_id)
         }
-        removed
     }
 }

@@ -1,0 +1,484 @@
+{
+    "OTIO_SCHEMA": "Timeline.1",
+    "metadata": {
+        "Resolve_OTIO": {
+            "Resolve OTIO Meta Version": "1.0"
+        },
+        "tellers.ai": {
+            "timeline_id": "8ce7cadc0796"
+        },
+        "tellers_aspect_ratio": "16_9"
+    },
+    "name": "",
+    "global_start_time": null,
+    "tracks": {
+        "OTIO_SCHEMA": "Stack.1",
+        "metadata": {
+            "tellers.ai": {
+                "timeline_id": "3c71a7c6f28b"
+            }
+        },
+        "name": "",
+        "source_range": null,
+        "effects": [],
+        "markers": [],
+        "enabled": true,
+        "color": null,
+        "children": [
+            {
+                "OTIO_SCHEMA": "Track.1",
+                "metadata": {
+                    "tellers.ai": {
+                        "media_id": null,
+                        "timeline_id": "A2"
+                    }
+                },
+                "name": "A2",
+                "source_range": null,
+                "effects": [],
+                "markers": [],
+                "enabled": true,
+                "color": null,
+                "children": [],
+                "kind": "audio"
+            },
+            {
+                "OTIO_SCHEMA": "Track.1",
+                "metadata": {
+                    "tellers.ai": {
+                        "media_id": null,
+                        "timeline_id": "d98bc55301d5"
+                    }
+                },
+                "name": "Overlay",
+                "source_range": null,
+                "effects": [],
+                "markers": [],
+                "enabled": true,
+                "color": null,
+                "children": [],
+                "kind": "video"
+            },
+            {
+                "OTIO_SCHEMA": "Track.1",
+                "metadata": {
+                    "tellers.ai": {
+                        "media_id": null,
+                        "timeline_id": "A1"
+                    }
+                },
+                "name": "A1",
+                "source_range": null,
+                "effects": [],
+                "markers": [],
+                "enabled": true,
+                "color": null,
+                "children": [],
+                "kind": "audio"
+            },
+            {
+                "OTIO_SCHEMA": "Track.1",
+                "metadata": {
+                    "tellers.ai": {
+                        "media_id": null,
+                        "timeline_id": "20c3a044a84b"
+                    }
+                },
+                "name": "Overlay Top",
+                "source_range": null,
+                "effects": [],
+                "markers": [],
+                "enabled": true,
+                "color": null,
+                "children": [
+                    {
+                        "OTIO_SCHEMA": "Gap.1",
+                        "active_media_reference_key": null,
+                        "media_references": {},
+                        "metadata": {
+                            "Resolve_OTIO": null,
+                            "tellers.ai": {
+                                "media_id": null,
+                                "timeline_id": "e8ea973e6084"
+                            }
+                        },
+                        "name": "",
+                        "source_range": {
+                            "OTIO_SCHEMA": "TimeRange.1",
+                            "duration": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1.0,
+                                "value": 5.0
+                            },
+                            "start_time": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1.0,
+                                "value": 0.0
+                            }
+                        },
+                        "effects": [],
+                        "markers": [],
+                        "enabled": true,
+                        "color": null
+                    },
+                    {
+                        "OTIO_SCHEMA": "Clip.2",
+                        "metadata": {
+                            "Resolve_OTIO": null,
+                            "tellers.ai": {
+                                "media_id": null,
+                                "timeline_id": "82e96f415570"
+                            }
+                        },
+                        "name": "",
+                        "source_range": {
+                            "OTIO_SCHEMA": "TimeRange.1",
+                            "duration": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 1099.0
+                            },
+                            "start_time": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 76.0
+                            }
+                        },
+                        "effects": [
+                            {
+                                "OTIO_SCHEMA": "Effect.1",
+                                "metadata": {
+                                    "Resolve_OTIO": {
+                                        "Effect Name": "Transform",
+                                        "Enabled": true,
+                                        "Name": "Transform",
+                                        "Parameters": [
+                                            {
+                                                "Default Parameter Value": 0.0,
+                                                "Parameter ID": "transformationPan",
+                                                "Parameter Value": 0.0,
+                                                "Variant Type": "Double",
+                                                "maxValue": 4.0,
+                                                "minValue": -4.0
+                                            },
+                                            {
+                                                "Default Parameter Value": 0.0,
+                                                "Parameter ID": "transformationTilt",
+                                                "Parameter Value": 0.0,
+                                                "Variant Type": "Double",
+                                                "maxValue": 4.0,
+                                                "minValue": -4.0
+                                            },
+                                            {
+                                                "Default Parameter Value": 1.0,
+                                                "Parameter ID": "transformationZoomX",
+                                                "Parameter Value": 1.0,
+                                                "Variant Type": "Double",
+                                                "maxValue": 100.0,
+                                                "minValue": 0.0
+                                            },
+                                            {
+                                                "Default Parameter Value": 1.0,
+                                                "Parameter ID": "transformationZoomY",
+                                                "Parameter Value": 1.1851851851851851,
+                                                "Variant Type": "Double",
+                                                "maxValue": 100.0,
+                                                "minValue": 0.0
+                                            },
+                                            {
+                                                "Default Parameter Value": 0.0,
+                                                "Parameter ID": "transformationRotationAngle",
+                                                "Parameter Value": 0.0,
+                                                "Variant Type": "Double",
+                                                "maxValue": 100000.0,
+                                                "minValue": -100000.0
+                                            }
+                                        ],
+                                        "Type": 2
+                                    }
+                                },
+                                "name": "",
+                                "effect_name": "Resolve Effect",
+                                "enabled": true
+                            }
+                        ],
+                        "markers": [],
+                        "enabled": true,
+                        "color": null,
+                        "media_references": {
+                            "DEFAULT_MEDIA": {
+                                "OTIO_SCHEMA": "ExternalReference.1",
+                                "metadata": {
+                                    "Resolve_OTIO": null,
+                                    "tellers.ai": {
+                                        "media_id": "b9243eda-e571-4c85-8b40-77a28b9473d7",
+                                        "timeline_id": null
+                                    }
+                                },
+                                "name": "DEFAULT_MEDIA",
+                                "available_range": {
+                                    "OTIO_SCHEMA": "TimeRange.1",
+                                    "duration": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 10368000.0
+                                    },
+                                    "start_time": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 0.0
+                                    }
+                                },
+                                "available_image_bounds": null,
+                                "target_url": "_DSC9756 R.jpg"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA"
+                    }
+                ],
+                "kind": "video"
+            },
+            {
+                "OTIO_SCHEMA": "Track.1",
+                "metadata": {
+                    "tellers.ai": {
+                        "media_id": null,
+                        "timeline_id": "A3"
+                    }
+                },
+                "name": "A3",
+                "source_range": null,
+                "effects": [],
+                "markers": [],
+                "enabled": true,
+                "color": null,
+                "children": [
+                    {
+                        "OTIO_SCHEMA": "Gap.1",
+                        "active_media_reference_key": null,
+                        "media_references": {},
+                        "metadata": {
+                            "Resolve_OTIO": null,
+                            "tellers.ai": {
+                                "media_id": null,
+                                "timeline_id": "c73bbb34fcaf"
+                            }
+                        },
+                        "name": "",
+                        "source_range": {
+                            "OTIO_SCHEMA": "TimeRange.1",
+                            "duration": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1.0,
+                                "value": 5.0
+                            },
+                            "start_time": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1.0,
+                                "value": 0.0
+                            }
+                        },
+                        "effects": [],
+                        "markers": [],
+                        "enabled": true,
+                        "color": null
+                    },
+                    {
+                        "OTIO_SCHEMA": "Clip.2",
+                        "metadata": {
+                            "Resolve_OTIO": {
+                                "Link Group ID": 2
+                            },
+                            "tellers.ai": {
+                                "media_id": null,
+                                "timeline_id": "6f5b5c689849"
+                            }
+                        },
+                        "name": "MACIF_PGEE_50sec.mp4 audio",
+                        "source_range": {
+                            "OTIO_SCHEMA": "TimeRange.1",
+                            "duration": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 1175.0
+                            },
+                            "start_time": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 72.0
+                            }
+                        },
+                        "effects": [],
+                        "markers": [],
+                        "enabled": true,
+                        "color": null,
+                        "media_references": {
+                            "DEFAULT_MEDIA": {
+                                "OTIO_SCHEMA": "ExternalReference.1",
+                                "metadata": {
+                                    "Resolve_OTIO": null,
+                                    "tellers.ai": {
+                                        "media_id": "bf590efe-29ee-47c7-9cd6-75e56187228b",
+                                        "timeline_id": ""
+                                    }
+                                },
+                                "name": "",
+                                "available_range": {
+                                    "OTIO_SCHEMA": "TimeRange.1",
+                                    "duration": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 1247.0
+                                    },
+                                    "start_time": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 0.0
+                                    }
+                                },
+                                "available_image_bounds": null,
+                                "target_url": "MACIF_PGEE_50sec.mp4"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA"
+                    }
+                ],
+                "kind": "audio"
+            },
+            {
+                "OTIO_SCHEMA": "Track.1",
+                "metadata": {
+                    "tellers.ai": {
+                        "media_id": null,
+                        "timeline_id": "536db79b4178"
+                    }
+                },
+                "name": "Main Video",
+                "source_range": null,
+                "effects": [],
+                "markers": [],
+                "enabled": true,
+                "color": null,
+                "children": [
+                    {
+                        "OTIO_SCHEMA": "Clip.2",
+                        "metadata": {
+                            "Resolve_OTIO": null,
+                            "tellers.ai": {
+                                "media_id": null,
+                                "timeline_id": "454bfdad4796"
+                            }
+                        },
+                        "name": "_DSC9756 R.jpg",
+                        "source_range": {
+                            "OTIO_SCHEMA": "TimeRange.1",
+                            "duration": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 125.0
+                            },
+                            "start_time": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 0.0
+                            }
+                        },
+                        "effects": [],
+                        "markers": [],
+                        "enabled": true,
+                        "color": null,
+                        "media_references": {
+                            "DEFAULT_MEDIA": {
+                                "OTIO_SCHEMA": "ExternalReference.1",
+                                "metadata": {
+                                    "Resolve_OTIO": null,
+                                    "tellers.ai": {
+                                        "media_id": "b9243eda-e571-4c85-8b40-77a28b9473d7",
+                                        "timeline_id": ""
+                                    }
+                                },
+                                "name": "",
+                                "available_range": {
+                                    "OTIO_SCHEMA": "TimeRange.1",
+                                    "duration": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 10368000.0
+                                    },
+                                    "start_time": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 0.0
+                                    }
+                                },
+                                "available_image_bounds": null,
+                                "target_url": "_DSC9756 R.jpg"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA"
+                    },
+                    {
+                        "OTIO_SCHEMA": "Clip.2",
+                        "metadata": {
+                            "Resolve_OTIO": {
+                                "Link Group ID": 2
+                            },
+                            "tellers.ai": {
+                                "media_id": null,
+                                "timeline_id": "4f85c014f851"
+                            }
+                        },
+                        "name": "MACIF_PGEE_50sec.mp4",
+                        "source_range": {
+                            "OTIO_SCHEMA": "TimeRange.1",
+                            "duration": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 1175.0
+                            },
+                            "start_time": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 25.0,
+                                "value": 72.0
+                            }
+                        },
+                        "effects": [],
+                        "markers": [],
+                        "enabled": true,
+                        "color": null,
+                        "media_references": {
+                            "DEFAULT_MEDIA": {
+                                "OTIO_SCHEMA": "ExternalReference.1",
+                                "metadata": {
+                                    "Resolve_OTIO": null,
+                                    "tellers.ai": {
+                                        "media_id": "bf590efe-29ee-47c7-9cd6-75e56187228b",
+                                        "timeline_id": ""
+                                    }
+                                },
+                                "name": "",
+                                "available_range": {
+                                    "OTIO_SCHEMA": "TimeRange.1",
+                                    "duration": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 1247.0
+                                    },
+                                    "start_time": {
+                                        "OTIO_SCHEMA": "RationalTime.1",
+                                        "rate": 25.0,
+                                        "value": 0.0
+                                    }
+                                },
+                                "available_image_bounds": null,
+                                "target_url": "MACIF_PGEE_50sec.mp4"
+                            }
+                        },
+                        "active_media_reference_key": "DEFAULT_MEDIA"
+                    }
+                ],
+                "kind": "video"
+            }
+        ]
+    }
+}

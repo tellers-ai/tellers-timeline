@@ -2971,6 +2971,118 @@ fn synced_delete_keeps_touched_tracks_without_remaining_clips() {
 }
 
 #[test]
+fn synced_delete_without_gap_collapses_sync_clips() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+
+    insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+
+    let removed = stack.delete_item("primary", false);
+    assert_eq!(removed.len(), 2);
+    assert!(stack.children.iter().all(|track| track.items.is_empty()));
+}
+
+fn stack_v1_clip_a_clip_b_a1() -> Stack {
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(Item::Clip(clip(10.0, Some("clip-a"))));
+    video.items.push(synced_clip_item(10.0, "clip-b-video", 1));
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(10.0)));
+    audio.items.push(synced_clip_item(10.0, "clip-b-audio", 1));
+    let mut stack = Stack::default();
+    stack.children.push(video);
+    stack.children.push(audio);
+    stack
+}
+
+fn track_index_by_id(stack: &Stack, id: &str) -> usize {
+    stack
+        .children
+        .iter()
+        .position(|track| track.get_id().as_deref() == Some(id))
+        .unwrap_or_else(|| panic!("track {id:?} not found"))
+}
+
+fn assert_item_span(track: &Track, item_index: usize, expected_start: f64, expected_duration: f64) {
+    let start = track.start_time_of_item(item_index);
+    let duration = track.items[item_index].duration();
+    assert!(
+        (start - expected_start).abs() < 1e-9,
+        "item {item_index} start: got {start}, expected {expected_start}"
+    );
+    assert!(
+        (duration - expected_duration).abs() < 1e-9,
+        "item {item_index} duration: got {duration}, expected {expected_duration}"
+    );
+}
+
+#[test]
+fn delete_clip_a_replace_with_gap_preserves_synced_partner_spans() {
+    let mut stack = stack_v1_clip_a_clip_b_a1();
+    let v1 = track_index_by_id(&stack, "v1");
+    let a1 = track_index_by_id(&stack, "a1");
+
+    let removed = stack.delete_item("clip-a", true);
+    assert_eq!(removed.len(), 1);
+    assert!(stack.get_item("clip-a").is_none());
+    assert!(stack.get_item("clip-b-video").is_some());
+    assert!(stack.get_item("clip-b-audio").is_some());
+
+    let video = &stack.children[v1];
+    assert_eq!(video.items.len(), 2);
+    assert!(matches!(video.items[0], Item::Gap(_)));
+    assert_item_span(video, 0, 0.0, 10.0);
+    assert_item_span(video, 1, 10.0, 10.0);
+
+    let audio = &stack.children[a1];
+    assert_eq!(audio.items.len(), 2);
+    assert!(matches!(audio.items[0], Item::Gap(_)));
+    assert_item_span(audio, 0, 0.0, 10.0);
+    assert_item_span(audio, 1, 10.0, 10.0);
+    assert_eq!(
+        sync_clips_id(&video.items[1]),
+        sync_clips_id(&audio.items[1])
+    );
+}
+
+#[test]
+fn delete_clip_a_collapse_pulls_synced_partner_left() {
+    let mut stack = stack_v1_clip_a_clip_b_a1();
+    let v1 = track_index_by_id(&stack, "v1");
+    let a1 = track_index_by_id(&stack, "a1");
+
+    let removed = stack.delete_item("clip-a", false);
+    assert_eq!(removed.len(), 2);
+    assert!(stack.get_item("clip-a").is_none());
+    assert!(stack.get_item("clip-b-video").is_some());
+    assert!(stack.get_item("clip-b-audio").is_some());
+
+    let video = &stack.children[v1];
+    assert_eq!(video.items.len(), 1);
+    assert_item_span(video, 0, 0.0, 10.0);
+
+    let audio = &stack.children[a1];
+    assert_eq!(audio.items.len(), 1);
+    assert_item_span(audio, 0, 0.0, 10.0);
+    assert_eq!(
+        sync_clips_id(&video.items[0]),
+        sync_clips_id(&audio.items[0])
+    );
+}
+
+#[test]
 fn delete_unsynced_item_only_removes_selected_item() {
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
     video.items.push(Item::Clip(clip(3.0, Some("primary"))));
@@ -3011,7 +3123,7 @@ fn delete_unsynced_item_without_gap_pulls_later_synced_assets() {
 
     let removed = stack.delete_item("unlinked", false);
 
-    assert_eq!(removed.len(), 1);
+    assert_eq!(removed.len(), 2);
     let (video_track_index, video_item_index, _) = stack.get_item("linked-video").unwrap();
     let (audio_track_index, audio_item_index, _) = stack.get_item(&audio_id).unwrap();
     assert_eq!(

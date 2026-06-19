@@ -553,41 +553,201 @@ impl Stack {
         Some(group_start)
     }
 
-    fn delete_sync_clips(
+    fn item_occupies_column(
+        &self,
+        track_index: usize,
+        item_index: usize,
+        column_start: Seconds,
+        column_duration: Seconds,
+    ) -> bool {
+        let Some(track) = self.children.get(track_index) else {
+            return false;
+        };
+        if item_index >= track.items.len() {
+            return false;
+        }
+        (track.start_time_of_item(item_index) - column_start).abs() <= EPS
+            && (track.items[item_index].duration() - column_duration).abs() <= EPS
+    }
+
+    fn item_at_column(
+        &self,
+        track_index: usize,
+        column_start: Seconds,
+        column_duration: Seconds,
+    ) -> Option<usize> {
+        let track = self.children.get(track_index)?;
+        let item_index = track.get_item_at_time(column_start)?;
+        self.item_occupies_column(track_index, item_index, column_start, column_duration)
+            .then_some(item_index)
+    }
+
+    fn delete_clips_at_indices(
         &mut self,
-        sync_clips_id: i64,
+        mut targets: Vec<(usize, usize)>,
         replace_with_gap: bool,
     ) -> Vec<(usize, Item)> {
-        let mut targets = Vec::new();
-        for (ti, track) in self.children.iter().enumerate() {
-            for (ii, item) in track.items.iter().enumerate() {
-                if let Item::Clip(clip) = item {
-                    if resolve_sync_clips_id(&clip.metadata) == Some(sync_clips_id) {
-                        targets.push((ti, ii));
-                    }
-                }
-            }
-        }
-
         targets.sort_by(|a, b| b.cmp(a));
+        targets.dedup();
         let mut removed = Vec::new();
-        let mut used_ids = self.collect_timeline_ids();
+        let mut used_ids = replace_with_gap.then(|| self.collect_timeline_ids());
         for (ti, ii) in targets {
-            if ti >= self.children.len() || ii >= self.children[ti].items.len() {
+            if ti >= self.children.len() {
                 continue;
             }
-            let removed_item = self.children[ti].items.remove(ii);
-            let duration = removed_item.duration().max(0.0);
-            if replace_with_gap && duration > EPS {
-                let mut gap = Item::Gap(crate::Gap::make_gap(duration));
-                Self::ensure_unique_item_id(&mut gap, &mut used_ids);
-                self.children[ti].items.insert(ii, gap);
-                self.children[ti].merge_adjacent_gaps();
+            let track = &mut self.children[ti];
+            if ii >= track.items.len() {
+                continue;
+            }
+            let removed_item = track.items[ii].clone();
+            if !track.delete_clip_at(ii, replace_with_gap) {
+                continue;
+            }
+            if replace_with_gap {
+                if let (Some(used_ids), Some(item)) = (&mut used_ids, track.items.get_mut(ii)) {
+                    if matches!(item, Item::Gap(_)) {
+                        Self::ensure_unique_item_id(item, used_ids);
+                    }
+                }
             }
             removed.push((ti, removed_item));
         }
         removed.reverse();
         removed
+    }
+
+    fn delete_item_targets(&self, item_id: &str) -> Option<Vec<(usize, usize)>> {
+        let (track_index, item_index, item) = self.get_item(item_id)?;
+        if matches!(item, Item::Gap(_)) {
+            return None;
+        }
+        let sync_clips_id = match &item {
+            Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
+            Item::Gap(_) => None,
+        };
+        if let Some(sync_id) = sync_clips_id {
+            let column_start = self.children[track_index].start_time_of_item(item_index);
+            let column_duration = item.duration().max(0.0);
+            Some(
+                self.synced_clips_targets(sync_id)
+                    .into_iter()
+                    .filter(|(ti, ii)| {
+                        self.item_occupies_column(*ti, *ii, column_start, column_duration)
+                    })
+                    .collect(),
+            )
+        } else {
+            Some(vec![(track_index, item_index)])
+        }
+    }
+
+    fn delete_item_replace_with_gap(&mut self, item_id: &str) -> Vec<(usize, Item)> {
+        let Some(targets) = self.delete_item_targets(item_id) else {
+            return Vec::new();
+        };
+        let removed = self.delete_clips_at_indices(targets, true);
+        if !removed.is_empty() {
+            self.sanitize();
+        }
+        removed
+    }
+
+    fn delete_item_collapse(&mut self, item_id: &str) -> Vec<(usize, Item)> {
+        let Some((track_index, item_index, item)) = self.get_item(item_id) else {
+            return Vec::new();
+        };
+
+        if matches!(item, Item::Gap(_)) {
+            let removed = self.delete_clips_at_indices(vec![(track_index, item_index)], false);
+            if !removed.is_empty() {
+                self.sanitize();
+            }
+            return removed;
+        }
+
+        if item.duration() <= EPS {
+            let removed: Vec<_> = self
+                .delete_one_item(item_id, false)
+                .into_iter()
+                .collect();
+            if !removed.is_empty() {
+                self.sanitize();
+            }
+            return removed;
+        }
+
+        let column_start = self.children[track_index].start_time_of_item(item_index);
+        let column_duration = item.duration().max(0.0);
+        let linked_tracks = self.boundary_group_indices(track_index);
+        let sync_clips_id = match &item {
+            Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
+            Item::Gap(_) => None,
+        };
+
+        let backup = self.clone();
+        let mut clips_to_delete = Vec::new();
+        let mut covered_tracks = HashSet::new();
+
+        for &ti in &linked_tracks {
+            let Some(ii) = self.item_at_column(ti, column_start, column_duration) else {
+                continue;
+            };
+            let column_item = &self.children[ti].items[ii];
+            let is_target = column_item.get_id().as_deref() == Some(item_id);
+            let is_synced = sync_clips_id.is_some_and(|sync_id| {
+                matches!(
+                    column_item,
+                    Item::Clip(clip) if resolve_sync_clips_id(&clip.metadata) == Some(sync_id)
+                )
+            });
+            if is_target || is_synced {
+                clips_to_delete.push((ti, ii));
+                covered_tracks.insert(ti);
+            }
+        }
+
+        if covered_tracks.len() < linked_tracks.len() {
+            let mut used_ids = self.collect_timeline_ids();
+            for &ti in &linked_tracks {
+                if covered_tracks.contains(&ti) {
+                    continue;
+                }
+                if let Some(ii) = self.item_at_column(ti, column_start, column_duration) {
+                    let column_item = &self.children[ti].items[ii];
+                    if matches!(column_item, Item::Gap(_)) || Self::item_is_unsynced(column_item) {
+                        clips_to_delete.push((ti, ii));
+                        covered_tracks.insert(ti);
+                        continue;
+                    }
+                }
+                let mut gap = Item::Gap(Gap::make_gap(column_duration));
+                Self::ensure_unique_item_id(&mut gap, &mut used_ids);
+                if !self.insert_gap_only(ti, column_start, gap) {
+                    *self = backup;
+                    return Vec::new();
+                }
+                let Some(ii) = self.item_at_column(ti, column_start, column_duration) else {
+                    *self = backup;
+                    return Vec::new();
+                };
+                clips_to_delete.push((ti, ii));
+                covered_tracks.insert(ti);
+            }
+        }
+
+        let removed = self.delete_clips_at_indices(clips_to_delete, false);
+        if !removed.is_empty() {
+            self.sanitize();
+        }
+        removed
+    }
+
+    fn delete_sync_clips(
+        &mut self,
+        sync_clips_id: i64,
+        replace_with_gap: bool,
+    ) -> Vec<(usize, Item)> {
+        self.delete_clips_at_indices(self.synced_clips_targets(sync_clips_id), replace_with_gap)
     }
 
     fn clip_target(&self, item_id: &str) -> Option<(usize, usize)> {
@@ -2520,6 +2680,34 @@ impl Stack {
         self.sanitize_preserving_all_gap_tracks();
         true
     }
+}
+
+pub(super) fn remove_gap_range(track: &mut Track, start: Seconds, end: Seconds) -> bool {
+    if !range_is_gap_backed(track, start, end) {
+        return false;
+    }
+
+    split_gap_boundary(track, end);
+    split_gap_boundary(track, start);
+
+    let mut pos = 0.0;
+    let mut index = 0;
+    while index < track.items.len() {
+        let duration = track.items[index].duration().max(0.0);
+        let item_start = pos;
+        let item_end = pos + duration;
+        if item_start >= start - EPS && item_end <= end + EPS {
+            if !matches!(track.items[index], Item::Gap(_)) {
+                return false;
+            }
+            track.items.remove(index);
+            pos = item_end;
+        } else {
+            pos = item_end;
+            index += 1;
+        }
+    }
+    true
 }
 
 pub(super) fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
