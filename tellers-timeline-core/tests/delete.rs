@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use tellers_timeline_core::{
-    Clip, IdMetadataExt, Item, MediaReference, RationalTime, Stack, TimeRange, Track,
+    Clip, IdMetadataExt, Item, MediaReference, RationalTime, Stack, TimeRange, Timeline, Track,
 };
 
 fn make_clip(name: &str, duration: f64, media_start: f64) -> Item {
@@ -148,4 +148,63 @@ fn delete_item_sanitizes_stack_after_successful_delete() {
     assert_eq!(deleted.len(), 1);
     assert_eq!(stack.children[0].items.len(), 1);
     assert!(matches!(stack.children[0].items[0], Item::Clip(_)));
+}
+
+fn fixture_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+fn track_index_by_id(stack: &Stack, id: &str) -> usize {
+    stack
+        .children
+        .iter()
+        .position(|track| track.get_id().as_deref() == Some(id))
+        .unwrap_or_else(|| panic!("track {id:?} not found"))
+}
+
+fn assert_item_span(track: &Track, item_index: usize, expected_start: f64, expected_duration: f64) {
+    let start = track.start_time_of_item(item_index);
+    let duration = track.items[item_index].duration();
+    assert!(
+        (start - expected_start).abs() < 1e-9,
+        "item {item_index} start: got {start}, expected {expected_start}"
+    );
+    assert!(
+        (duration - expected_duration).abs() < 1e-9,
+        "item {item_index} duration: got {duration}, expected {expected_duration}"
+    );
+}
+
+#[test]
+fn delete_new_project_clip_454bfdad4796_without_gap_collapses_sync_cluster() {
+    let json = std::fs::read_to_string(fixture_path("new_project_delete.otio")).expect("fixture");
+    let mut tl: Timeline = serde_json::from_str(&json).expect("parse");
+    tl.sanitize();
+
+    let removed = tl.tracks.delete_item("454bfdad4796", false);
+    assert_eq!(removed.len(), 2);
+    assert!(tl.tracks.get_item("454bfdad4796").is_none());
+    assert!(tl.tracks.get_item("4f85c014f851").is_some());
+    assert!(tl.tracks.get_item("6f5b5c689849").is_some());
+
+    let video = track_index_by_id(&tl.tracks, "536db79b4178");
+    let audio = track_index_by_id(&tl.tracks, "A3");
+    let other_video = track_index_by_id(&tl.tracks, "20c3a044a84b");
+
+    let video_track = &tl.tracks.children[video];
+    assert_eq!(video_track.items.len(), 1);
+    assert_item_span(video_track, 0, 0.0, 47.0);
+    assert_eq!(video_track.items[0].get_id().as_deref(), Some("4f85c014f851"));
+
+    let audio_track = &tl.tracks.children[audio];
+    assert_eq!(audio_track.items.len(), 1);
+    assert_item_span(audio_track, 0, 0.0, 47.0);
+    assert_eq!(audio_track.items[0].get_id().as_deref(), Some("6f5b5c689849"));
+
+    let other_video_track = &tl.tracks.children[other_video];
+    assert_eq!(other_video_track.items.len(), 2);
+    assert_item_span(other_video_track, 0, 0.0, 5.0);
+    assert_item_span(other_video_track, 1, 5.0, 43.96);
 }

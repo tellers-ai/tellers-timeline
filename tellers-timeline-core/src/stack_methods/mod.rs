@@ -713,7 +713,8 @@ impl Stack {
                     continue;
                 }
                 if let Some(ii) = self.item_at_column(ti, column_start, column_duration) {
-                    if matches!(self.children[ti].items[ii], Item::Gap(_)) {
+                    let column_item = &self.children[ti].items[ii];
+                    if matches!(column_item, Item::Gap(_)) || Self::item_is_unsynced(column_item) {
                         clips_to_delete.push((ti, ii));
                         covered_tracks.insert(ti);
                         continue;
