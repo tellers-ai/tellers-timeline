@@ -1026,7 +1026,8 @@ impl Stack {
     /// `principal_track_index`. Every synced clip on the candidate must match a
     /// synced clip on the principal with the same link group, duration, and
     /// timeline start (sum of previous item durations). Gaps and unsynced clips
-    /// are ignored. Empty boundary tracks join the principal cluster.
+    /// are ignored. Empty boundary tracks join only when a non-empty track above
+    /// them belongs to the same cluster.
     pub(super) fn track_matches_principal_cluster(
         &self,
         principal_track_index: usize,
@@ -1036,9 +1037,13 @@ impl Stack {
             return true;
         }
         if track_is_empty_boundary(&self.children[candidate_track_index]) {
-            let principal_track = &self.children[principal_track_index];
-            return !track_is_empty_boundary(principal_track)
-                || !self.flatten_synced_clips(principal_track_index).is_empty();
+            for track_index in (0..candidate_track_index).rev() {
+                if track_is_empty_boundary(&self.children[track_index]) {
+                    continue;
+                }
+                return self.track_matches_principal_cluster(principal_track_index, track_index);
+            }
+            return false;
         }
         let primary_clips = self.flatten_synced_clips(principal_track_index);
         let candidate_clips = self.flatten_synced_clips(candidate_track_index);
