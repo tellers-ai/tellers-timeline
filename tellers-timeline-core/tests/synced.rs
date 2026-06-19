@@ -1577,6 +1577,35 @@ fn sync_track_info_splits_cluster_when_sync_clip_timing_differs() {
 }
 
 #[test]
+fn sync_track_info_includes_empty_tracks_in_principal_cluster() {
+    let mut stack = Stack::default();
+
+    for id in ["A1", "A2", "A3"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio.items.push(synced_clip_item(5.28, &format!("{id}-sync"), 1));
+        stack.children.push(audio);
+    }
+
+    for id in ["A4", "A5", "A6", "A7", "A8", "A9"] {
+        stack
+            .children
+            .push(Track::new(TrackKind::Audio, Some(id.to_string())));
+    }
+
+    let mut video = Track::new(TrackKind::Video, Some("video".to_string()));
+    video.items.push(synced_clip_item(5.28, "v-sync", 1));
+    stack.children.push(video);
+
+    let groups = stack.sync_track_info();
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].track_indices, (0..10).collect::<Vec<_>>());
+    assert_eq!(groups[0].primary_track_index, 9);
+    assert_eq!(groups[0].primary_track_id.as_deref(), Some("video"));
+    assert_eq!(groups[0].bound_track_indices, (0..9).collect::<Vec<_>>());
+}
+
+#[test]
 fn sync_track_info_clusters_tracks_within_one_frame() {
     let mut stack = Stack::default();
 

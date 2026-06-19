@@ -158,8 +158,9 @@ impl Stack {
     ///
     /// The last track is the initial principal. Each track above it is compared to
     /// the current principal: if every synced clip on the candidate matches a
-    /// synced clip on the principal, they share a cluster. Otherwise the candidate
-    /// becomes the principal of a new cluster. Repeat until index 0.
+    /// synced clip on the principal, or the candidate is an empty boundary track,
+    /// they share a cluster. Otherwise the candidate becomes the principal of a
+    /// new cluster. Repeat until index 0.
     fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
         let len = self.children.len();
         if len == 0 {
