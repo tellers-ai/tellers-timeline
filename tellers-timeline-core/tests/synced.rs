@@ -5918,6 +5918,70 @@ fn move_unsynced_photo_onto_main_video_does_not_split_unrelated_a9_a11_sync_clus
 }
 
 #[test]
+fn move_synced_audio_to_lower_cluster_reuses_cluster_video_not_upper_neighbor() {
+    const GROUP8: i64 = 8;
+    const GROUP5: i64 = 5;
+    const GROUP7: i64 = 7;
+    const LEAD: f64 = 9.18;
+    const SYNC_DUR: f64 = 1.4;
+    const FAR_DUR: f64 = 6.68;
+
+    let mut stack = Stack::default();
+
+    let mut a1 = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    a1.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a1.items.push(synced_clip_item(SYNC_DUR, "hh10-a1", GROUP8));
+    stack.children.push(a1);
+
+    let mut a2 = Track::new(TrackKind::Audio, Some("A2".to_string()));
+    a2.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a2.items.push(synced_clip_item(SYNC_DUR, "hh10-a2", GROUP8));
+    stack.children.push(a2);
+
+    let mut main_video = Track::new(TrackKind::Video, Some("Main Video".to_string()));
+    main_video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    main_video
+        .items
+        .push(synced_clip_item(SYNC_DUR, "hh10-v", GROUP8));
+    stack.children.push(main_video);
+
+    for id in ["A9", "A10", "A11"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio.items.push(synced_clip_item(FAR_DUR, &format!("{id}-g5"), GROUP5));
+        audio
+            .items
+            .push(synced_clip_item(FAR_DUR - LEAD, &format!("{id}-g7"), GROUP7));
+        stack.children.push(audio);
+    }
+    let mut video2 = Track::new(TrackKind::Video, Some("Video 2".to_string()));
+    video2.items.push(synced_clip_item(FAR_DUR, "v2-g5", GROUP5));
+    video2
+        .items
+        .push(synced_clip_item(FAR_DUR - LEAD, "v2-g7", GROUP7));
+    stack.children.push(video2);
+
+    assert!(stack.move_item_at_time(
+        "hh10-a1",
+        "A9",
+        LEAD,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track, _, _) = stack.get_item("hh10-v").unwrap();
+    assert_eq!(
+        stack.children[video_track].get_id().as_deref(),
+        Some("Video 2"),
+        "synced video must land on the destination cluster video track, not Main Video above A9"
+    );
+    assert!(
+        stack.get_item("hh10-v").is_some(),
+        "video partner must survive the audio-primary move"
+    );
+}
+
+#[test]
 fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
     let times = [0.0_f64, 2.0, 3.0, 4.0, 6.0, 8.0];
     let overlaps = [OverlapPolicy::Override, OverlapPolicy::Push];

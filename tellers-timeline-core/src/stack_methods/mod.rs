@@ -642,46 +642,46 @@ impl Stack {
         overlap_policy: OverlapPolicy,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
-        let mut audio_start = audio_track_index;
-        while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
-            audio_start -= 1;
-            if track_is_empty_boundary(&self.children[audio_start]) {
-                break;
+
+        // Prefer the destination boundary cluster's own video track before a
+        // physically adjacent video from a neighboring cluster (e.g. reuse
+        // Video 2 when inserting on A9, not Main Video sitting above A9).
+        let cluster = self.boundary_group_indices(audio_track_index);
+        let mut cluster_video_tracks: Vec<usize> = cluster
+            .iter()
+            .copied()
+            .filter(|&track_index| {
+                self.children
+                    .get(track_index)
+                    .is_some_and(|track| track.kind == TrackKind::Video)
+            })
+            .collect();
+        // Prefer the cluster video below the destination audio (Resolve
+        // audio-over-video layout) before any video above the group.
+        cluster_video_tracks.sort_by_key(|track_index| {
+            if *track_index > audio_track_index {
+                0
+            } else {
+                1
+            }
+        });
+        for track_index in cluster_video_tracks {
+            if let Some(track_index) = self.try_reuse_video_track_for_audio_move(
+                track_index,
+                audio_track_index,
+                dest_time,
+                end_time,
+                sync_clips_id,
+                use_sync_backed_track,
+                overlap_policy,
+            ) {
+                return Some(track_index);
             }
         }
+
         let mut audio_end = audio_track_index + 1;
         while audio_end < self.children.len() && self.children[audio_end].kind == TrackKind::Audio {
             audio_end += 1;
-        }
-
-        // Video-over-audio layout: reuse the video track directly above the audio group.
-        if audio_start > 0 && !track_is_empty_boundary(&self.children[audio_start]) {
-            if let Some(track_index) = self.try_reuse_video_track_for_audio_move(
-                audio_start - 1,
-                audio_track_index,
-                dest_time,
-                end_time,
-                sync_clips_id,
-                use_sync_backed_track,
-                overlap_policy,
-            ) {
-                return Some(track_index);
-            }
-        }
-
-        // Audio-over-video layout: reuse the video track directly below the audio group.
-        if audio_end < self.children.len() {
-            if let Some(track_index) = self.try_reuse_video_track_for_audio_move(
-                audio_end,
-                audio_track_index,
-                dest_time,
-                end_time,
-                sync_clips_id,
-                use_sync_backed_track,
-                overlap_policy,
-            ) {
-                return Some(track_index);
-            }
         }
 
         // Create the new video track directly below the moving audio group.
