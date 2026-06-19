@@ -823,8 +823,8 @@ impl PyStack {
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
     }
-    fn track_boundary_group_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        track_boundary_group_info_to_python(py, self.inner.track_boundary_group_info())
+    fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        sync_track_info_to_python(py, self.inner.sync_track_info())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
@@ -1105,9 +1105,9 @@ fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
     None
 }
 
-fn track_boundary_group_info_to_python(
+fn sync_track_info_to_python(
     py: Python<'_>,
-    groups: Vec<tellers_timeline_core::TrackBoundaryGroupInfo>,
+    groups: Vec<tellers_timeline_core::SyncTrackInfo>,
 ) -> PyResult<Vec<PyObject>> {
     groups
         .into_iter()
@@ -1212,8 +1212,8 @@ impl PyTimeline {
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
     }
-    fn track_boundary_group_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        track_boundary_group_info_to_python(py, self.inner.track_boundary_group_info())
+    fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        sync_track_info_to_python(py, self.inner.sync_track_info())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner

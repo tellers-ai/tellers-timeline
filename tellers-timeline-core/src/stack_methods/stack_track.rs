@@ -1,4 +1,4 @@
-use super::TrackBoundaryGroupInfo;
+use super::SyncTrackInfo;
 use crate::{IdMetadataExt, Item, Stack, Track, TrackKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +74,7 @@ impl Stack {
     }
 
     /// Return boundary groups with their primary track and bound tracks.
-    pub fn track_boundary_group_info(&self) -> Vec<TrackBoundaryGroupInfo> {
+    pub fn sync_track_info(&self) -> Vec<SyncTrackInfo> {
         self.track_boundary_ranges()
             .into_iter()
             .map(|group| {
@@ -93,7 +93,7 @@ impl Stack {
                     .iter()
                     .map(|index| self.children[*index].get_id())
                     .collect();
-                TrackBoundaryGroupInfo {
+                SyncTrackInfo {
                     start_index: group.start,
                     end_index: group.end,
                     track_indices,

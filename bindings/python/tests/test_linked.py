@@ -52,13 +52,14 @@ def test_insert_item_at_time_returns_linked_ids_and_preserves_media_id():
     assert result is not None
     assert result["primary_clip_id"] == "primary"
     assert len(result["audio_clips"]) == 1
-    assert result["audio_clips"][0][1] == 0
+    # Audio tracks are now created below the video, which stays on top.
+    assert result["audio_clips"][0][1] == 1
     assert result["linked_video_clip_id"] is None
-    assert result["created_track_indices"] == [0]
+    assert result["created_track_indices"] == [1]
 
     tracks = stack.tracks()
-    assert tracks[0].get_id() == "A1"
-    assert tracks[0].get_name() == "A1"
+    assert tracks[1].get_id() == "A1"
+    assert tracks[1].get_name() == "A1"
     primary_item = stack.get_item("primary")[2]
     audio_item = next(item for item in tracks[result["audio_clips"][0][1]].items() if item.is_clip())
 
@@ -107,13 +108,14 @@ def test_insert_master_clip_with_multiple_linked_audio_clips():
     assert result["primary_clip_id"] == "master-video"
     assert len(result["audio_clips"]) == 3
     assert result["linked_video_clip_id"] is None
-    assert result["created_track_indices"] == [0, 1, 2]
+    # Audio tracks are created below the video, which stays on top.
+    assert result["created_track_indices"] == [1, 2, 3]
 
     tracks = stack.tracks()
     assert [tracks[index].get_id() for _, index in result["audio_clips"]] == [
-        "A3",
-        "A2",
         "A1",
+        "A2",
+        "A3",
     ]
     primary_track, primary_index, primary_item = stack.get_item("master-video")
     assert tracks[primary_track].start_time_of_item(primary_index) == 2.0
@@ -298,7 +300,7 @@ def test_timeline_delete_track_removes_linked_assets_left_behind():
     )
 
 
-def test_track_boundary_group_info_reports_primary_and_bound_tracks():
+def test_sync_track_info_reports_primary_and_bound_tracks():
     stack = Stack([Track(kind="video", id="linked-v")])
     stack.insert_item_at_time(
         0,
@@ -339,16 +341,17 @@ def test_track_boundary_group_info_reports_primary_and_bound_tracks():
         ]
     )
 
-    groups = stack.track_boundary_group_info()
+    groups = stack.sync_track_info()
 
     assert len(groups) == 3
     assert groups[0]["start_index"] == 0
     assert groups[0]["end_index"] == 2
     assert groups[0]["track_indices"] == [0, 1]
-    assert groups[0]["track_ids"] == ["A1", "linked-v"]
-    assert groups[0]["primary_track_index"] == 1
+    # The video now stays on top with its audio created below it.
+    assert groups[0]["track_ids"] == ["linked-v", "A1"]
+    assert groups[0]["primary_track_index"] == 0
     assert groups[0]["primary_track_id"] == "linked-v"
-    assert groups[0]["bound_track_indices"] == [0]
+    assert groups[0]["bound_track_indices"] == [1]
     assert groups[0]["bound_track_ids"] == ["A1"]
 
     assert groups[1]["track_indices"] == [2]
@@ -360,7 +363,7 @@ def test_track_boundary_group_info_reports_primary_and_bound_tracks():
     assert groups[2]["bound_track_indices"] == []
 
 
-def test_timeline_track_boundary_group_info_reports_primary_and_bound_tracks():
+def test_timeline_sync_track_info_reports_primary_and_bound_tracks():
     timeline = Timeline(Stack([Track(kind="video", id="linked-v")]))
     stack = timeline.get_stack()
     stack.insert_item_at_time(
@@ -373,7 +376,7 @@ def test_timeline_track_boundary_group_info_reports_primary_and_bound_tracks():
     )
     timeline.set_stack(stack)
 
-    groups = timeline.track_boundary_group_info()
+    groups = timeline.sync_track_info()
 
     assert groups[0]["primary_track_id"] == "linked-v"
     assert groups[0]["bound_track_ids"] == ["A1"]
@@ -735,8 +738,9 @@ def test_insert_linked_clip_clamps_against_available_range():
 
     result = stack.insert_item_at_time(0, 0.0, primary, "override", "split_and_insert", [])
 
+    # No linked audio clips: a plain insert returns the inserted item id (str).
     assert result is not None
-    assert result["link_group_id"] is None
+    assert isinstance(result, str)
     item = next(item for item in stack.tracks()[0].items() if item.is_clip())
     assert maybe_link_group_id(item) is None
     assert item.duration() == 5.0
@@ -756,7 +760,8 @@ def test_insert_item_at_index_returns_linked_ids():
     assert result is not None
     assert result["primary_clip_id"] == "primary"
     assert len(result["audio_clips"]) == 1
-    assert result["created_track_indices"] == [0]
+    # Audio track is created below the video, which stays on top.
+    assert result["created_track_indices"] == [1]
     assert maybe_link_group_id(stack.get_item("primary")[2]) == result["link_group_id"]
     assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
 
@@ -927,9 +932,10 @@ def test_move_unlinked_item_without_gap_pulls_later_linked_assets():
     ]
     assert all(item.is_clip() for item in stack.tracks()[video_track].items())
     audio_items = stack.tracks()[audio_track].items()
-    assert len(audio_items) == 2
+    # The linked group is pulled flush to the start, leaving just the audio clip
+    # aligned with the video (no stray leading gap).
+    assert len(audio_items) == 1
     assert audio_items[audio_index].is_clip()
-    assert any(item.is_gap() and item.duration() == 1.0 for item in audio_items)
 
 
 def test_move_item_at_index_moves_linked_group():

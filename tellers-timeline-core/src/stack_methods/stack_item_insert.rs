@@ -16,36 +16,15 @@ impl Stack {
         if dest_track_index >= self.children.len() {
             return None;
         }
-        let boundary_sync_clips = self.synced_clips_for_insert_at_time_boundary(
+        self.insert_synced_item_at_time(
             dest_track_index,
             dest_time,
-            item.duration(),
-            overlap_policy,
-            insert_policy,
-        );
-        if Self::has_synced_inputs(&synced_audio_clips) || !boundary_sync_clips.is_empty() {
-            return self.insert_synced_item_at_time(
-                dest_track_index,
-                dest_time,
-                None,
-                item,
-                overlap_policy,
-                insert_policy,
-                synced_audio_clips,
-            );
-        }
-
-        let mut item = item;
-        let mut used_ids = self.collect_timeline_ids();
-        let inserted_id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
-        self.children[dest_track_index].insert_at_time(
-            dest_time,
+            None,
             item,
             overlap_policy,
             insert_policy,
-        );
-        self.sanitize_preserving_all_gap_tracks();
-        Some(InsertItemAtTimeResult::ItemId(inserted_id))
+            synced_audio_clips,
+        )
     }
 
     /// Insert an item at an index into the track with `dest_track_id`.
@@ -65,30 +44,14 @@ impl Stack {
         if dest_track_index >= self.children.len() {
             return None;
         }
-
-        let boundary_sync_clips = self.synced_clips_for_insert_at_index_boundary(
+        self.insert_synced_item_at_time(
             dest_track_index,
-            dest_index,
-            item.duration(),
+            0.0,
+            Some(dest_index),
+            item,
             overlap_policy,
-        );
-        if Self::has_synced_inputs(&synced_audio_clips) || !boundary_sync_clips.is_empty() {
-            return self.insert_synced_item_at_time(
-                dest_track_index,
-                0.0,
-                Some(dest_index),
-                item,
-                overlap_policy,
-                InsertPolicy::InsertBefore,
-                synced_audio_clips,
-            );
-        }
-
-        let mut item = item;
-        let mut used_ids = self.collect_timeline_ids();
-        let inserted_id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
-        self.children[dest_track_index].insert_at_index(dest_index, item, overlap_policy);
-        self.sanitize_preserving_all_gap_tracks();
-        Some(InsertItemAtTimeResult::ItemId(inserted_id))
+            InsertPolicy::InsertBefore,
+            synced_audio_clips,
+        )
     }
 }
