@@ -3064,7 +3064,7 @@ fn delete_clip_a_collapse_pulls_synced_partner_left() {
     let a1 = track_index_by_id(&stack, "a1");
 
     let removed = stack.delete_item("clip-a", false);
-    assert_eq!(removed.len(), 1);
+    assert_eq!(removed.len(), 2);
     assert!(stack.get_item("clip-a").is_none());
     assert!(stack.get_item("clip-b-video").is_some());
     assert!(stack.get_item("clip-b-audio").is_some());
@@ -3123,7 +3123,7 @@ fn delete_unsynced_item_without_gap_pulls_later_synced_assets() {
 
     let removed = stack.delete_item("unlinked", false);
 
-    assert_eq!(removed.len(), 1);
+    assert_eq!(removed.len(), 2);
     let (video_track_index, video_item_index, _) = stack.get_item("linked-video").unwrap();
     let (audio_track_index, audio_item_index, _) = stack.get_item(&audio_id).unwrap();
     assert_eq!(
