@@ -12,6 +12,7 @@ impl Stack {
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
         synced_audio_clips: Option<Vec<Item>>,
+        synced_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
         if dest_track_index >= self.children.len() {
             return None;
@@ -24,6 +25,7 @@ impl Stack {
             overlap_policy,
             insert_policy,
             synced_audio_clips,
+            synced_video_clip,
         )
     }
 
@@ -36,6 +38,7 @@ impl Stack {
         item: Item,
         overlap_policy: OverlapPolicy,
         synced_audio_clips: Option<Vec<Item>>,
+        synced_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
         let dest_track_index = match self.get_track_by_id(dest_track_id) {
             Some((i, _)) => i,
@@ -52,6 +55,7 @@ impl Stack {
             overlap_policy,
             InsertPolicy::InsertBefore,
             synced_audio_clips,
+            synced_video_clip,
         )
     }
 }

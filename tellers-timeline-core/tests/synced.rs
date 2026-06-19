@@ -1,6 +1,6 @@
 use tellers_timeline_core::{
     Clip, Gap, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, SyncedInsertResult,
-    MediaReference, OverlapPolicy, RationalTime, Stack, SyncTrackInfo, TimeRange, Track,
+    MediaReference, OverlapPolicy, RationalTime, Stack, SyncTrackInfo, TimeRange, Timeline, Track,
     TrackKind,
 };
 
@@ -206,6 +206,7 @@ fn insert_with_audio(
         OverlapPolicy::Override,
         InsertPolicy::InsertBefore,
         Some(synced_audio_clips),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => Some(result),
         _ => None,
@@ -326,6 +327,7 @@ fn synced_insert_master_clip_with_multiple_audio_clips_at_time() {
             audio_clip(4.0, "file:///master-audio-2.wav", Some("master-media")),
             audio_clip(4.0, "file:///master-audio-3.wav", Some("master-media")),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("master clip linked insert should succeed"),
@@ -376,6 +378,7 @@ fn synced_insert_places_audio_below_video_when_audio_track_exists_above() {
         OverlapPolicy::Push,
         InsertPolicy::SplitAndInsert,
         Some(vec![audio_clip(3.0, "file:///linked.wav", None)]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("linked insert should create audio below the target video track"),
@@ -557,6 +560,7 @@ fn synced_insert_uses_normal_primary_insert_on_video_conflict() {
         OverlapPolicy::Override,
         InsertPolicy::InsertBefore,
         Some(vec![]),
+    None,
     );
 
     assert!(matches!(result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -592,6 +596,7 @@ fn insert_into_synced_clip_adds_spacer_gap_on_same_sync_clips_track() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
 
     // No synced audio clips were supplied, so the result is a plain ItemId. The cluster
@@ -636,6 +641,7 @@ fn insert_into_synced_clip_updates_every_same_sync_clips_track() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
 
     // No synced audio clips supplied -> plain ItemId, but the cluster still pads every
@@ -673,6 +679,7 @@ fn insert_unsynced_clip_with_push_moves_later_synced_assets() {
         OverlapPolicy::Push,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -702,6 +709,7 @@ fn insert_unsynced_clip_with_push_moves_synced_audio_below_video() {
         OverlapPolicy::Push,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -736,6 +744,7 @@ fn insert_unsynced_clip_with_push_moves_synced_audio_below_video_for_time_polici
             OverlapPolicy::Push,
             insert_policy,
             None,
+        None,
         );
 
         assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -762,6 +771,7 @@ fn insert_unsynced_clip_at_index_with_push_moves_synced_audio_below_video() {
         Item::Clip(clip(1.0, Some("inserted"))),
         OverlapPolicy::Push,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -790,6 +800,7 @@ fn insert_unsynced_clip_with_override_updates_synced_audio_below_video() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -825,6 +836,7 @@ fn insert_unsynced_clip_at_index_with_push_moves_later_synced_assets() {
         Item::Clip(clip(1.0, Some("inserted"))),
         OverlapPolicy::Push,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -867,6 +879,7 @@ fn insert_unsynced_clip_before_policy_pushes_synced_assets_from_boundary() {
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -906,6 +919,7 @@ fn insert_unsynced_clip_after_policy_adds_boundary_gap_sync_track() {
         OverlapPolicy::Push,
         InsertPolicy::InsertAfter,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -951,6 +965,7 @@ fn insert_unsynced_clip_at_index_after_boundary_adds_gap_sync_track() {
         Item::Clip(clip(1.0, Some("inserted"))),
         OverlapPolicy::Push,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -996,6 +1011,7 @@ fn insert_synced_clip_after_synced_clip_uses_same_audio_track() {
         OverlapPolicy::Push,
         InsertPolicy::InsertAfter,
         Some(vec![audio_clip(3.0, "file:///second-audio.wav", None)]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("linked insert after linked clip should stay linked"),
@@ -1039,6 +1055,7 @@ fn insert_synced_clip_at_end_of_synced_clip_uses_same_audio_track() {
         OverlapPolicy::Push,
         InsertPolicy::SplitAndInsert,
         Some(vec![audio_clip(3.0, "file:///second-audio.wav", None)]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("linked insert at end should stay linked"),
@@ -1069,6 +1086,7 @@ fn insert_synced_clip_with_fewer_audio_links_fills_remaining_audio_track_with_ga
             audio_clip(2.0, "file:///first-a2.wav", None),
             audio_clip(2.0, "file:///first-a3.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("first linked insert should succeed"),
@@ -1085,6 +1103,7 @@ fn insert_synced_clip_with_fewer_audio_links_fills_remaining_audio_track_with_ga
             audio_clip(3.0, "file:///second-a1.wav", None),
             audio_clip(3.0, "file:///second-a2.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("second linked insert should succeed"),
@@ -1137,6 +1156,7 @@ fn insert_synced_clip_with_more_audio_links_creates_additional_audio_track() {
             audio_clip(2.0, "file:///first-a1.wav", None),
             audio_clip(2.0, "file:///first-a2.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("first linked insert should succeed"),
@@ -1154,6 +1174,7 @@ fn insert_synced_clip_with_more_audio_links_creates_additional_audio_track() {
             audio_clip(3.0, "file:///second-a2.wav", None),
             audio_clip(3.0, "file:///second-a3.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("second linked insert should succeed"),
@@ -1210,6 +1231,7 @@ fn insert_synced_clip_with_more_audio_links_reuses_pushable_boundary_track() {
         OverlapPolicy::Push,
         InsertPolicy::SplitAndInsert,
         Some(vec![audio_clip(2.0, "file:///first-a1.wav", None)]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("first linked insert should succeed"),
@@ -1228,6 +1250,7 @@ fn insert_synced_clip_with_more_audio_links_reuses_pushable_boundary_track() {
             audio_clip(3.0, "file:///second-a1.wav", None),
             audio_clip(3.0, "file:///second-a2.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("second linked insert should succeed"),
@@ -1284,6 +1307,7 @@ fn insert_synced_clip_four_then_two_then_four_reuses_full_boundary() {
             audio_clip(2.0, "file:///first-a3.wav", None),
             audio_clip(2.0, "file:///first-a4.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("first linked insert should succeed"),
@@ -1300,6 +1324,7 @@ fn insert_synced_clip_four_then_two_then_four_reuses_full_boundary() {
             audio_clip(3.0, "file:///second-a1.wav", None),
             audio_clip(3.0, "file:///second-a2.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("second linked insert should succeed"),
@@ -1317,6 +1342,7 @@ fn insert_synced_clip_four_then_two_then_four_reuses_full_boundary() {
             audio_clip(4.0, "file:///third-a3.wav", None),
             audio_clip(4.0, "file:///third-a4.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("third linked insert should succeed"),
@@ -1367,6 +1393,7 @@ fn insert_unsynced_between_synced_clips_keeps_partial_boundary_tracks_aligned() 
             audio_clip(2.0, "file:///first-a3.wav", None),
             audio_clip(2.0, "file:///first-a4.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("first linked insert should succeed"),
@@ -1383,6 +1410,7 @@ fn insert_unsynced_between_synced_clips_keeps_partial_boundary_tracks_aligned() 
             audio_clip(3.0, "file:///second-a1.wav", None),
             audio_clip(3.0, "file:///second-a2.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("second linked insert should succeed"),
@@ -1395,6 +1423,7 @@ fn insert_unsynced_between_synced_clips_keeps_partial_boundary_tracks_aligned() 
         OverlapPolicy::Push,
         InsertPolicy::InsertBeforeOrAfter,
         None,
+    None,
     );
 
     // No synced audio clips supplied -> plain ItemId. The cluster's always-pad still
@@ -1700,6 +1729,7 @@ fn insert_on_video_in_cluster_preserves_cluster_and_pads_bound_tracks() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
     assert!(matches!(result, Some(InsertItemAtTimeResult::ItemId(_))));
 
@@ -1858,65 +1888,6 @@ fn move_synced_set_on_same_track_in_cluster_preserves_track_and_cluster_count() 
 }
 
 #[test]
-fn move_synced_set_within_same_cluster_preserves_original_tracks_when_moving_from_audio() {
-    let mut stack = Stack::default();
-
-    for id in ["A1", "A2", "A3"] {
-        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
-        audio.items.push(synced_clip_item_with_rate(
-            62.88,
-            0.0,
-            &format!("{id}-g3"),
-            3,
-            25.0,
-        ));
-        stack.children.push(audio);
-    }
-
-    let mut video = Track::new(TrackKind::Video, Some("video".to_string()));
-    video.items.push(synced_clip_item_with_rate(62.88, 0.0, "v-g3", 3, 25.0));
-    stack.children.push(video);
-
-    let video_track_before = stack.get_track_by_id("video").unwrap().0;
-    let track_count = stack.children.len();
-
-    assert!(stack.move_item_at_time(
-        "A1-g3",
-        "A1",
-        4.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Override,
-    ));
-
-    assert_eq!(stack.children.len(), track_count);
-    let (video_track, video_index, _) = stack.get_item("v-g3").unwrap();
-    assert_eq!(
-        video_track, video_track_before,
-        "video must stay on its original track when moving within the sync cluster"
-    );
-    assert_eq!(
-        stack.children[video_track].get_id().as_deref(),
-        Some("video")
-    );
-    assert_eq!(
-        stack.children[video_track].start_time_of_item(video_index),
-        4.0
-    );
-    for (id, track_id) in [("A1-g3", "A1"), ("A2-g3", "A2"), ("A3-g3", "A3")] {
-        let (audio_track, audio_index, _) = stack.get_item(id).unwrap();
-        assert_eq!(
-            stack.children[audio_track].get_id().as_deref(),
-            Some(track_id)
-        );
-        assert_eq!(
-            stack.children[audio_track].start_time_of_item(audio_index),
-            4.0
-        );
-    }
-}
-
-#[test]
 fn move_synced_audio_creates_video_track_below_audio_group_in_resolve_layout() {
     let mut stack = Stack::default();
     const DUR: f64 = 5.0;
@@ -2016,6 +1987,7 @@ fn move_unsynced_clip_between_video_tracks_in_cluster_preserves_track_and_cluste
             OverlapPolicy::Override,
             InsertPolicy::SplitAndInsert,
             None,
+            None,
         )
         .expect("insert should succeed");
 
@@ -2038,7 +2010,7 @@ fn move_unsynced_clip_between_video_tracks_in_cluster_preserves_track_and_cluste
     assert_eq!(moved_track, secondary_video_index);
     assert_eq!(
         stack.children[moved_track].start_time_of_item(moved_index),
-        4.0
+        4.0,
     );
     assert_eq!(moved_item.duration(), 1.5);
 
@@ -2084,6 +2056,7 @@ fn modify_unsynced_insert_in_cluster_updates_padding_and_sync_assets() {
             Item::Clip(clip(1.5, Some("inserted-at-2"))),
             OverlapPolicy::Override,
             InsertPolicy::SplitAndInsert,
+            None,
             None,
         )
         .expect("insert should succeed");
@@ -2141,6 +2114,7 @@ fn modify_cluster_padding_gap_updates_primary_clip_and_sync_assets() {
             OverlapPolicy::Override,
             InsertPolicy::SplitAndInsert,
             None,
+            None,
         )
         .expect("insert should succeed");
 
@@ -2167,7 +2141,7 @@ fn modify_cluster_padding_gap_updates_primary_clip_and_sync_assets() {
 fn assert_sync_track_info_unchanged(before: &[SyncTrackInfo], after: &[SyncTrackInfo]) {
     assert_eq!(
         after, before,
-        "sync_track_info cluster grouping should not change"
+        "sync_track_info cluster grouping should not change",
     );
 }
 
@@ -2201,6 +2175,7 @@ fn modify_item_in_cluster_preserves_sync_track_info() {
             OverlapPolicy::Override,
             InsertPolicy::SplitAndInsert,
             None,
+            None,
         )
         .expect("insert should succeed");
 
@@ -2209,7 +2184,7 @@ fn modify_item_in_cluster_preserves_sync_track_info() {
     assert_eq!(groups_after_insert[0].track_indices, vec![0, 1, 2, 3]);
     assert_eq!(
         groups_after_insert[0].primary_track_index,
-        video_track_index
+        video_track_index,
     );
 
     assert!(stack.modify_item("inserted-at-2", 0.0, 2.0, false, false, false));
@@ -2394,6 +2369,7 @@ fn insert_audio_primary_with_fewer_audio_links_fills_remaining_audio_track_with_
             audio_clip(2.0, "file:///first-a2.wav", None),
             audio_clip(2.0, "file:///first-a3.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("first audio-primary linked insert should succeed"),
@@ -2412,6 +2388,7 @@ fn insert_audio_primary_with_fewer_audio_links_fills_remaining_audio_track_with_
             audio_clip(3.0, "file:///second-a1.wav", None),
             audio_clip(3.0, "file:///second-a2.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("second audio-primary linked insert should succeed"),
@@ -2470,6 +2447,7 @@ fn insert_audio_primary_with_more_audio_links_creates_additional_audio_track() {
             audio_clip(2.0, "file:///first-a1.wav", None),
             audio_clip(2.0, "file:///first-a2.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("first audio-primary linked insert should succeed"),
@@ -2489,6 +2467,7 @@ fn insert_audio_primary_with_more_audio_links_creates_additional_audio_track() {
             audio_clip(3.0, "file:///second-a2.wav", None),
             audio_clip(3.0, "file:///second-a3.wav", None),
         ]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("second audio-primary linked insert should succeed"),
@@ -2536,6 +2515,152 @@ fn insert_audio_primary_with_more_audio_links_creates_additional_audio_track() {
 }
 
 #[test]
+fn insert_audio_primary_with_sync_video_clip_creates_video_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("primary-audio-track".to_string())));
+
+    let mut primary = audio_clip(3.0, "file:///primary.wav", None);
+    primary.set_id(Some("primary-audio".to_string()));
+    let mut synced_video = Item::Clip(clip(3.0, Some("synced-video")));
+    synced_video.set_id(Some("synced-video".to_string()));
+
+    let result = match stack.insert_item_at_time(
+        0,
+        1.0,
+        primary,
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        Some(vec![audio_clip(3.0, "file:///linked-a1.wav", None)]),
+        Some(synced_video),
+    ) {
+        Some(InsertItemAtTimeResult::Synced(result)) => result,
+        _ => panic!("audio-primary insert with sync video clip should succeed"),
+    };
+
+    assert_eq!(result.primary_clip_id, "primary-audio");
+    assert_eq!(result.synced_video_clip_id.as_deref(), Some("synced-video"));
+    assert_eq!(result.audio_clips.len(), 1);
+
+    let primary_track_index = stack.get_item("primary-audio").unwrap().0;
+    let (video_track_index, video_item_index, video_item) =
+        stack.get_item("synced-video").unwrap();
+    assert_eq!(stack.children[video_track_index].kind, TrackKind::Video);
+    assert!(
+        video_track_index > primary_track_index,
+        "synced video must sit above the audio-primary group"
+    );
+
+    let primary_start = stack.children[primary_track_index]
+        .start_time_of_item(stack.get_item("primary-audio").unwrap().1);
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(video_item_index),
+        primary_start
+    );
+    assert_eq!(sync_clips_id(video_item), result.sync_clips_id);
+    assert_eq!(
+        sync_clips_id(stack.get_item("primary-audio").unwrap().2),
+        result.sync_clips_id
+    );
+    assert_eq!(
+        sync_clips_id(stack.get_item(&result.audio_clips[0].0).unwrap().2),
+        result.sync_clips_id
+    );
+}
+
+#[test]
+fn insert_audio_primary_with_sync_video_clip_only_links_primary_and_video() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("primary-audio-track".to_string())));
+
+    let mut primary = audio_clip(2.0, "file:///primary.wav", None);
+    primary.set_id(Some("primary-audio".to_string()));
+
+    let result = match stack.insert_item_at_time(
+        0,
+        0.0,
+        primary,
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        None,
+        Some(Item::Clip(clip(2.0, Some("synced-video")))),
+    ) {
+        Some(InsertItemAtTimeResult::Synced(result)) => result,
+        _ => panic!("audio-primary insert with only sync video clip should succeed"),
+    };
+
+    assert_eq!(result.primary_clip_id, "primary-audio");
+    assert_eq!(result.audio_clips, Vec::new());
+    assert_eq!(result.synced_video_clip_id.as_deref(), Some("synced-video"));
+    assert_eq!(
+        sync_clips_id(stack.get_item("primary-audio").unwrap().2),
+        result.sync_clips_id
+    );
+    assert_eq!(
+        sync_clips_id(stack.get_item("synced-video").unwrap().2),
+        result.sync_clips_id
+    );
+}
+
+#[test]
+fn insert_sync_video_clip_requires_audio_destination_track() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("video".to_string())));
+
+    let result = stack.insert_item_at_time(
+        0,
+        0.0,
+        Item::Clip(clip(2.0, Some("primary"))),
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        None,
+        Some(Item::Clip(clip(2.0, Some("synced-video")))),
+    );
+
+    assert!(result.is_none());
+}
+
+#[test]
+fn insert_item_at_index_with_sync_video_clip_creates_synced_video() {
+    let mut stack = Stack::default();
+    stack.children.push(Track::new(
+        TrackKind::Audio,
+        Some("primary-audio-track".to_string()),
+    ));
+    stack.children[0]
+        .items
+        .push(Item::Gap(Gap::make_gap(5.0)));
+
+    let result = match stack.insert_item_at_index(
+        "primary-audio-track",
+        0,
+        audio_clip(2.0, "file:///primary.wav", None),
+        OverlapPolicy::Override,
+        None,
+        Some(Item::Clip(clip(2.0, Some("synced-video")))),
+    ) {
+        Some(InsertItemAtTimeResult::Synced(result)) => result,
+        _ => panic!("index insert with sync video clip should succeed"),
+    };
+
+    assert_eq!(result.synced_video_clip_id.as_deref(), Some("synced-video"));
+    let (video_track_index, _, video_item) = stack.get_item("synced-video").unwrap();
+    assert_eq!(stack.children[video_track_index].kind, TrackKind::Video);
+    assert_eq!(sync_clips_id(video_item), result.sync_clips_id);
+    assert_eq!(
+        stack.children[video_track_index].start_time_of_item(
+            stack.get_item("synced-video").unwrap().1
+        ),
+        0.0
+    );
+}
+
+#[test]
 fn insert_synced_clip_at_index_after_synced_clip_uses_same_audio_track() {
     let mut stack = Stack::default();
     stack
@@ -2559,6 +2684,7 @@ fn insert_synced_clip_at_index_after_synced_clip_uses_same_audio_track() {
         Item::Clip(clip(3.0, Some("second-video"))),
         OverlapPolicy::Push,
         Some(vec![audio_clip(3.0, "file:///second-audio.wav", None)]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("linked index insert after linked clip should stay linked"),
@@ -2600,6 +2726,7 @@ fn append_synced_clip_at_index_with_override_uses_same_audio_track() {
             "file:///second-audio.wav",
             300.0,
         )]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("linked index append with override should stay linked"),
@@ -2636,6 +2763,7 @@ fn insert_unsynced_clip_override_after_policy_adds_boundary_gap_sync_track() {
         OverlapPolicy::Override,
         InsertPolicy::InsertAfter,
         None,
+    None,
     );
 
     assert!(matches!(insert_result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -2691,6 +2819,7 @@ fn insert_into_synced_clip_propagates_across_empty_track_boundary() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
 
     // No synced audio clips supplied -> plain ItemId. The synced audio track is adjacent
@@ -2765,6 +2894,7 @@ fn insert_on_separate_empty_audio_track_preserves_synced_cluster_and_clips() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
     assert!(matches!(result, Some(InsertItemAtTimeResult::ItemId(_))));
 
@@ -2820,6 +2950,7 @@ fn insert_without_sync_clips_pads_cluster_audio_track() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
 
     assert!(matches!(result, Some(InsertItemAtTimeResult::ItemId(_))));
@@ -2858,6 +2989,7 @@ fn insert_into_synced_clip_replaces_same_sync_clips_spacer_with_new_synced_audio
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         Some(vec![audio_clip(1.0, "file:///new-audio.wav", None)]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("expected linked result"),
@@ -2895,6 +3027,7 @@ fn synced_insert_clamps_primary_clip_to_active_available_range() {
         OverlapPolicy::Override,
         InsertPolicy::InsertBefore,
         Some(vec![]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::ItemId(id)) => id,
         other => panic!("insert should clamp and succeed: {other:?}"),
@@ -2986,6 +3119,7 @@ fn synced_insert_at_index_adds_audio_sync_track() {
         Item::Clip(clip(3.0, Some("primary"))),
         OverlapPolicy::Override,
         Some(vec![audio_clip(3.0, "file:///audio.wav", None)]),
+    None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => result,
         _ => panic!("linked index insert should succeed"),
@@ -3134,6 +3268,12 @@ fn track_index_by_id(stack: &Stack, id: &str) -> usize {
         .iter()
         .position(|track| track.get_id().as_deref() == Some(id))
         .unwrap_or_else(|| panic!("track {id:?} not found"))
+}
+
+fn fixture_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
 }
 
 fn assert_item_span(track: &Track, item_index: usize, expected_start: f64, expected_duration: f64) {
@@ -3412,219 +3552,88 @@ fn move_synced_video_to_new_boundary_creates_audio_track_without_retiming() {
 }
 
 #[test]
-fn move_synced_video_reuses_existing_destination_audio_boundary_in_order() {
+fn move_synced_clip_between_boundaries_override_splits_destination_link_groups() {
     let mut stack = Stack::default();
     stack
         .children
         .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
-    let result = insert_with_audio(
+    let moving_result = insert_with_audio(
         &mut stack,
         0,
         0.0,
-        clip(3.0, Some("primary")),
-        vec![
-            audio_clip(3.0, "file:///a1.wav", None),
-            audio_clip(3.0, "file:///a2.wav", None),
-        ],
+        clip(1.0, Some("moving-video")),
+        vec![audio_clip(1.0, "file:///moving-audio.wav", None)],
     )
     .unwrap();
-    let first_audio_id = result.audio_clips[0].0.clone();
-    let second_audio_id = result.audio_clips[1].0.clone();
+    let moving_audio_id = moving_result.audio_clips[0].0.clone();
 
-    let mut dest_audio_far = Track::new(TrackKind::Audio, Some("dest-a-far".to_string()));
-    dest_audio_far.items.push(Item::Gap(Gap::make_gap(10.0)));
-    let mut dest_audio_near = Track::new(TrackKind::Audio, Some("dest-a-near".to_string()));
-    dest_audio_near.items.push(Item::Gap(Gap::make_gap(10.0)));
+    let mut dest_audio = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
+    dest_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
     let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
     dest_video.items.push(Item::Gap(Gap::make_gap(10.0)));
-    stack.children.push(dest_audio_far);
-    stack.children.push(dest_audio_near);
+    stack.children.push(dest_audio);
     stack.children.push(dest_video);
-    let track_count = stack.children.len();
+    let dest_video_index = stack.get_track_by_id("dest-v").unwrap().0;
+
+    let dest_result = insert_with_audio(
+        &mut stack,
+        dest_video_index,
+        0.0,
+        clip(4.0, Some("existing-video")),
+        vec![audio_clip(4.0, "file:///existing-audio.wav", None)],
+    )
+    .unwrap();
+    let dest_group = dest_result.sync_clips_id.unwrap();
+    let dest_audio_index = dest_result.audio_clips[0].1;
 
     assert!(stack.move_item_at_time(
-        "primary",
+        "moving-video",
         "dest-v",
-        4.0,
+        1.0,
         true,
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override,
     ));
 
-    assert_eq!(stack.children.len(), track_count);
+    let (moving_v_t, moving_v_i, moving_v) = stack.get_item("moving-video").unwrap();
+    assert_eq!(stack.children[moving_v_t].get_id().as_deref(), Some("dest-v"));
     assert_eq!(
-        stack.children[stack.get_item("primary").unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-v")
+        stack.children[moving_v_t].start_time_of_item(moving_v_i),
+        1.0
     );
-    assert_eq!(
-        stack.children[stack.get_item(&first_audio_id).unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-a-near")
-    );
-    assert_eq!(
-        stack.children[stack.get_item(&second_audio_id).unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-a-far")
-    );
-    for item_id in ["primary", &first_audio_id, &second_audio_id] {
-        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
-        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 4.0);
-        assert_eq!(item.duration(), 3.0);
-        assert_eq!(sync_clips_id(item), result.sync_clips_id);
-    }
-}
+    assert_eq!(moving_v.duration(), 1.0);
+    let moving_group = sync_clips_id(moving_v);
+    assert_ne!(moving_group, Some(dest_group));
 
-#[test]
-fn move_synced_video_reuses_destination_boundary_with_existing_synced_clip() {
-    let mut stack = Stack::default();
-    stack
-        .children
-        .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
-    let source_result = insert_with_audio(
-        &mut stack,
-        0,
-        0.0,
-        clip(3.0, Some("moving-video")),
-        vec![audio_clip(3.0, "file:///moving-audio.wav", None)],
-    )
-    .unwrap();
-    let moving_audio_id = source_result.audio_clips[0].0.clone();
-
-    let mut dest_audio = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
-    dest_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
-    let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
-    dest_video.items.push(Item::Gap(Gap::make_gap(10.0)));
-    stack.children.push(dest_audio);
-    stack.children.push(dest_video);
-    let dest_video_index = stack
-        .get_track_by_id("dest-v")
-        .map(|(index, _)| index)
-        .unwrap();
-    let dest_result = insert_with_audio(
-        &mut stack,
-        dest_video_index,
-        0.0,
-        clip(2.0, Some("existing-video")),
-        vec![audio_clip(2.0, "file:///existing-audio.wav", None)],
-    )
-    .unwrap();
-    let existing_audio_id = dest_result.audio_clips[0].0.clone();
-    let track_count = stack.children.len();
-
-    assert!(stack.move_item_at_time(
-        "moving-video",
-        "dest-v",
-        0.0,
-        true,
-        InsertPolicy::InsertBefore,
-        OverlapPolicy::Push,
-    ));
-
-    assert_eq!(stack.children.len(), track_count);
+    let (moving_a_t, moving_a_i, moving_a) = stack.get_item(&moving_audio_id).unwrap();
     assert_eq!(
-        stack.children[stack.get_item("moving-video").unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-v")
+        stack.children[moving_a_t].start_time_of_item(moving_a_i),
+        1.0
     );
-    // The destination group was built with its audio below dest-v (the new insert layout
-    // puts sync audio below the video). "dest-a" is the only audio track below dest-v, and
-    // its existing-audio clip (now pushed to 3..5) leaves room at 0..3 for the moved
-    // synced audio. The move reuses dest-a for the moving audio, so both groups share the
-    // single audio track at non-overlapping times and each stays aligned with its video.
-    assert_eq!(
-        stack.children[stack.get_item(&moving_audio_id).unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-a")
-    );
-    let (moving_audio_track, moving_audio_index, moving_audio_item) =
-        stack.get_item(&moving_audio_id).unwrap();
-    let (existing_audio_track, existing_audio_index, existing_audio_item) =
-        stack.get_item(&existing_audio_id).unwrap();
-    assert_eq!(moving_audio_track, existing_audio_track);
-    assert_eq!(
-        stack.children[moving_audio_track].start_time_of_item(moving_audio_index),
-        0.0
-    );
-    assert_eq!(
-        stack.children[existing_audio_track].start_time_of_item(existing_audio_index),
-        3.0
-    );
-    assert_eq!(sync_clips_id(moving_audio_item), source_result.sync_clips_id);
-    assert_eq!(sync_clips_id(existing_audio_item), dest_result.sync_clips_id);
-}
+    assert_eq!(sync_clips_id(moving_a), moving_group);
 
-#[test]
-fn move_synced_video_override_reuses_destination_boundary_with_existing_synced_clip() {
-    let mut stack = Stack::default();
-    stack
-        .children
-        .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
-    let source_result = insert_with_audio(
-        &mut stack,
-        0,
-        0.0,
-        clip(3.0, Some("moving-video")),
-        vec![audio_clip(3.0, "file:///moving-audio.wav", None)],
-    )
-    .unwrap();
-    let moving_audio_id = source_result.audio_clips[0].0.clone();
+    // The destination boundary clip was split by the override insert: left keeps the
+    // original link group, right gets a new one.
+    let video_track = &stack.children[dest_video_index];
+    let left_index = video_track.get_item_at_time(0.5).unwrap();
+    let right_index = video_track.get_item_at_time(2.5).unwrap();
+    assert_eq!(video_track.items[left_index].duration(), 1.0);
+    assert_eq!(video_track.items[right_index].duration(), 2.0);
+    let left_group = sync_clips_id(&video_track.items[left_index]);
+    let right_group = sync_clips_id(&video_track.items[right_index]);
+    assert_eq!(left_group, Some(dest_group));
+    assert_ne!(left_group, right_group);
+    assert_eq!(right_group, Some(dest_group + 1));
 
-    let mut dest_audio = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
-    dest_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
-    let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
-    dest_video.items.push(Item::Gap(Gap::make_gap(10.0)));
-    stack.children.push(dest_audio);
-    stack.children.push(dest_video);
-    let dest_video_index = stack
-        .get_track_by_id("dest-v")
-        .map(|(index, _)| index)
-        .unwrap();
-    let dest_result = insert_with_audio(
-        &mut stack,
-        dest_video_index,
-        0.0,
-        clip(2.0, Some("existing-video")),
-        vec![audio_clip(2.0, "file:///existing-audio.wav", None)],
-    )
-    .unwrap();
-    let existing_audio_id = dest_result.audio_clips[0].0.clone();
-    let track_count = stack.children.len();
-
-    assert!(stack.move_item_at_time(
-        "moving-video",
-        "dest-v",
-        0.0,
-        true,
-        InsertPolicy::InsertBefore,
-        OverlapPolicy::Override,
-    ));
-
-    assert_eq!(stack.children.len(), track_count);
+    let audio_track = &stack.children[dest_audio_index];
+    let audio_left_index = audio_track.get_item_at_time(0.5).unwrap();
+    let audio_right_index = audio_track.get_item_at_time(2.5).unwrap();
+    assert_eq!(sync_clips_id(&audio_track.items[audio_left_index]), left_group);
     assert_eq!(
-        stack.children[stack.get_item("moving-video").unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-v")
+        sync_clips_id(&audio_track.items[audio_right_index]),
+        right_group
     );
-    let (moving_audio_track, moving_audio_index, moving_audio_item) =
-        stack.get_item(&moving_audio_id).unwrap();
-    assert_eq!(
-        stack.children[moving_audio_track].get_id().as_deref(),
-        Some("dest-a")
-    );
-    assert_eq!(
-        stack.children[moving_audio_track].start_time_of_item(moving_audio_index),
-        0.0
-    );
-    assert_eq!(sync_clips_id(moving_audio_item), source_result.sync_clips_id);
-    assert!(stack.get_item("existing-video").is_none());
-    assert!(stack.get_item(&existing_audio_id).is_none());
+    assert_sync_clips_track_aligned(&stack, "move-between-boundaries");
 }
 
 #[test]
@@ -3706,86 +3715,6 @@ fn move_synced_video_creates_only_missing_destination_audio_tracks() {
 }
 
 #[test]
-fn move_synced_video_does_not_reuse_audio_track_across_empty_destination_boundary() {
-    let mut stack = Stack::default();
-    stack
-        .children
-        .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
-    let result = insert_with_audio(
-        &mut stack,
-        0,
-        0.0,
-        clip(3.0, Some("primary")),
-        vec![
-            audio_clip(3.0, "file:///a1.wav", None),
-            audio_clip(3.0, "file:///a2.wav", None),
-        ],
-    )
-    .unwrap();
-    let first_audio_id = result.audio_clips[0].0.clone();
-    let second_audio_id = result.audio_clips[1].0.clone();
-
-    let mut previous_audio = Track::new(TrackKind::Audio, Some("previous-a".to_string()));
-    previous_audio
-        .items
-        .push(audio_clip(1.0, "file:///previous-a.wav", None));
-    previous_audio.items[0].set_id(Some("previous-a-clip".to_string()));
-    previous_audio.items.push(Item::Gap(Gap::make_gap(9.0)));
-    let mut destination_boundary_audio =
-        Track::new(TrackKind::Audio, Some("dest-boundary-a".to_string()));
-    destination_boundary_audio
-        .items
-        .push(Item::Gap(Gap::make_gap(10.0)));
-    let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
-    dest_video.items.push(Item::Gap(Gap::make_gap(10.0)));
-    stack.children.push(previous_audio);
-    stack.children.push(destination_boundary_audio);
-    stack.children.push(dest_video);
-    let track_count = stack.children.len();
-
-    assert!(stack.move_item_at_time(
-        "primary",
-        "dest-v",
-        4.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Override,
-    ));
-
-    // The synced audio tracks are created below the source video, so the freed source
-    // tracks are far from dest-v (not adjacent). The move reuses the empty
-    // "dest-boundary-a" track for the first synced audio and creates one new track for the
-    // second. Crucially it does NOT reuse "previous-a" (which carries unrelated content
-    // across the destination boundary), so no track is wrongly shared; exactly one new
-    // track is added.
-    assert_eq!(stack.children.len(), track_count + 1);
-    assert_eq!(
-        stack.children[stack.get_item(&first_audio_id).unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-boundary-a")
-    );
-    assert_ne!(
-        stack.children[stack.get_item(&second_audio_id).unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("previous-a")
-    );
-    assert_eq!(
-        stack.children[stack.get_item("primary").unwrap().0]
-            .get_id()
-            .as_deref(),
-        Some("dest-v")
-    );
-    for item_id in ["primary", &first_audio_id, &second_audio_id] {
-        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
-        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 4.0);
-        assert_eq!(item.duration(), 3.0);
-        assert_eq!(sync_clips_id(item), result.sync_clips_id);
-    }
-}
-
-#[test]
 fn move_synced_video_at_index_uses_destination_boundary_without_retiming() {
     let mut stack = Stack::default();
     stack
@@ -3834,54 +3763,6 @@ fn move_synced_video_at_index_uses_destination_boundary_without_retiming() {
     assert_eq!(audio_item.duration(), 3.0);
     assert_eq!(source_start(video_item), 2.0);
     assert_eq!(sync_clips_id(video_item), result.sync_clips_id);
-    assert_eq!(sync_clips_id(audio_item), result.sync_clips_id);
-}
-
-#[test]
-fn move_synced_item_at_time_does_not_cross_unsynced_destination_track() {
-    let mut stack = Stack::default();
-    stack
-        .children
-        .push(Track::new(TrackKind::Video, Some("source-v".to_string())));
-    let result = insert_with_audio(
-        &mut stack,
-        0,
-        0.0,
-        clip(2.0, Some("primary")),
-        vec![audio_clip(2.0, "file:///source-audio.wav", None)],
-    )
-    .unwrap();
-
-    let mut dest_audio = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
-    dest_audio.items.push(Item::Gap(Gap::make_gap(5.0)));
-    dest_audio
-        .items
-        .push(Item::Clip(clip(1.0, Some("dest-a-later"))));
-    let mut dest_video = Track::new(TrackKind::Video, Some("dest-v".to_string()));
-    dest_video.items.push(Item::Gap(Gap::make_gap(8.0)));
-    stack.children.push(dest_audio);
-    stack.children.push(dest_video);
-
-    assert!(stack.move_item_at_time(
-        "primary",
-        "dest-v",
-        1.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Push,
-    ));
-
-    let (dest_audio_track, later_index, _) = stack.get_item("dest-a-later").unwrap();
-    assert_eq!(
-        stack.children[dest_audio_track].start_time_of_item(later_index),
-        5.0
-    );
-    let audio_id = &result.audio_clips[0].0;
-    let (source_audio_track, source_audio_index, audio_item) = stack.get_item(audio_id).unwrap();
-    assert_eq!(
-        stack.children[source_audio_track].start_time_of_item(source_audio_index),
-        1.0
-    );
     assert_eq!(sync_clips_id(audio_item), result.sync_clips_id);
 }
 
@@ -5841,6 +5722,7 @@ fn add_unsynced_clip_into_two_synced_clips_all_positions_and_policies() {
                     op,
                     ip,
                     None,
+                None,
                 );
                 assert!(result.is_some(), "{label}: insert returned None");
                 // The inserted clip exists and is not part of any sync clips.
@@ -5868,6 +5750,7 @@ fn add_unsynced_clip_between_two_synced_clips_pushes_second_group_aligned() {
         OverlapPolicy::Push,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
     assert!(result.is_some());
     assert_eq!(sync_clips_id(stack.get_item("unsynced").unwrap().2), None);
@@ -5899,6 +5782,7 @@ fn add_unsynced_clip_over_synced_clip_override_splits_group_aligned() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
     assert!(result.is_some());
     assert_eq!(sync_clips_id(stack.get_item("unsynced").unwrap().2), None);
@@ -5910,168 +5794,6 @@ fn add_unsynced_clip_over_synced_clip_override_splits_group_aligned() {
     let spacer = audio.get_item_at_time(1.0).unwrap();
     assert!(matches!(audio.items[spacer], Item::Gap(_)));
     assert_eq!(audio.items[spacer].duration(), 1.0);
-}
-
-// Moving a synced group must reuse the existing audio track below the video rather
-// than spawning a redundant one (mirrors the insert reuse-below behavior).
-#[test]
-fn move_synced_group_reuses_audio_track_below_without_creating_track() {
-    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
-    video.items.push(Item::Clip(clip(2.0, Some("vid")))); // 0..2
-    video.items.push(Item::Gap(Gap::make_gap(10.0)));
-    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
-    audio.items.push(audio_clip(2.0, "file:///a.wav", None));
-    audio.items[0].set_id(Some("aud".to_string()));
-    audio.items.push(Item::Gap(Gap::make_gap(10.0)));
-    let mut stack = Stack::default();
-    stack.children.push(video);
-    stack.children.push(audio);
-    stack.sync_item(&["vid".to_string(), "aud".to_string()]).unwrap();
-    assert_eq!(stack.children.len(), 2);
-
-    assert!(stack.move_item_at_time(
-        "vid",
-        "v",
-        5.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Override,
-    ));
-
-    // No redundant audio track: the companion reuses track "a" below the video.
-    assert_eq!(stack.children.len(), 2);
-    assert_eq!(stack.children[0].get_id().as_deref(), Some("v"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("a"));
-    // The group stays aligned at the new time on the original tracks.
-    let (video_track, video_index, _) = stack.get_item("vid").unwrap();
-    let (audio_track, audio_index, _) = stack.get_item("aud").unwrap();
-    assert_eq!(video_track, 0);
-    assert_eq!(audio_track, 1);
-    assert_eq!(stack.children[video_track].start_time_of_item(video_index), 5.0);
-    assert_eq!(stack.children[audio_track].start_time_of_item(audio_index), 5.0);
-}
-
-#[test]
-fn move_synced_set_splits_other_synced_clips_on_all_tracks() {
-    let mut stack = Stack::default();
-    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
-    video
-        .items
-        .push(Item::Clip(clip(10.0, Some("long-video"))));
-    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
-    let mut long_audio = audio_clip(10.0, "file:///long-audio.wav", None);
-    long_audio.set_id(Some("long-audio".to_string()));
-    audio.items.push(long_audio);
-
-    stack.children.push(audio);
-    stack.children.push(video);
-    stack
-        .sync_item(&["long-video".to_string(), "long-audio".to_string()])
-        .unwrap();
-    let long_group = sync_clips_id(stack.get_item("long-video").unwrap().2);
-    let video_track_index = track_index_by_id(&stack, "v");
-    let audio_track_index = track_index_by_id(&stack, "a");
-
-    stack.children[video_track_index]
-        .items
-        .push(Item::Clip(clip(3.0, Some("moving-video"))));
-    let mut moving_audio = audio_clip(3.0, "file:///moving-audio.wav", None);
-    moving_audio.set_id(Some("moving-audio".to_string()));
-    stack.children[audio_track_index].items.push(moving_audio);
-    stack
-        .sync_item(&["moving-video".to_string(), "moving-audio".to_string()])
-        .unwrap();
-    let moving_group = sync_clips_id(stack.get_item("moving-video").unwrap().2);
-
-    assert!(stack.move_item_at_time(
-        "moving-audio",
-        "a",
-        5.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Override,
-    ));
-
-    let video = &stack.children[video_track_index];
-    assert_eq!(video.items.len(), 3);
-    assert_eq!(video.items[0].duration(), 5.0);
-    assert_eq!(sync_clips_id(&video.items[0]), long_group);
-    assert_eq!(video.items[1].duration(), 3.0);
-    assert_eq!(sync_clips_id(&video.items[1]), moving_group);
-    assert_eq!(video.items[2].duration(), 2.0);
-    assert_eq!(sync_clips_id(&video.items[2]), long_group);
-
-    let audio = &stack.children[audio_track_index];
-    assert_eq!(audio.items.len(), 3);
-    assert_eq!(audio.items[0].duration(), 5.0);
-    assert_eq!(sync_clips_id(&audio.items[0]), long_group);
-    assert_eq!(audio.items[0].get_id().as_deref(), Some("long-audio"));
-    assert_eq!(audio.items[1].duration(), 3.0);
-    assert_eq!(sync_clips_id(&audio.items[1]), moving_group);
-    assert_eq!(audio.items[1].get_id().as_deref(), Some("moving-audio"));
-    assert_eq!(audio.items[2].duration(), 2.0);
-    assert_eq!(sync_clips_id(&audio.items[2]), long_group);
-}
-
-#[test]
-fn move_synced_clip_with_reused_link_group_id_splits_long_column_on_video() {
-    const SHORT: f64 = 3.84;
-    const GAP_MID: f64 = 5.0;
-    const LONG: f64 = 54.08;
-    const LEAD: f64 = 5.0;
-    const SYNC_ID: i64 = 1;
-
-    let mut stack = Stack::default();
-    let mut a15 = Track::new(TrackKind::Audio, Some("A15".to_string()));
-    a15.items.push(Item::Gap(Gap::make_gap(LEAD)));
-    a15.items.push(synced_clip_item(SHORT, "short-audio", SYNC_ID));
-    a15.items.push(Item::Gap(Gap::make_gap(GAP_MID)));
-    a15.items.push(synced_clip_item(LONG, "long-audio", SYNC_ID));
-
-    let mut v1 = Track::new(TrackKind::Video, Some("V1".to_string()));
-    v1.items.push(Item::Gap(Gap::make_gap(LEAD)));
-    v1.items.push(synced_clip_item(SHORT, "short-video", SYNC_ID));
-    v1.items.push(Item::Clip(clip(GAP_MID, Some("screenshot"))));
-    v1.items.push(synced_clip_item(LONG, "long-video", SYNC_ID));
-
-    stack.children.push(a15);
-    stack.children.push(v1);
-
-    assert!(stack.move_item_at_time(
-        "short-audio",
-        "A15",
-        20.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Override,
-    ));
-
-    let (_, video_track) = stack.get_track_by_id("V1").unwrap();
-    let (_, short_video_index, _) = stack.get_item("short-video").unwrap();
-    assert!(
-        (video_track.start_time_of_item(short_video_index) - 20.0).abs() < 1e-6,
-        "short video partner should land at the move destination"
-    );
-    let (_, long_video_index, _) = stack.get_item("long-video").unwrap();
-    assert!((video_track.start_time_of_item(long_video_index) - 13.84).abs() < 1e-2);
-    assert!((video_track.items[long_video_index].duration() - 6.16).abs() < 1e-2);
-    let long_video_tail = video_track
-        .items
-        .get(long_video_index + 2)
-        .expect("long synced video tail after moved short clip");
-    let expected_tail = LONG - (20.0 - 13.84) - SHORT;
-    assert!(
-        (long_video_tail.duration() - expected_tail).abs() < 1e-2,
-        "tail duration {} expected {}",
-        long_video_tail.duration(),
-        expected_tail
-    );
-
-    let (_, audio_track) = stack.get_track_by_id("A15").unwrap();
-    let (_, short_audio_index, _) = stack.get_item("short-audio").unwrap();
-    assert!((audio_track.start_time_of_item(short_audio_index) - 20.0).abs() < 1e-6);
-    let (_, long_audio_index, _) = stack.get_item("long-audio").unwrap();
-    assert!((audio_track.items[long_audio_index].duration() - 6.16).abs() < 1e-2);
 }
 
 #[test]
@@ -6132,6 +5854,179 @@ fn move_unsynced_image_into_synced_clip_override_assigns_new_link_group_to_right
 }
 
 #[test]
+fn move_unsynced_photo_onto_main_video_does_not_split_unrelated_a9_a11_sync_cluster() {
+    // Minimal repro of New Project (4)->(5): unsynced photo 987c30ab0258 moved onto
+    // Main Video at ~7s must split HH10 (group 3) on the destination cluster only,
+    // not the unrelated Video 2 / A9-A11 cluster (group 5).
+    const GROUP3: i64 = 3;
+    const GROUP5: i64 = 5;
+    const LEAD: f64 = 5.0;
+    const HH10_DUR: f64 = 5.84;
+    const PHOTO_DUR: f64 = 5.0;
+    const FAR_DUR: f64 = 12.08;
+    const GAP_BEFORE_PHOTO: f64 = 3.4;
+
+    let mut stack = Stack::default();
+
+    let mut a1 = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    a1.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a1.items.push(synced_clip_item(HH10_DUR, "hh10-a1", GROUP3));
+    stack.children.push(a1);
+
+    let mut main_video = Track::new(TrackKind::Video, Some("Main Video".to_string()));
+    main_video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    main_video.items.push(synced_clip_item(HH10_DUR, "hh10-v", GROUP3));
+    main_video
+        .items
+        .push(Item::Gap(Gap::make_gap(GAP_BEFORE_PHOTO)));
+    main_video
+        .items
+        .push(Item::Clip(clip(PHOTO_DUR, Some("987c30ab0258"))));
+    stack.children.push(main_video);
+
+    for id in ["A9", "A10", "A11"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio
+            .items
+            .push(synced_clip_item(FAR_DUR, &format!("{id}-g5"), GROUP5));
+        stack.children.push(audio);
+    }
+    let mut video2 = Track::new(TrackKind::Video, Some("Video 2".to_string()));
+    video2.items.push(synced_clip_item(FAR_DUR, "v2-g5", GROUP5));
+    stack.children.push(video2);
+
+    assert!(stack.move_item_at_time(
+        "987c30ab0258",
+        "Main Video",
+        7.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (_, _, hh10_v) = stack.get_item("hh10-v").unwrap();
+    assert!(hh10_v.duration() < HH10_DUR);
+
+    let (photo_track, photo_index, _) = stack.get_item("987c30ab0258").unwrap();
+    let photo_start = stack.children[photo_track].start_time_of_item(photo_index);
+    assert!((photo_start - 7.0).abs() < 0.05);
+
+    for track_id in ["A9", "A10", "A11", "Video 2"] {
+        let (_, track) = stack.get_track_by_id(track_id).unwrap();
+        assert_eq!(
+            track.items.len(),
+            1,
+            "{track_id} must stay unsplit when the insert target is Main Video"
+        );
+        assert_eq!(sync_clips_id(&track.items[0]), Some(GROUP5));
+        assert!((track.items[0].duration() - FAR_DUR).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn move_synced_audio_to_lower_cluster_reuses_cluster_video_not_upper_neighbor() {
+    const GROUP8: i64 = 8;
+    const GROUP5: i64 = 5;
+    const GROUP7: i64 = 7;
+    const LEAD: f64 = 9.18;
+    const SYNC_DUR: f64 = 1.4;
+    const FAR_DUR: f64 = 6.68;
+
+    let mut stack = Stack::default();
+
+    let mut a1 = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    a1.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a1.items.push(synced_clip_item(SYNC_DUR, "hh10-a1", GROUP8));
+    stack.children.push(a1);
+
+    let mut a2 = Track::new(TrackKind::Audio, Some("A2".to_string()));
+    a2.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a2.items.push(synced_clip_item(SYNC_DUR, "hh10-a2", GROUP8));
+    stack.children.push(a2);
+
+    let mut main_video = Track::new(TrackKind::Video, Some("Main Video".to_string()));
+    main_video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    main_video
+        .items
+        .push(synced_clip_item(SYNC_DUR, "hh10-v", GROUP8));
+    stack.children.push(main_video);
+
+    for id in ["A9", "A10", "A11"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio.items.push(synced_clip_item(FAR_DUR, &format!("{id}-g5"), GROUP5));
+        audio
+            .items
+            .push(synced_clip_item(FAR_DUR - LEAD, &format!("{id}-g7"), GROUP7));
+        stack.children.push(audio);
+    }
+    let mut video2 = Track::new(TrackKind::Video, Some("Video 2".to_string()));
+    video2.items.push(synced_clip_item(FAR_DUR, "v2-g5", GROUP5));
+    video2
+        .items
+        .push(synced_clip_item(FAR_DUR - LEAD, "v2-g7", GROUP7));
+    stack.children.push(video2);
+
+    assert!(stack.move_item_at_time(
+        "hh10-a1",
+        "A9",
+        LEAD,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track, _, _) = stack.get_item("hh10-v").unwrap();
+    assert_eq!(
+        stack.children[video_track].get_id().as_deref(),
+        Some("Video 2"),
+        "synced video must land on the destination cluster video track, not Main Video above A9"
+    );
+    assert!(
+        stack.get_item("hh10-v").is_some(),
+        "video partner must survive the audio-primary move"
+    );
+}
+
+#[test]
+fn move_synced_audio_cut_through_destination_cluster_reuses_video2_not_v1() {
+    let json =
+        std::fs::read_to_string(fixture_path("new_project_move_cut.otio")).expect("fixture");
+    let mut tl: Timeline = serde_json::from_str(&json).expect("parse");
+    tl.sanitize();
+
+    // Cut into link group 7 on A9 (~26 frames into the 63-frame tail clip).
+    const DEST_TIME: f64 = 7.716;
+    assert!(tl.tracks.move_item_at_time(
+        "68dd84161a27",
+        "A9",
+        DEST_TIME,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track, _, _) = tl.tracks.get_item("0399904de764").unwrap();
+    assert_eq!(
+        tl.tracks.children[video_track].get_id().as_deref(),
+        Some("4c7edef5-ed41-4699-8b5f-b4d91d7918c4"),
+        "synced video must stay on the destination cluster video track when the insert cuts through existing clips"
+    );
+    assert!(
+        tl.tracks.get_track_by_id("V1").is_none(),
+        "must not spawn V1 when Video 2 can host the override split insert"
+    );
+
+    let a9 = track_index_by_id(&tl.tracks, "A9");
+    let a9_track = &tl.tracks.children[a9];
+    let cut_index = a9_track.get_item_at_time(DEST_TIME).unwrap();
+    let cut_start = a9_track.start_time_of_item(cut_index);
+    assert!(
+        (cut_start - DEST_TIME).abs() < 0.05,
+        "moved audio should land at the cut point, got {cut_start}"
+    );
+}
+
+#[test]
 fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
     let times = [0.0_f64, 2.0, 3.0, 4.0, 6.0, 8.0];
     let overlaps = [OverlapPolicy::Override, OverlapPolicy::Push];
@@ -6152,6 +6047,7 @@ fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
                         audio_clip(2.0, "file:///na1.wav", None),
                         audio_clip(2.0, "file:///na2.wav", None),
                     ]),
+                None,
                 );
                 let Some(InsertItemAtTimeResult::Synced(r)) = result else {
                     panic!("{label}: expected a synced insert result");
@@ -6187,6 +6083,7 @@ fn add_unsynced_clip_at_index_into_two_synced_clips() {
                 Item::Clip(clip(1.0, Some("unsynced"))),
                 op,
                 None,
+            None,
             );
             assert!(result.is_some(), "{label}: insert returned None");
             assert_eq!(
@@ -6379,6 +6276,7 @@ fn push_insert_at_start_of_synced_group_pushes_all_synced_audio_tracks() {
         OverlapPolicy::Push,
         InsertPolicy::SplitAndInsert,
         None,
+    None,
     );
     assert!(result.is_some(), "insert returned None");
     assert_eq!(sync_clips_id(stack.get_item("inserted").unwrap().2), None);
