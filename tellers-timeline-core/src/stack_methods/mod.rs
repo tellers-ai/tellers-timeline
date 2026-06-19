@@ -2743,6 +2743,118 @@ impl Stack {
         true
     }
 
+    fn collect_placeholder_gap_ids(&self, targets: &[(usize, usize)]) -> Vec<String> {
+        let mut gap_ids = Vec::new();
+        for (track_index, item_index) in targets {
+            let Some(track) = self.children.get(*track_index) else {
+                continue;
+            };
+            let Some(item) = track.items.get(*item_index) else {
+                continue;
+            };
+            if matches!(item, Item::Gap(_)) {
+                if let Some(id) = item.get_id() {
+                    gap_ids.push(id);
+                }
+            }
+        }
+        gap_ids
+    }
+
+    fn remove_gaps_by_id(&mut self, gap_ids: &[String]) {
+        let mut gap_ids: Vec<_> = gap_ids.to_vec();
+        gap_ids.sort();
+        gap_ids.dedup();
+        for gap_id in gap_ids {
+            let Some((track_index, item_index, item)) = self.get_item(&gap_id) else {
+                continue;
+            };
+            if !matches!(item, Item::Gap(_)) {
+                continue;
+            }
+            let Some(track) = self.children.get_mut(track_index) else {
+                continue;
+            };
+            if item_index < track.items.len() {
+                track.items.remove(item_index);
+                track.merge_adjacent_gaps();
+            }
+        }
+    }
+
+    fn move_synced_items_at_time_via_insert(
+        &mut self,
+        items_to_move: Vec<SyncedMoveItem>,
+        dest_track_index: usize,
+        dest_time: Seconds,
+        replace_with_gap: bool,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let backup = self.clone();
+        if dest_track_index >= self.children.len() {
+            return false;
+        }
+
+        let Some(selected) = items_to_move.iter().find(|item| item.is_selected) else {
+            return false;
+        };
+        let Some(item_id) = selected.item.get_id() else {
+            return false;
+        };
+        let primary_item = selected.item.clone();
+
+        let mut synced_audio = Vec::new();
+        let mut synced_video = None;
+        for item in &items_to_move {
+            if item.is_selected {
+                continue;
+            }
+            match item.track_kind {
+                TrackKind::Audio => synced_audio.push(item.item.clone()),
+                TrackKind::Video => {
+                    if synced_video.is_some() {
+                        return false;
+                    }
+                    synced_video = Some(item.item.clone());
+                }
+                TrackKind::Other => return false,
+            }
+        }
+
+        let Some(targets) = self.delete_item_targets(&item_id) else {
+            return false;
+        };
+        let removed = self.delete_clips_at_indices(targets.clone(), true);
+        if removed.is_empty() {
+            return false;
+        }
+        let placeholder_gap_ids = self.collect_placeholder_gap_ids(&targets);
+
+        let synced_audio_clips = (!synced_audio.is_empty()).then_some(synced_audio);
+        if self
+            .insert_item_at_time(
+                dest_track_index,
+                dest_time,
+                primary_item,
+                overlap_policy,
+                insert_policy,
+                synced_audio_clips,
+                synced_video,
+            )
+            .is_some()
+        {
+            if !replace_with_gap {
+                self.remove_gaps_by_id(&placeholder_gap_ids);
+            }
+            self.sanitize();
+            true
+        } else {
+            *self = backup;
+            false
+        }
+    }
+
     fn move_synced_items(
         &mut self,
         items_to_move: Vec<SyncedMoveItem>,

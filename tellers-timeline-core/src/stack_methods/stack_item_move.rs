@@ -4,8 +4,9 @@ impl Stack {
     /// Move an item identified by `item_id` to `dest_time` on the track with `dest_track_id`.
     ///
     /// Chooses the appropriate strategy automatically:
-    /// - **Synced clips** (same link group, same start, same duration): moves the whole
-    ///   sync set together via [`Stack::move_synced_items`], preserving sync track layout.
+    /// - **Synced clips** (same link group, same start, same duration): copies the sync
+    ///   set, deletes the source column with gap placeholders, then re-inserts at the
+    ///   destination via the synced insert path.
     /// - **Linked / grouped clips** (Resolve link group or Tellers group with offsets):
     ///   moves the primary to the destination and re-inserts partners on their tracks
     ///   with preserved relative offsets, using insert so cluster column padding applies.
@@ -26,15 +27,13 @@ impl Stack {
                 Some((index, _)) => index,
                 None => return false,
             };
-            return self.move_synced_items(
+            return self.move_synced_items_at_time_via_insert(
                 items_to_move,
                 dest_track_index,
+                dest_time,
                 replace_with_gap,
+                insert_policy,
                 overlap_policy,
-                super::SyncedMovePlacement::Time {
-                    dest_time,
-                    insert_policy,
-                },
             );
         }
 
