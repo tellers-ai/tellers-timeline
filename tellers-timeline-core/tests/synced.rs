@@ -1606,6 +1606,27 @@ fn sync_track_info_includes_empty_tracks_in_principal_cluster() {
 }
 
 #[test]
+fn sync_track_info_splits_unrelated_empty_tracks_into_separate_clusters() {
+    let mut stack = Stack::default();
+
+    for id in ["empty-a", "empty-b", "empty-c"] {
+        let mut track = Track::new(TrackKind::Audio, Some(id.to_string()));
+        track.items.push(Item::Gap(Gap::make_gap(4.0)));
+        stack.children.push(track);
+    }
+
+    let groups = stack.sync_track_info();
+
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].track_indices, vec![0]);
+    assert_eq!(groups[0].primary_track_index, 0);
+    assert_eq!(groups[1].track_indices, vec![1]);
+    assert_eq!(groups[1].primary_track_index, 1);
+    assert_eq!(groups[2].track_indices, vec![2]);
+    assert_eq!(groups[2].primary_track_index, 2);
+}
+
+#[test]
 fn sync_track_info_clusters_tracks_within_one_frame() {
     let mut stack = Stack::default();
 
@@ -2570,6 +2591,84 @@ fn insert_into_synced_clip_propagates_across_empty_track_boundary() {
         .items
         .iter()
         .all(|item| matches!(item, Item::Gap(_))));
+}
+
+#[test]
+fn insert_on_separate_empty_audio_track_preserves_synced_cluster_and_clips() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    let synced = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(4.0, Some("clip-a-v")),
+        vec![audio_clip(4.0, "file:///clip-a-a.wav", None)],
+    )
+    .unwrap();
+    // Synced layout is [A (idx 0), V (idx 1)]. Add empty A2 just below the synced audio.
+    let audio_track_index = synced.audio_clips[0].1;
+    let audio_clip_id = synced.audio_clips[0].0.clone();
+    let video_track_index = stack.get_item("clip-a-v").unwrap().0;
+    let video_clip_duration_before = stack.get_item("clip-a-v").unwrap().2.duration();
+    let audio_clip_duration_before = stack.get_item(&audio_clip_id).unwrap().2.duration();
+    let sync_group_id = synced.sync_clips_id.unwrap();
+
+    let mut a2 = Track::new(TrackKind::Audio, Some("a2".to_string()));
+    a2.items.push(Item::Gap(Gap::make_gap(4.0)));
+    stack.children.insert(audio_track_index, a2);
+    let a2_track_index = audio_track_index;
+    let audio_track_index = audio_track_index + 1;
+    let video_track_index = video_track_index + 1;
+
+    let groups_before = stack.sync_track_info();
+    assert_eq!(groups_before.len(), 2);
+    assert_eq!(
+        groups_before
+            .iter()
+            .find(|group| group.track_indices.contains(&video_track_index))
+            .map(|group| group.track_indices.as_slice()),
+        Some([audio_track_index, video_track_index].as_slice())
+    );
+    assert!(
+        groups_before
+            .iter()
+            .any(|group| group.track_indices == vec![a2_track_index])
+    );
+
+    let result = stack.insert_item_at_time(
+        a2_track_index,
+        0.0,
+        Item::Clip(clip(2.0, Some("a2-clip"))),
+        OverlapPolicy::Override,
+        InsertPolicy::SplitAndInsert,
+        None,
+    );
+    assert!(matches!(result, Some(InsertItemAtTimeResult::ItemId(_))));
+
+    let groups_after = stack.sync_track_info();
+    assert_eq!(groups_after.len(), 2);
+    assert_eq!(
+        groups_after
+            .iter()
+            .find(|group| group.track_indices.contains(&video_track_index))
+            .map(|group| group.track_indices.as_slice()),
+        Some([audio_track_index, video_track_index].as_slice())
+    );
+    assert!(
+        groups_after
+            .iter()
+            .any(|group| group.track_indices == vec![a2_track_index])
+    );
+
+    let (_, _, video_clip_after) = stack.get_item("clip-a-v").unwrap();
+    let (_, _, audio_clip_after) = stack.get_item(&audio_clip_id).unwrap();
+    assert_eq!(video_clip_after.duration(), video_clip_duration_before);
+    assert_eq!(audio_clip_after.duration(), audio_clip_duration_before);
+    assert_eq!(sync_clips_id(video_clip_after), Some(sync_group_id));
+    assert_eq!(sync_clips_id(audio_clip_after), Some(sync_group_id));
+    assert_eq!(stack.get_item("a2-clip").unwrap().0, a2_track_index);
 }
 
 #[test]
