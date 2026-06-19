@@ -5946,6 +5946,66 @@ fn move_synced_group_reuses_audio_track_below_without_creating_track() {
 }
 
 #[test]
+fn move_synced_set_splits_other_synced_clips_on_all_tracks() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video
+        .items
+        .push(Item::Clip(clip(10.0, Some("long-video"))));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    let mut long_audio = audio_clip(10.0, "file:///long-audio.wav", None);
+    long_audio.set_id(Some("long-audio".to_string()));
+    audio.items.push(long_audio);
+
+    stack.children.push(video);
+    stack.children.push(audio);
+    stack
+        .sync_item(&["long-video".to_string(), "long-audio".to_string()])
+        .unwrap();
+    let long_group = sync_clips_id(stack.get_item("long-video").unwrap().2);
+
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("moving-video"))));
+    let mut moving_audio = audio_clip(3.0, "file:///moving-audio.wav", None);
+    moving_audio.set_id(Some("moving-audio".to_string()));
+    stack.children[1].items.push(moving_audio);
+    stack
+        .sync_item(&["moving-video".to_string(), "moving-audio".to_string()])
+        .unwrap();
+    let moving_group = sync_clips_id(stack.get_item("moving-video").unwrap().2);
+
+    assert!(stack.move_item_at_time(
+        "moving-audio",
+        "a",
+        5.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let video = &stack.children[0];
+    assert_eq!(video.items.len(), 3);
+    assert_eq!(video.items[0].duration(), 5.0);
+    assert_eq!(sync_clips_id(&video.items[0]), long_group);
+    assert_eq!(video.items[1].duration(), 3.0);
+    assert_eq!(sync_clips_id(&video.items[1]), moving_group);
+    assert_eq!(video.items[2].duration(), 2.0);
+    assert_eq!(sync_clips_id(&video.items[2]), long_group);
+
+    let audio = &stack.children[1];
+    assert_eq!(audio.items.len(), 3);
+    assert_eq!(audio.items[0].duration(), 5.0);
+    assert_eq!(sync_clips_id(&audio.items[0]), long_group);
+    assert_eq!(audio.items[0].get_id().as_deref(), Some("long-audio"));
+    assert_eq!(audio.items[1].duration(), 3.0);
+    assert_eq!(sync_clips_id(&audio.items[1]), moving_group);
+    assert_eq!(audio.items[1].get_id().as_deref(), Some("moving-audio"));
+    assert_eq!(audio.items[2].duration(), 2.0);
+    assert_eq!(sync_clips_id(&audio.items[2]), long_group);
+}
+
+#[test]
 fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
     let times = [0.0_f64, 2.0, 3.0, 4.0, 6.0, 8.0];
     let overlaps = [OverlapPolicy::Override, OverlapPolicy::Push];

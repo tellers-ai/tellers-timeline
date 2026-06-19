@@ -12,6 +12,8 @@ mod stack_item_replace;
 mod stack_item_split;
 mod stack_track;
 
+use stack_item_split::SyncSplitIdPolicy;
+
 const EPS: Seconds = 1e-9;
 /// Fallback frame rate when OTIO stores timeline positions with `rate: 1.0` (seconds).
 const DEFAULT_SYNC_FRAME_RATE: f64 = 24.0;
@@ -240,6 +242,56 @@ impl Stack {
             InsertPolicy::InsertBefore,
         );
         true
+    }
+
+    fn prepare_sync_splits_for_insert(
+        &mut self,
+        track_index: usize,
+        insert_time: Seconds,
+        item_duration: Seconds,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) {
+        let Some(start) = insertion_start_or_end_for_policy(
+            &self.children[track_index],
+            insert_time,
+            insert_policy,
+        ) else {
+            return;
+        };
+        if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
+            let _ = self.split_sync_clips_at_time(start, SyncSplitIdPolicy::KeepShared);
+        }
+        if overlap_policy == OverlapPolicy::Override && item_duration > EPS {
+            let _ = self.split_sync_clips_at_time(start, SyncSplitIdPolicy::KeepShared);
+            let _ = self.split_sync_clips_at_time(
+                start + item_duration,
+                SyncSplitIdPolicy::KeepShared,
+            );
+        }
+    }
+
+    fn insert_at_time_with_sync_splits(
+        &mut self,
+        track_index: usize,
+        insert_time: Seconds,
+        item: Item,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) {
+        self.prepare_sync_splits_for_insert(
+            track_index,
+            insert_time,
+            item.duration().max(0.0),
+            insert_policy,
+            overlap_policy,
+        );
+        self.children[track_index].insert_at_time(
+            insert_time,
+            item,
+            overlap_policy,
+            insert_policy,
+        );
     }
 
     fn find_or_create_audio_track(
@@ -2443,7 +2495,8 @@ impl Stack {
                     *self = backup;
                     return false;
                 };
-                self.children[target_track_index].insert_at_time(
+                self.insert_at_time_with_sync_splits(
+                    target_track_index,
                     item_destination_time,
                     item,
                     overlap_policy,
@@ -2453,7 +2506,8 @@ impl Stack {
         }
 
         if linked_audio_items.is_empty() {
-            self.children[dest_track_index].insert_at_time(
+            self.insert_at_time_with_sync_splits(
+                dest_track_index,
                 dest_time,
                 item_to_move,
                 overlap_policy,
@@ -2712,6 +2766,32 @@ impl Stack {
             placements.push((track_index, gap, false));
         }
         placements.sort_by_key(|(track_index, _, _)| *track_index);
+
+        let insert_policy = match placement {
+            SyncedMovePlacement::Time { insert_policy, .. } => insert_policy,
+            SyncedMovePlacement::Index { .. } => InsertPolicy::SplitAndInsert,
+        };
+        let mut split_times = Vec::new();
+        if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
+            split_times.push(moved_start);
+        }
+        if overlap_policy == OverlapPolicy::Override && moved_duration > EPS {
+            if !split_times
+                .iter()
+                .any(|time| (*time - moved_start).abs() <= EPS)
+            {
+                split_times.push(moved_start);
+            }
+            split_times.push(moved_start + moved_duration);
+        }
+        split_times.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+        split_times.dedup_by(|left, right| (*left - *right).abs() <= EPS);
+        for split_time in split_times {
+            if !self.split_sync_clips_at_time(split_time, SyncSplitIdPolicy::KeepShared) {
+                *self = backup;
+                return false;
+            }
+        }
 
         for (track_index, item, is_selected) in placements {
             if is_selected {
