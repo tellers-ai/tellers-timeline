@@ -6006,6 +6006,67 @@ fn move_synced_set_splits_other_synced_clips_on_all_tracks() {
 }
 
 #[test]
+fn move_synced_clip_with_reused_link_group_id_splits_long_column_on_video() {
+    const SHORT: f64 = 3.84;
+    const GAP_MID: f64 = 5.0;
+    const LONG: f64 = 54.08;
+    const LEAD: f64 = 5.0;
+    const SYNC_ID: i64 = 1;
+
+    let mut stack = Stack::default();
+    let mut a15 = Track::new(TrackKind::Audio, Some("A15".to_string()));
+    a15.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a15.items.push(synced_clip_item(SHORT, "short-audio", SYNC_ID));
+    a15.items.push(Item::Gap(Gap::make_gap(GAP_MID)));
+    a15.items.push(synced_clip_item(LONG, "long-audio", SYNC_ID));
+
+    let mut v1 = Track::new(TrackKind::Video, Some("V1".to_string()));
+    v1.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    v1.items.push(synced_clip_item(SHORT, "short-video", SYNC_ID));
+    v1.items.push(Item::Clip(clip(GAP_MID, Some("screenshot"))));
+    v1.items.push(synced_clip_item(LONG, "long-video", SYNC_ID));
+
+    stack.children.push(a15);
+    stack.children.push(v1);
+
+    assert!(stack.move_item_at_time(
+        "short-audio",
+        "A15",
+        20.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (_, video_track) = stack.get_track_by_id("V1").unwrap();
+    let (_, short_video_index, _) = stack.get_item("short-video").unwrap();
+    assert!(
+        (video_track.start_time_of_item(short_video_index) - 20.0).abs() < 1e-6,
+        "short video partner should land at the move destination"
+    );
+    let (_, long_video_index, _) = stack.get_item("long-video").unwrap();
+    assert!((video_track.start_time_of_item(long_video_index) - 13.84).abs() < 1e-2);
+    assert!((video_track.items[long_video_index].duration() - 6.16).abs() < 1e-2);
+    let long_video_tail = video_track
+        .items
+        .get(long_video_index + 2)
+        .expect("long synced video tail after moved short clip");
+    let expected_tail = LONG - (20.0 - 13.84) - SHORT;
+    assert!(
+        (long_video_tail.duration() - expected_tail).abs() < 1e-2,
+        "tail duration {} expected {}",
+        long_video_tail.duration(),
+        expected_tail
+    );
+
+    let (_, audio_track) = stack.get_track_by_id("A15").unwrap();
+    let (_, short_audio_index, _) = stack.get_item("short-audio").unwrap();
+    assert!((audio_track.start_time_of_item(short_audio_index) - 20.0).abs() < 1e-6);
+    let (_, long_audio_index, _) = stack.get_item("long-audio").unwrap();
+    assert!((audio_track.items[long_audio_index].duration() - 6.16).abs() < 1e-2);
+}
+
+#[test]
 fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
     let times = [0.0_f64, 2.0, 3.0, 4.0, 6.0, 8.0];
     let overlaps = [OverlapPolicy::Override, OverlapPolicy::Push];
