@@ -52,14 +52,14 @@ def test_insert_item_at_time_returns_linked_ids_and_preserves_media_id():
     assert result is not None
     assert result["primary_clip_id"] == "primary"
     assert len(result["audio_clips"]) == 1
-    # Audio tracks are now created below the video, which stays on top.
-    assert result["audio_clips"][0][1] == 1
+    # Audio tracks are created below the video (lower index), which stays on top.
+    assert result["audio_clips"][0][1] == 0
     assert result["linked_video_clip_id"] is None
-    assert result["created_track_indices"] == [1]
+    assert result["created_track_indices"] == [0]
 
     tracks = stack.tracks()
-    assert tracks[1].get_id() == "A1"
-    assert tracks[1].get_name() == "A1"
+    assert tracks[0].get_id() == "A1"
+    assert tracks[0].get_name() == "A1"
     primary_item = stack.get_item("primary")[2]
     audio_item = next(item for item in tracks[result["audio_clips"][0][1]].items() if item.is_clip())
 
@@ -108,14 +108,15 @@ def test_insert_master_clip_with_multiple_linked_audio_clips():
     assert result["primary_clip_id"] == "master-video"
     assert len(result["audio_clips"]) == 3
     assert result["linked_video_clip_id"] is None
-    # Audio tracks are created below the video, which stays on top.
-    assert result["created_track_indices"] == [1, 2, 3]
+    # Audio tracks are created below the video (lower indices); the video ends
+    # up on top, and the first audio clip sits directly below it.
+    assert result["created_track_indices"] == [0, 1, 2]
 
     tracks = stack.tracks()
     assert [tracks[index].get_id() for _, index in result["audio_clips"]] == [
-        "A1",
-        "A2",
         "A3",
+        "A2",
+        "A1",
     ]
     primary_track, primary_index, primary_item = stack.get_item("master-video")
     assert tracks[primary_track].start_time_of_item(primary_index) == 2.0
@@ -247,9 +248,10 @@ def test_delete_item_keeps_empty_linked_tracks():
 
 
 def test_delete_track_removes_linked_assets_left_behind():
-    stack = Stack([Track(kind="video", id="v"), Track(kind="audio", id="a")])
+    # Audio track sits below the video (lower index) so the sync insert reuses it.
+    stack = Stack([Track(kind="audio", id="a"), Track(kind="video", id="v")])
     result = stack.insert_item_at_time(
-        0,
+        1,
         0.0,
         Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
         "override",
@@ -275,10 +277,10 @@ def test_delete_track_removes_linked_assets_left_behind():
 
 
 def test_timeline_delete_track_removes_linked_assets_left_behind():
-    timeline = Timeline(Stack([Track(kind="video", id="v"), Track(kind="audio", id="a")]))
+    timeline = Timeline(Stack([Track(kind="audio", id="a"), Track(kind="video", id="v")]))
     stack = timeline.get_stack()
     result = stack.insert_item_at_time(
-        0,
+        1,
         0.0,
         Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///video.mov")}, id="primary"),
         "override",
@@ -347,11 +349,11 @@ def test_sync_track_info_reports_primary_and_bound_tracks():
     assert groups[0]["start_index"] == 0
     assert groups[0]["end_index"] == 2
     assert groups[0]["track_indices"] == [0, 1]
-    # The video now stays on top with its audio created below it.
-    assert groups[0]["track_ids"] == ["linked-v", "A1"]
-    assert groups[0]["primary_track_index"] == 0
+    # The audio is created below the video (lower index); the video stays on top.
+    assert groups[0]["track_ids"] == ["A1", "linked-v"]
+    assert groups[0]["primary_track_index"] == 1
     assert groups[0]["primary_track_id"] == "linked-v"
-    assert groups[0]["bound_track_indices"] == [1]
+    assert groups[0]["bound_track_indices"] == [0]
     assert groups[0]["bound_track_ids"] == ["A1"]
 
     assert groups[1]["track_indices"] == [2]
@@ -760,8 +762,8 @@ def test_insert_item_at_index_returns_linked_ids():
     assert result is not None
     assert result["primary_clip_id"] == "primary"
     assert len(result["audio_clips"]) == 1
-    # Audio track is created below the video, which stays on top.
-    assert result["created_track_indices"] == [1]
+    # Audio track is created below the video (lower index), which stays on top.
+    assert result["created_track_indices"] == [0]
     assert maybe_link_group_id(stack.get_item("primary")[2]) == result["link_group_id"]
     assert maybe_link_group_id(stack.get_item("audio")[2]) == result["link_group_id"]
 

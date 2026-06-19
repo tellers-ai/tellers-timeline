@@ -1029,28 +1029,6 @@ impl Stack {
         true
     }
 
-    /// The cluster of tracks that `track_index` belongs to. A cluster is a video
-    /// track plus the audio tracks beneath it (a new cluster starts at every
-    /// video track); audio tracks that precede the first video form their own
-    /// leading cluster. Returns the contiguous, ascending track indices.
-    fn sync_track_cluster(&self, track_index: usize) -> Vec<usize> {
-        let n = self.children.len();
-        // Head: the nearest video track at or above `track_index`. If there is
-        // none above it, the cluster starts at the top (leading audio cluster).
-        let head = (0..=track_index)
-            .rev()
-            .find(|&i| self.children[i].kind == TrackKind::Video)
-            .unwrap_or(0);
-        // Tail: extend down to (but not including) the next video track.
-        let mut tail = head;
-        let mut i = head + 1;
-        while i < n && self.children[i].kind != TrackKind::Video {
-            tail = i;
-            i += 1;
-        }
-        (head..=tail).collect()
-    }
-
     fn insert_synced_item_at_time(
         &mut self,
         dest_track_index: usize,
@@ -1093,25 +1071,70 @@ impl Stack {
         let sync_clips_id = has_synced_clips.then(|| self.next_sync_clips_id());
         let mut created_track_indices = Vec::new();
 
-        // Take the sync cluster the destination track belongs to. The whole
-        // column is placed within this cluster: the primary on the destination
-        // track, the audio clips on the cluster's other audio tracks, and a gap
-        // spacer on every remaining cluster track so they all split identically
-        // and stay aligned.
-        let mut cluster = self.sync_track_cluster(dest_track_index);
+        // The cluster is the sync group the destination track belongs to — the
+        // same grouping `sync_track_info` reports (tracks already synced with
+        // the destination). Staying within this group means unrelated groups
+        // and empty tracks are never disturbed.
+        let mut dest_track_index = dest_track_index;
+        let mut cluster = self.boundary_group_indices(dest_track_index);
+
+        // Audio targets, in order: the group's existing audio tracks, then free
+        // audio tracks just below the video (lower indices render below it in
+        // the timeline), then newly created tracks below the video. We never
+        // cross a video boundary or overwrite an occupied track.
+        let needed = synced_inputs.audio.len();
+        let end_time = start + modified_duration;
         let mut audio_slots: Vec<usize> = cluster
             .iter()
             .copied()
             .filter(|&i| i != dest_track_index && self.children[i].kind == TrackKind::Audio)
             .collect();
-        // Not enough audio tracks in the cluster: create them at the cluster's
-        // end (after its current last track, so existing indices do not shift).
-        while audio_slots.len() < synced_inputs.audio.len() {
-            let insert_at = cluster.last().copied().unwrap_or(dest_track_index) + 1;
+
+        let mut scan = dest_track_index;
+        while audio_slots.len() < needed && scan > 0 {
+            scan -= 1;
+            match self.children[scan].kind {
+                TrackKind::Video => break,
+                TrackKind::Other => break,
+                TrackKind::Audio => {
+                    if range_has_blocking_clip(
+                        &self.children[scan],
+                        start,
+                        end_time,
+                        sync_clips_id,
+                    ) {
+                        break;
+                    }
+                    if !audio_slots.contains(&scan) {
+                        audio_slots.push(scan);
+                    }
+                }
+            }
+        }
+
+        // Create any remaining audio tracks directly below the video. Inserting
+        // below the destination shifts it (and the group) up by one each time.
+        while audio_slots.len() < needed {
+            let insert_at = dest_track_index;
             let track = self.new_numbered_track(TrackKind::Audio);
             self.children.insert(insert_at, track);
+            for index in created_track_indices.iter_mut() {
+                if *index >= insert_at {
+                    *index += 1;
+                }
+            }
             created_track_indices.push(insert_at);
-            cluster.push(insert_at);
+            dest_track_index += 1;
+            for index in cluster.iter_mut() {
+                if *index >= insert_at {
+                    *index += 1;
+                }
+            }
+            for index in audio_slots.iter_mut() {
+                if *index >= insert_at {
+                    *index += 1;
+                }
+            }
             audio_slots.push(insert_at);
         }
 
@@ -1132,7 +1155,11 @@ impl Stack {
         };
         let mut column = vec![(dest_track_index, primary_item)];
 
-        // Audio clips onto the first cluster audio tracks.
+        // Assign clips to the audio tracks nearest the video first (highest
+        // index just below it), so the first clip sits directly under the video.
+        audio_slots.sort_by(|a, b| b.cmp(a));
+
+        // Audio clips onto the nearest cluster audio tracks.
         let mut audio_clips = Vec::new();
         for (audio_item, &audio_track_index) in synced_inputs.audio.into_iter().zip(&audio_slots) {
             let Some((audio_item, audio_id)) = Self::prepare_synced_item(

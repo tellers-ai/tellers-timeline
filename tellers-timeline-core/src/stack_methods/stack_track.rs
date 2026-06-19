@@ -144,6 +144,16 @@ impl Stack {
             .find(|group| track_index >= group.start && track_index < group.end)
     }
 
+    /// The ascending track indices of the sync group `track_index` belongs to
+    /// (the same grouping reported by `sync_track_info`). Falls back to the
+    /// track itself if it is not part of any multi-track group.
+    pub(super) fn boundary_group_indices(&self, track_index: usize) -> Vec<usize> {
+        match self.track_boundary_group_at(track_index) {
+            Some(group) => (group.start..group.end).collect(),
+            None => vec![track_index],
+        }
+    }
+
     fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
         let mut groups = Vec::new();
         let mut start = 0;
