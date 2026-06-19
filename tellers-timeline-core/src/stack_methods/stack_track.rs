@@ -154,32 +154,44 @@ impl Stack {
         }
     }
 
+    /// Build sync boundary groups from the bottom track upward.
+    ///
+    /// The last track is the initial principal. Each track above it is compared to
+    /// the current principal: if every synced clip on the candidate matches a
+    /// synced clip on the principal, they share a cluster. Otherwise the candidate
+    /// becomes the principal of a new cluster. Repeat until index 0.
     fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
-        let mut groups = Vec::new();
-        let mut start = 0;
-        while start < self.children.len() {
-            let mut end = start + 1;
-            while end < self.children.len() && self.tracks_share_boundary_group(end - 1, end) {
-                end += 1;
-            }
-            groups.push(TrackBoundaryGroup { start, end });
-            start = end;
+        let len = self.children.len();
+        if len == 0 {
+            return Vec::new();
         }
-        groups
-    }
 
-    fn tracks_share_boundary_group(&self, left: usize, right: usize) -> bool {
-        let Some(left_track) = self.children.get(left) else {
-            return false;
-        };
-        let Some(right_track) = self.children.get(right) else {
-            return false;
-        };
-        if !track_has_synced_clip(left_track) || !track_has_synced_clip(right_track) {
-            return false;
+        let mut groups_bottom_up = Vec::new();
+        let mut principal = len - 1;
+        let mut cluster_start = principal;
+        let mut cluster_end = len;
+
+        for i in 1..len {
+            let candidate = len - 1 - i;
+            if self.track_matches_principal_cluster(principal, candidate) {
+                cluster_start = candidate;
+            } else {
+                groups_bottom_up.push(TrackBoundaryGroup {
+                    start: cluster_start,
+                    end: cluster_end,
+                });
+                principal = candidate;
+                cluster_start = candidate;
+                cluster_end = candidate + 1;
+            }
         }
-        self.track_matches_primary_sync_boundary(left, right)
-            || self.track_matches_primary_sync_boundary(right, left)
+        groups_bottom_up.push(TrackBoundaryGroup {
+            start: cluster_start,
+            end: cluster_end,
+        });
+
+        groups_bottom_up.reverse();
+        groups_bottom_up
     }
 
     fn is_primary_track_in_group(&self, track_index: usize, group: TrackBoundaryGroup) -> bool {
@@ -197,11 +209,4 @@ impl Stack {
         }
         group.start
     }
-}
-
-fn track_has_synced_clip(track: &Track) -> bool {
-    track.items.iter().any(|item| match item {
-        Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata).is_some(),
-        Item::Gap(_) => false,
-    })
 }
