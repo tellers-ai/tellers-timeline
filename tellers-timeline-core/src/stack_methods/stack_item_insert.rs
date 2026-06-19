@@ -17,7 +17,7 @@ impl Stack {
             return None;
         }
         if synced_audio_clips.as_ref().map_or(true, Vec::is_empty)
-            && !self.destination_boundary_has_synced_clips(dest_track_index)
+            && !self.destination_track_has_synced_clips(dest_track_index)
         {
             item.clamp_to_active_available_range();
             if item.duration().max(0.0) <= super::EPS {
@@ -62,7 +62,7 @@ impl Stack {
             return None;
         }
         if synced_audio_clips.as_ref().map_or(true, Vec::is_empty)
-            && !self.destination_boundary_has_synced_clips(dest_track_index)
+            && !self.destination_track_has_synced_clips(dest_track_index)
         {
             item.clamp_to_active_available_range();
             if item.duration().max(0.0) <= super::EPS {
@@ -84,17 +84,13 @@ impl Stack {
         )
     }
 
-    fn destination_boundary_has_synced_clips(&self, dest_track_index: usize) -> bool {
-        self.boundary_group_indices(dest_track_index)
-            .into_iter()
-            .any(|track_index| {
-                self.children[track_index]
-                    .items
-                    .iter()
-                    .any(|item| match item {
-                        Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata).is_some(),
-                        Item::Gap(_) => false,
-                    })
+    fn destination_track_has_synced_clips(&self, dest_track_index: usize) -> bool {
+        self.children[dest_track_index]
+            .items
+            .iter()
+            .any(|item| match item {
+                Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata).is_some(),
+                Item::Gap(_) => false,
             })
     }
 }
