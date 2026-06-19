@@ -1606,6 +1606,27 @@ fn sync_track_info_includes_empty_tracks_in_principal_cluster() {
 }
 
 #[test]
+fn sync_track_info_splits_unrelated_empty_tracks_into_separate_clusters() {
+    let mut stack = Stack::default();
+
+    for id in ["empty-a", "empty-b", "empty-c"] {
+        let mut track = Track::new(TrackKind::Audio, Some(id.to_string()));
+        track.items.push(Item::Gap(Gap::make_gap(4.0)));
+        stack.children.push(track);
+    }
+
+    let groups = stack.sync_track_info();
+
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].track_indices, vec![0]);
+    assert_eq!(groups[0].primary_track_index, 0);
+    assert_eq!(groups[1].track_indices, vec![1]);
+    assert_eq!(groups[1].primary_track_index, 1);
+    assert_eq!(groups[2].track_indices, vec![2]);
+    assert_eq!(groups[2].primary_track_index, 2);
+}
+
+#[test]
 fn sync_track_info_clusters_tracks_within_one_frame() {
     let mut stack = Stack::default();
 
