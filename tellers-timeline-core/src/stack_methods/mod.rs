@@ -261,6 +261,7 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
         id_policy: SyncSplitIdPolicy,
+        scope_track_indices: Option<&[usize]>,
     ) -> bool {
         let mut split_times = Vec::new();
         if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
@@ -280,7 +281,7 @@ impl Stack {
         split_times.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
         split_times.dedup_by(|left, right| (*left - *right).abs() <= EPS);
         for split_time in split_times {
-            if !self.split_sync_clips_at_time(split_time, id_policy) {
+            if !self.split_sync_clips_at_time(split_time, id_policy, scope_track_indices) {
                 return false;
             }
         }
@@ -302,6 +303,7 @@ impl Stack {
         ) else {
             return;
         };
+        let cluster = self.boundary_group_indices(track_index);
         let id_policy = Self::sync_split_id_policy_for_inserted_item(item);
         let _ = self.apply_sync_splits_for_column_insert(
             start,
@@ -309,6 +311,7 @@ impl Stack {
             insert_policy,
             overlap_policy,
             id_policy,
+            Some(&cluster),
         );
     }
 
@@ -1780,6 +1783,7 @@ impl Stack {
                 insert_policy,
                 overlap_policy,
                 SyncSplitIdPolicy::AssignNewIdToRight,
+                Some(&cluster),
             )
         {
             *self = backup;
@@ -3094,12 +3098,14 @@ impl Stack {
             SyncedMovePlacement::Time { insert_policy, .. } => insert_policy,
             SyncedMovePlacement::Index { .. } => InsertPolicy::SplitAndInsert,
         };
+        let cluster = self.boundary_group_indices(dest_track_index);
         if !self.apply_sync_splits_for_column_insert(
             moved_start,
             moved_duration,
             insert_policy,
             overlap_policy,
             SyncSplitIdPolicy::KeepShared,
+            Some(&cluster),
         ) {
             *self = backup;
             return false;

@@ -881,7 +881,7 @@ impl PyStack {
             .map(|(ti, it)| (ti, Py::new(py, PyItem { inner: it }).unwrap()))
             .collect()
     }
-    #[pyo3(signature = (dest_track_index, dest_time, item, overlap_policy, insert_policy, linked_audio_clips=None))]
+    #[pyo3(signature = (dest_track_index, dest_time, item, overlap_policy, insert_policy, linked_audio_clips=None, linked_video_clip=None))]
     fn insert_item_at_time(
         &mut self,
         py: Python<'_>,
@@ -891,11 +891,19 @@ impl PyStack {
         overlap_policy: &str,
         insert_policy: &str,
         linked_audio_clips: Option<Vec<PyObject>>,
+        linked_video_clip: Option<PyObject>,
     ) -> PyResult<Option<PyObject>> {
         if let Some(inner_item) = extract_item(item) {
-            if linked_audio_clips.is_some() && !matches!(inner_item, Item::Clip(_)) {
+            let linked_video_clip = extract_optional_linked_clip(
+                py,
+                linked_video_clip,
+                "linked_video_clip",
+            )?;
+            if (linked_audio_clips.is_some() || linked_video_clip.is_some())
+                && !matches!(inner_item, Item::Clip(_))
+            {
                 return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                    "linked_audio_clips can only be used when item is a Clip",
+                    "linked_audio_clips and linked_video_clip can only be used when item is a Clip",
                 ));
             }
             let op = overlap_policy_from_str(overlap_policy);
@@ -921,6 +929,7 @@ impl PyStack {
                 op,
                 ip,
                 linked_audio_clips,
+                linked_video_clip,
             ) {
                 Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
                 Some(InsertItemAtTimeResult::Synced(result)) => {
@@ -940,7 +949,7 @@ impl PyStack {
             ))
         }
     }
-    #[pyo3(signature = (dest_track_id, dest_index, item, overlap_policy, linked_audio_clips=None))]
+    #[pyo3(signature = (dest_track_id, dest_index, item, overlap_policy, linked_audio_clips=None, linked_video_clip=None))]
     fn insert_item_at_index(
         &mut self,
         py: Python<'_>,
@@ -949,11 +958,19 @@ impl PyStack {
         item: &Bound<PyAny>,
         overlap_policy: &str,
         linked_audio_clips: Option<Vec<PyObject>>,
+        linked_video_clip: Option<PyObject>,
     ) -> PyResult<Option<PyObject>> {
         if let Some(inner_item) = extract_item(item) {
-            if linked_audio_clips.is_some() && !matches!(inner_item, Item::Clip(_)) {
+            let linked_video_clip = extract_optional_linked_clip(
+                py,
+                linked_video_clip,
+                "linked_video_clip",
+            )?;
+            if (linked_audio_clips.is_some() || linked_video_clip.is_some())
+                && !matches!(inner_item, Item::Clip(_))
+            {
                 return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                    "linked_audio_clips can only be used when item is a Clip",
+                    "linked_audio_clips and linked_video_clip can only be used when item is a Clip",
                 ));
             }
             let op = overlap_policy_from_str(overlap_policy);
@@ -979,6 +996,7 @@ impl PyStack {
                     inner_item,
                     op,
                     linked_audio_clips,
+                    linked_video_clip,
                 )
             {
                 Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
@@ -1103,6 +1121,27 @@ fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
         return Some(Item::Gap(py_gap.inner.clone()));
     }
     None
+}
+
+fn extract_optional_linked_clip(
+    py: Python<'_>,
+    item: Option<PyObject>,
+    param_name: &str,
+) -> PyResult<Option<Item>> {
+    item.map(|item| {
+        let item = extract_item(item.bind(py)).ok_or_else(|| {
+            PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                "{param_name} expects Item or Clip values"
+            ))
+        })?;
+        if matches!(item, Item::Gap(_)) {
+            return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                "{param_name} cannot be a Gap"
+            )));
+        }
+        Ok(item)
+    })
+    .transpose()
 }
 
 fn sync_track_info_to_python(

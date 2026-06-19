@@ -5848,6 +5848,76 @@ fn move_unsynced_image_into_synced_clip_override_assigns_new_link_group_to_right
 }
 
 #[test]
+fn move_unsynced_photo_onto_main_video_does_not_split_unrelated_a9_a11_sync_cluster() {
+    // Minimal repro of New Project (4)->(5): unsynced photo 987c30ab0258 moved onto
+    // Main Video at ~7s must split HH10 (group 3) on the destination cluster only,
+    // not the unrelated Video 2 / A9-A11 cluster (group 5).
+    const GROUP3: i64 = 3;
+    const GROUP5: i64 = 5;
+    const LEAD: f64 = 5.0;
+    const HH10_DUR: f64 = 5.84;
+    const PHOTO_DUR: f64 = 5.0;
+    const FAR_DUR: f64 = 12.08;
+    const GAP_BEFORE_PHOTO: f64 = 3.4;
+
+    let mut stack = Stack::default();
+
+    let mut a1 = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    a1.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a1.items.push(synced_clip_item(HH10_DUR, "hh10-a1", GROUP3));
+    stack.children.push(a1);
+
+    let mut main_video = Track::new(TrackKind::Video, Some("Main Video".to_string()));
+    main_video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    main_video.items.push(synced_clip_item(HH10_DUR, "hh10-v", GROUP3));
+    main_video
+        .items
+        .push(Item::Gap(Gap::make_gap(GAP_BEFORE_PHOTO)));
+    main_video
+        .items
+        .push(Item::Clip(clip(PHOTO_DUR, Some("987c30ab0258"))));
+    stack.children.push(main_video);
+
+    for id in ["A9", "A10", "A11"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio
+            .items
+            .push(synced_clip_item(FAR_DUR, &format!("{id}-g5"), GROUP5));
+        stack.children.push(audio);
+    }
+    let mut video2 = Track::new(TrackKind::Video, Some("Video 2".to_string()));
+    video2.items.push(synced_clip_item(FAR_DUR, "v2-g5", GROUP5));
+    stack.children.push(video2);
+
+    assert!(stack.move_item_at_time(
+        "987c30ab0258",
+        "Main Video",
+        7.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (_, _, hh10_v) = stack.get_item("hh10-v").unwrap();
+    assert!(hh10_v.duration() < HH10_DUR);
+
+    let (photo_track, photo_index, _) = stack.get_item("987c30ab0258").unwrap();
+    let photo_start = stack.children[photo_track].start_time_of_item(photo_index);
+    assert!((photo_start - 7.0).abs() < 0.05);
+
+    for track_id in ["A9", "A10", "A11", "Video 2"] {
+        let (_, track) = stack.get_track_by_id(track_id).unwrap();
+        assert_eq!(
+            track.items.len(),
+            1,
+            "{track_id} must stay unsplit when the insert target is Main Video"
+        );
+        assert_eq!(sync_clips_id(&track.items[0]), Some(GROUP5));
+        assert!((track.items[0].duration() - FAR_DUR).abs() < 1e-6);
+    }
+}
+
+#[test]
 fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
     let times = [0.0_f64, 2.0, 3.0, 4.0, 6.0, 8.0];
     let overlaps = [OverlapPolicy::Override, OverlapPolicy::Push];

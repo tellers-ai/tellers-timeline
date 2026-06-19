@@ -52,13 +52,25 @@ impl Stack {
     }
 
     /// Split every synced clip in a link group that strictly contains `split_time`.
+    ///
+    /// When `scope_track_indices` is set, only consider synced clips on those
+    /// tracks when deciding which link groups to split. The split still
+    /// propagates to every track in each selected group.
     pub(super) fn split_sync_clips_at_time(
         &mut self,
         split_time: Seconds,
         id_policy: SyncSplitIdPolicy,
+        scope_track_indices: Option<&[usize]>,
     ) -> bool {
         let mut sync_ids = std::collections::HashSet::new();
-        for track in &self.children {
+        let track_indices: Vec<usize> = match scope_track_indices {
+            Some(indices) => indices.to_vec(),
+            None => (0..self.children.len()).collect(),
+        };
+        for track_index in track_indices {
+            let Some(track) = self.children.get(track_index) else {
+                continue;
+            };
             let Some(item_index) = track.get_item_at_time(split_time) else {
                 continue;
             };
