@@ -2995,6 +2995,8 @@ fn move_item_at_time_moves_synced_clips() {
 
     let (video_track, video_index, video_item) = stack.get_item("primary").unwrap();
     let (audio_track, audio_index, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(stack.children[video_track].get_id().as_deref(), Some("v"));
+    assert_eq!(stack.children[audio_track].get_id().as_deref(), Some("a"));
     assert_eq!(
         stack.children[video_track].start_time_of_item(video_index),
         stack.children[audio_track].start_time_of_item(audio_index)
@@ -3645,6 +3647,53 @@ fn move_unsynced_item_only_moves_selected_item() {
 
     assert_eq!(stack.get_item("primary").unwrap().0, 1);
     assert!(stack.get_item("unlinked-audio").is_some());
+}
+
+#[test]
+fn move_unsynced_audio_does_not_override_adjacent_synced_video_pair() {
+    let mut music = Track::new(TrackKind::Audio, Some("music-track".to_string()));
+    music.items.push(Item::Gap(Gap::make_gap(4.0)));
+    music
+        .items
+        .push(Item::Clip(clip(8.0, Some("music"))));
+
+    let mut synced_audio = Track::new(TrackKind::Audio, Some("synced-a".to_string()));
+    synced_audio.items.push(Item::Gap(Gap::make_gap(13.0)));
+    synced_audio
+        .items
+        .push(audio_clip(2.0, "file:///synced-a.wav", None));
+    synced_audio.items[1].set_id(Some("linked-audio".to_string()));
+
+    let mut synced_video = Track::new(TrackKind::Video, Some("synced-v".to_string()));
+    synced_video.items.push(Item::Gap(Gap::make_gap(13.0)));
+    synced_video
+        .items
+        .push(Item::Clip(clip(2.0, Some("linked-video"))));
+
+    let mut stack = Stack::default();
+    stack.children.push(music);
+    stack.children.push(synced_audio);
+    stack.children.push(synced_video);
+    stack
+        .sync_item(&["linked-video".to_string(), "linked-audio".to_string()])
+        .unwrap();
+
+    assert!(stack.move_item_at_time(
+        "music",
+        "music-track",
+        13.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track, video_index, video_item) = stack.get_item("linked-video").unwrap();
+    let (audio_track, audio_index, audio_item) = stack.get_item("linked-audio").unwrap();
+    assert_eq!(stack.children[video_track].start_time_of_item(video_index), 13.0);
+    assert_eq!(stack.children[audio_track].start_time_of_item(audio_index), 13.0);
+    assert_eq!(video_item.duration(), 2.0);
+    assert_eq!(audio_item.duration(), 2.0);
+    assert!(stack.get_item("music").is_some());
 }
 
 #[test]

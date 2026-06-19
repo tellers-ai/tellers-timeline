@@ -8,13 +8,30 @@ impl Stack {
         &mut self,
         dest_track_index: usize,
         dest_time: Seconds,
-        item: Item,
+        mut item: Item,
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
         synced_audio_clips: Option<Vec<Item>>,
     ) -> Option<InsertItemAtTimeResult> {
         if dest_track_index >= self.children.len() {
             return None;
+        }
+        if synced_audio_clips.as_ref().map_or(true, Vec::is_empty)
+            && !self.destination_track_has_synced_clips(dest_track_index)
+        {
+            item.clamp_to_active_available_range();
+            if item.duration().max(0.0) <= super::EPS {
+                return None;
+            }
+            let mut used_ids = self.collect_timeline_ids();
+            let item_id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
+            self.children[dest_track_index].insert_at_time(
+                dest_time,
+                item,
+                overlap_policy,
+                insert_policy,
+            );
+            return Some(InsertItemAtTimeResult::ItemId(item_id));
         }
         self.insert_synced_item_at_time(
             dest_track_index,
@@ -33,7 +50,7 @@ impl Stack {
         &mut self,
         dest_track_id: &str,
         dest_index: usize,
-        item: Item,
+        mut item: Item,
         overlap_policy: OverlapPolicy,
         synced_audio_clips: Option<Vec<Item>>,
     ) -> Option<InsertItemAtTimeResult> {
@@ -44,6 +61,18 @@ impl Stack {
         if dest_track_index >= self.children.len() {
             return None;
         }
+        if synced_audio_clips.as_ref().map_or(true, Vec::is_empty)
+            && !self.destination_track_has_synced_clips(dest_track_index)
+        {
+            item.clamp_to_active_available_range();
+            if item.duration().max(0.0) <= super::EPS {
+                return None;
+            }
+            let mut used_ids = self.collect_timeline_ids();
+            let item_id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
+            self.children[dest_track_index].insert_at_index(dest_index, item, overlap_policy);
+            return Some(InsertItemAtTimeResult::ItemId(item_id));
+        }
         self.insert_synced_item_at_time(
             dest_track_index,
             0.0,
@@ -53,5 +82,15 @@ impl Stack {
             InsertPolicy::InsertBefore,
             synced_audio_clips,
         )
+    }
+
+    fn destination_track_has_synced_clips(&self, dest_track_index: usize) -> bool {
+        self.children[dest_track_index]
+            .items
+            .iter()
+            .any(|item| match item {
+                Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata).is_some(),
+                Item::Gap(_) => false,
+            })
     }
 }

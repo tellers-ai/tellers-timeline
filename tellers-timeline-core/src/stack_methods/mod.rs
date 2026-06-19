@@ -2397,16 +2397,34 @@ impl Stack {
                     }
                 }
                 TrackKind::Video => {
+                    let moved_end = moved_start + moved_duration;
+                    let preferred_original_track_index = backup
+                        .children
+                        .get(move_item.track_index)
+                        .and_then(|track| track.get_id())
+                        .and_then(|track_id| self.get_track_by_id(&track_id).map(|(index, _)| index))
+                        .filter(|track_index| {
+                            self.children[*track_index].kind == TrackKind::Video
+                                && !used_video_track_indices.contains(track_index)
+                                && range_is_gap_backed(
+                                    &self.children[*track_index],
+                                    moved_start,
+                                    moved_end,
+                                )
+                        });
                     let track_count_before = self.children.len();
-                    let Some(mut track_index) = self.find_or_create_video_track_for_audio(
-                        dest_track_index,
-                        moved_start,
-                        moved_duration,
-                        &mut created_track_indices,
-                        Some(sync_clips_id),
-                        true,
-                        overlap_policy,
-                    ) else {
+                    let Some(mut track_index) = (match preferred_original_track_index {
+                        Some(track_index) => Some(track_index),
+                        None => self.find_or_create_video_track_for_audio(
+                            dest_track_index,
+                            moved_start,
+                            moved_duration,
+                            &mut created_track_indices,
+                            Some(sync_clips_id),
+                            true,
+                            overlap_policy,
+                        ),
+                    }) else {
                         *self = backup;
                         return false;
                     };
