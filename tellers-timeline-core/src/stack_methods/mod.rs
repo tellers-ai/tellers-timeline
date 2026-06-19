@@ -12,6 +12,8 @@ mod stack_item_replace;
 mod stack_item_split;
 mod stack_track;
 
+use stack_item_split::SyncSplitIdPolicy;
+
 const EPS: Seconds = 1e-9;
 /// Fallback frame rate when OTIO stores timeline positions with `rate: 1.0` (seconds).
 const DEFAULT_SYNC_FRAME_RATE: f64 = 24.0;
@@ -240,6 +242,96 @@ impl Stack {
             InsertPolicy::InsertBefore,
         );
         true
+    }
+
+    fn sync_split_id_policy_for_inserted_item(item: &Item) -> SyncSplitIdPolicy {
+        match item {
+            Item::Clip(clip) if resolve_sync_clips_id(&clip.metadata).is_some() => {
+                SyncSplitIdPolicy::KeepShared
+            }
+            _ => SyncSplitIdPolicy::AssignNewIdToRight,
+        }
+    }
+
+    fn apply_sync_splits_for_column_insert(
+        &mut self,
+        start: Seconds,
+        duration: Seconds,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+        id_policy: SyncSplitIdPolicy,
+    ) -> bool {
+        let mut split_times = Vec::new();
+        if matches!(insert_policy, InsertPolicy::SplitAndInsert) {
+            split_times.push(start);
+        }
+        if overlap_policy == OverlapPolicy::Override && duration > EPS {
+            if !split_times
+                .iter()
+                .any(|time| (*time - start).abs() <= EPS)
+            {
+                split_times.push(start);
+            }
+            if matches!(id_policy, SyncSplitIdPolicy::KeepShared) {
+                split_times.push(start + duration);
+            }
+        }
+        split_times.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+        split_times.dedup_by(|left, right| (*left - *right).abs() <= EPS);
+        for split_time in split_times {
+            if !self.split_sync_clips_at_time(split_time, id_policy) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn prepare_sync_splits_for_insert(
+        &mut self,
+        track_index: usize,
+        insert_time: Seconds,
+        item: &Item,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) {
+        let Some(start) = insertion_start_or_end_for_policy(
+            &self.children[track_index],
+            insert_time,
+            insert_policy,
+        ) else {
+            return;
+        };
+        let id_policy = Self::sync_split_id_policy_for_inserted_item(item);
+        let _ = self.apply_sync_splits_for_column_insert(
+            start,
+            item.duration().max(0.0),
+            insert_policy,
+            overlap_policy,
+            id_policy,
+        );
+    }
+
+    fn insert_at_time_with_sync_splits(
+        &mut self,
+        track_index: usize,
+        insert_time: Seconds,
+        item: Item,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) {
+        self.prepare_sync_splits_for_insert(
+            track_index,
+            insert_time,
+            &item,
+            insert_policy,
+            overlap_policy,
+        );
+        self.children[track_index].insert_at_time(
+            insert_time,
+            item,
+            overlap_policy,
+            insert_policy,
+        );
     }
 
     fn find_or_create_audio_track(
@@ -505,6 +597,36 @@ impl Stack {
         }
     }
 
+    fn try_reuse_video_track_for_audio_move(
+        &self,
+        track_index: usize,
+        audio_track_index: usize,
+        dest_time: Seconds,
+        end_time: Seconds,
+        sync_clips_id: Option<i64>,
+        use_sync_backed_track: bool,
+        overlap_policy: OverlapPolicy,
+    ) -> Option<usize> {
+        if self.children.get(track_index)?.kind != TrackKind::Video {
+            return None;
+        }
+        if range_is_gap_backed(&self.children[track_index], dest_time, end_time) {
+            return Some(track_index);
+        }
+        let has_blocking_clip = range_has_blocking_clip(
+            &self.children[track_index],
+            dest_time,
+            end_time,
+            sync_clips_id,
+        );
+        let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
+            && self.track_matches_primary_sync_boundary(audio_track_index, track_index);
+        if !has_blocking_clip || can_push_existing_boundary {
+            return use_sync_backed_track.then_some(track_index);
+        }
+        None
+    }
+
     fn find_or_create_video_track_for_audio(
         &mut self,
         audio_track_index: usize,
@@ -516,41 +638,54 @@ impl Stack {
         overlap_policy: OverlapPolicy,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
-        let mut group_start = audio_track_index;
-        while group_start > 0 && self.children[group_start - 1].kind == TrackKind::Audio {
-            group_start -= 1;
-            if track_is_empty_boundary(&self.children[group_start]) {
+        let mut audio_start = audio_track_index;
+        while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
+            audio_start -= 1;
+            if track_is_empty_boundary(&self.children[audio_start]) {
                 break;
             }
         }
-        if group_start > 0
-            && !track_is_empty_boundary(&self.children[group_start])
-            && self.children[group_start - 1].kind == TrackKind::Video
-        {
-            group_start -= 1;
+        let mut audio_end = audio_track_index + 1;
+        while audio_end < self.children.len() && self.children[audio_end].kind == TrackKind::Audio {
+            audio_end += 1;
         }
 
-        if self.children.get(group_start)?.kind == TrackKind::Video {
-            if range_is_gap_backed(&self.children[group_start], dest_time, end_time) {
-                return Some(group_start);
-            }
-            let has_blocking_clip = range_has_blocking_clip(
-                &self.children[group_start],
+        // Video-over-audio layout: reuse the video track directly above the audio group.
+        if audio_start > 0 && !track_is_empty_boundary(&self.children[audio_start]) {
+            if let Some(track_index) = self.try_reuse_video_track_for_audio_move(
+                audio_start - 1,
+                audio_track_index,
                 dest_time,
                 end_time,
                 sync_clips_id,
-            );
-            let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
-                && self.track_matches_primary_sync_boundary(audio_track_index, group_start);
-            if !has_blocking_clip || can_push_existing_boundary {
-                return use_sync_backed_track.then_some(group_start);
+                use_sync_backed_track,
+                overlap_policy,
+            ) {
+                return Some(track_index);
             }
         }
 
+        // Audio-over-video layout: reuse the video track directly below the audio group.
+        if audio_end < self.children.len() {
+            if let Some(track_index) = self.try_reuse_video_track_for_audio_move(
+                audio_end,
+                audio_track_index,
+                dest_time,
+                end_time,
+                sync_clips_id,
+                use_sync_backed_track,
+                overlap_policy,
+            ) {
+                return Some(track_index);
+            }
+        }
+
+        // Create the new video track directly below the moving audio group.
+        let insert_at = audio_end;
         let track = self.new_numbered_track(TrackKind::Video);
-        self.children.insert(group_start, track);
-        created_track_indices.push(group_start);
-        Some(group_start)
+        self.children.insert(insert_at, track);
+        created_track_indices.push(insert_at);
+        Some(insert_at)
     }
 
     fn item_occupies_column(
@@ -767,6 +902,31 @@ impl Stack {
             }
         }
         targets
+    }
+
+    fn sync_column_targets_at(
+        &self,
+        sync_clips_id: i64,
+        column_start: Seconds,
+        column_duration: Seconds,
+    ) -> Vec<(usize, usize)> {
+        self.synced_clips_targets(sync_clips_id)
+            .into_iter()
+            .filter(|(track_index, item_index)| {
+                self.item_occupies_column(*track_index, *item_index, column_start, column_duration)
+            })
+            .collect()
+    }
+
+    fn is_independent_sync_column(
+        &self,
+        sync_clips_id: i64,
+        column_start: Seconds,
+        column_duration: Seconds,
+    ) -> bool {
+        self.sync_column_targets_at(sync_clips_id, column_start, column_duration)
+            .len()
+            > 1
     }
 
     fn item_is_unsynced(item: &Item) -> bool {
@@ -1514,6 +1674,20 @@ impl Stack {
         }
         column.sort_by_key(|(track_index, _)| *track_index);
 
+        if overlap_policy == OverlapPolicy::Override
+            && matches!(insert_policy, InsertPolicy::SplitAndInsert)
+            && !self.apply_sync_splits_for_column_insert(
+                start,
+                modified_duration,
+                insert_policy,
+                overlap_policy,
+                SyncSplitIdPolicy::AssignNewIdToRight,
+            )
+        {
+            *self = backup;
+            return None;
+        }
+
         // Insert the whole column. The primary lands at the requested position
         // with the caller's insert policy; every other track receives its item
         // at the same resolved start with the same overlap policy, splitting at
@@ -2194,7 +2368,13 @@ impl Stack {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
             Item::Gap(_) => None,
         }?;
-        let targets = self.synced_clips_targets(sync_clips_id);
+        let selected_start = self.children[selected_track_index]
+            .start_time_of_item(selected_item_index);
+        let selected_duration = selected_item.duration().max(0.0);
+        if selected_duration <= EPS {
+            return None;
+        }
+        let targets = self.sync_column_targets_at(sync_clips_id, selected_start, selected_duration);
         if targets.len() <= 1 {
             return None;
         }
@@ -2219,21 +2399,22 @@ impl Stack {
             });
         }
 
-        let selected_start = self.children[selected_track_index]
-            .start_time_of_item(selected_item_index);
-        let selected_duration = selected_item.duration().max(0.0);
-        if selected_duration <= EPS
-            || !items.iter().all(|move_item| {
-                let start = self.children[move_item.track_index]
-                    .start_time_of_item(move_item.item_index);
-                (start - selected_start).abs() <= EPS
-                    && (move_item.item.duration().max(0.0) - selected_duration).abs() <= EPS
-            })
-        {
-            return None;
-        }
-
         Some(items)
+    }
+
+    fn is_intra_cluster_sync_move(
+        &self,
+        dest_track_index: usize,
+        items_to_move: &[SyncedMoveItem],
+    ) -> bool {
+        let cluster: HashSet<usize> = self
+            .boundary_group_indices(dest_track_index)
+            .into_iter()
+            .collect();
+        cluster.contains(&dest_track_index)
+            && items_to_move
+                .iter()
+                .all(|item| cluster.contains(&item.track_index))
     }
 
     fn stack_item_start_time(&self, item_id: &str) -> Option<Seconds> {
@@ -2242,6 +2423,18 @@ impl Stack {
     }
 
     fn linked_item_ids_for_move(&self, item_timeline_id: &str, item_to_move: &Item) -> Vec<String> {
+        let Some((primary_track_index, primary_item_index, _)) = self.get_item(item_timeline_id)
+        else {
+            return Vec::new();
+        };
+        let primary_start = self.children[primary_track_index]
+            .start_time_of_item(primary_item_index);
+        let primary_duration = item_to_move.duration().max(0.0);
+        let primary_sync_id = match item_to_move {
+            Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
+            Item::Gap(_) => None,
+        };
+
         let mut selected_ids = HashSet::from([item_timeline_id.to_string()]);
         let mut selected_link_group_ids = HashSet::<i64>::new();
         let mut selected_tellers_group_ids = HashSet::<i64>::new();
@@ -2257,9 +2450,11 @@ impl Stack {
 
         loop {
             let mut changed = false;
-            for track in &self.children {
-                for item in &track.items {
+            for (track_index, track) in self.children.iter().enumerate() {
+                let mut pos = 0.0;
+                for (item_index, item) in track.items.iter().enumerate() {
                     if !matches!(item, Item::Clip(_)) {
+                        pos += item.duration().max(0.0);
                         continue;
                     }
                     let linked = item_link_group_id(item)
@@ -2267,9 +2462,35 @@ impl Stack {
                     let grouped = item_tellers_group_id(item)
                         .is_some_and(|id| selected_tellers_group_ids.contains(&id));
                     if !linked && !grouped {
+                        pos += item.duration().max(0.0);
                         continue;
                     }
+                    if let Some(sync_id) = primary_sync_id {
+                        if resolve_sync_clips_id(match item {
+                            Item::Clip(clip) => &clip.metadata,
+                            Item::Gap(_) => {
+                                pos += item.duration().max(0.0);
+                                continue;
+                            }
+                        }) == Some(sync_id)
+                            && !self.item_occupies_column(
+                                track_index,
+                                item_index,
+                                primary_start,
+                                primary_duration,
+                            )
+                            && self.is_independent_sync_column(
+                                sync_id,
+                                pos,
+                                item.duration().max(0.0),
+                            )
+                        {
+                            pos += item.duration().max(0.0);
+                            continue;
+                        }
+                    }
                     let Some(item_id) = item.get_id() else {
+                        pos += item.duration().max(0.0);
                         continue;
                     };
                     if selected_ids.insert(item_id) {
@@ -2281,6 +2502,7 @@ impl Stack {
                     if let Some(tellers_group_id) = item_tellers_group_id(item) {
                         changed |= selected_tellers_group_ids.insert(tellers_group_id);
                     }
+                    pos += item.duration().max(0.0);
                 }
             }
             if !changed {
@@ -2385,7 +2607,8 @@ impl Stack {
                     *self = backup;
                     return false;
                 };
-                self.children[target_track_index].insert_at_time(
+                self.insert_at_time_with_sync_splits(
+                    target_track_index,
                     item_destination_time,
                     item,
                     overlap_policy,
@@ -2395,7 +2618,8 @@ impl Stack {
         }
 
         if linked_audio_items.is_empty() {
-            self.children[dest_track_index].insert_at_time(
+            self.insert_at_time_with_sync_splits(
+                dest_track_index,
                 dest_time,
                 item_to_move,
                 overlap_policy,
@@ -2509,6 +2733,9 @@ impl Stack {
             TrackKind::Other => {}
         }
 
+        let intra_cluster_move =
+            backup.is_intra_cluster_sync_move(dest_track_index, &items_to_move);
+
         let mut sync_track_items: Vec<_> = items_to_move
             .into_iter()
             .enumerate()
@@ -2522,6 +2749,19 @@ impl Stack {
         });
 
         for (_, move_item) in sync_track_items {
+            if intra_cluster_move {
+                let track_index = move_item.track_index;
+                match move_item.track_kind {
+                    TrackKind::Audio => used_audio_track_indices.push(track_index),
+                    TrackKind::Video => used_video_track_indices.push(track_index),
+                    TrackKind::Other => {
+                        *self = backup;
+                        return false;
+                    }
+                }
+                placements.push((track_index, move_item.item, false));
+                continue;
+            }
 
             match move_item.track_kind {
                 TrackKind::Audio => {
@@ -2638,6 +2878,21 @@ impl Stack {
             placements.push((track_index, gap, false));
         }
         placements.sort_by_key(|(track_index, _, _)| *track_index);
+
+        let insert_policy = match placement {
+            SyncedMovePlacement::Time { insert_policy, .. } => insert_policy,
+            SyncedMovePlacement::Index { .. } => InsertPolicy::SplitAndInsert,
+        };
+        if !self.apply_sync_splits_for_column_insert(
+            moved_start,
+            moved_duration,
+            insert_policy,
+            overlap_policy,
+            SyncSplitIdPolicy::KeepShared,
+        ) {
+            *self = backup;
+            return false;
+        }
 
         for (track_index, item, is_selected) in placements {
             if is_selected {

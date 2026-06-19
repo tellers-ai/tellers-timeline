@@ -1855,6 +1855,124 @@ fn move_synced_set_on_same_track_in_cluster_preserves_track_and_cluster_count() 
 }
 
 #[test]
+fn move_synced_set_within_same_cluster_preserves_original_tracks_when_moving_from_audio() {
+    let mut stack = Stack::default();
+
+    for id in ["A1", "A2", "A3"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio.items.push(synced_clip_item_with_rate(
+            62.88,
+            0.0,
+            &format!("{id}-g3"),
+            3,
+            25.0,
+        ));
+        stack.children.push(audio);
+    }
+
+    let mut video = Track::new(TrackKind::Video, Some("video".to_string()));
+    video.items.push(synced_clip_item_with_rate(62.88, 0.0, "v-g3", 3, 25.0));
+    stack.children.push(video);
+
+    let video_track_before = stack.get_track_by_id("video").unwrap().0;
+    let track_count = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "A1-g3",
+        "A1",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count);
+    let (video_track, video_index, _) = stack.get_item("v-g3").unwrap();
+    assert_eq!(
+        video_track, video_track_before,
+        "video must stay on its original track when moving within the sync cluster"
+    );
+    assert_eq!(
+        stack.children[video_track].get_id().as_deref(),
+        Some("video")
+    );
+    assert_eq!(
+        stack.children[video_track].start_time_of_item(video_index),
+        4.0
+    );
+    for (id, track_id) in [("A1-g3", "A1"), ("A2-g3", "A2"), ("A3-g3", "A3")] {
+        let (audio_track, audio_index, _) = stack.get_item(id).unwrap();
+        assert_eq!(
+            stack.children[audio_track].get_id().as_deref(),
+            Some(track_id)
+        );
+        assert_eq!(
+            stack.children[audio_track].start_time_of_item(audio_index),
+            4.0
+        );
+    }
+}
+
+#[test]
+fn move_synced_audio_creates_video_track_below_audio_group_in_resolve_layout() {
+    let mut stack = Stack::default();
+    const DUR: f64 = 5.0;
+
+    let mut a15 = Track::new(TrackKind::Audio, Some("A15".to_string()));
+    a15.items.push(Item::Gap(Gap::make_gap(100.0)));
+    let mut aud = audio_clip(DUR, "file:///moving-aud.wav", None);
+    aud.set_id(Some("moving-aud".to_string()));
+    a15.items.push(aud);
+
+    let mut v1 = Track::new(TrackKind::Video, Some("V1".to_string()));
+    v1.items.push(Item::Gap(Gap::make_gap(100.0)));
+    v1.items
+        .push(Item::Clip(clip(DUR, Some("moving-vid"))));
+
+    stack.children.push(a15);
+    stack.children.push(v1);
+    stack
+        .sync_item(&["moving-vid".to_string(), "moving-aud".to_string()])
+        .unwrap();
+
+    let mut separator = Track::new(TrackKind::Video, Some("separator-v".to_string()));
+    separator
+        .items
+        .push(Item::Clip(clip(100.0, Some("separator-vid"))));
+    stack.children.push(separator);
+
+    let mut dest_a = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
+    dest_a.items.push(Item::Gap(Gap::make_gap(100.0)));
+    stack.children.push(dest_a);
+
+    let dest_a_index = stack.get_track_by_id("dest-a").unwrap().0;
+    let v1_index = stack.get_track_by_id("V1").unwrap().0;
+    let track_count_before = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "moving-aud",
+        "dest-a",
+        50.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count_before + 1);
+    let (video_track, video_index, _) = stack.get_item("moving-vid").unwrap();
+    assert_eq!(stack.children[video_track].kind, TrackKind::Video);
+    assert_eq!(
+        video_track, dest_a_index + 1,
+        "new video track must sit directly below dest-a, not at stack top or next to V1"
+    );
+    assert_eq!(stack.get_track_by_id("V1").unwrap().0, v1_index);
+    assert_eq!(
+        stack.children[video_track].start_time_of_item(video_index),
+        50.0
+    );
+}
+
+#[test]
 fn move_unsynced_clip_between_video_tracks_in_cluster_preserves_track_and_cluster_count() {
     let mut stack = Stack::default();
 
@@ -5825,6 +5943,184 @@ fn move_synced_group_reuses_audio_track_below_without_creating_track() {
     assert_eq!(audio_track, 1);
     assert_eq!(stack.children[video_track].start_time_of_item(video_index), 5.0);
     assert_eq!(stack.children[audio_track].start_time_of_item(audio_index), 5.0);
+}
+
+#[test]
+fn move_synced_set_splits_other_synced_clips_on_all_tracks() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video
+        .items
+        .push(Item::Clip(clip(10.0, Some("long-video"))));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    let mut long_audio = audio_clip(10.0, "file:///long-audio.wav", None);
+    long_audio.set_id(Some("long-audio".to_string()));
+    audio.items.push(long_audio);
+
+    stack.children.push(video);
+    stack.children.push(audio);
+    stack
+        .sync_item(&["long-video".to_string(), "long-audio".to_string()])
+        .unwrap();
+    let long_group = sync_clips_id(stack.get_item("long-video").unwrap().2);
+
+    stack.children[0]
+        .items
+        .push(Item::Clip(clip(3.0, Some("moving-video"))));
+    let mut moving_audio = audio_clip(3.0, "file:///moving-audio.wav", None);
+    moving_audio.set_id(Some("moving-audio".to_string()));
+    stack.children[1].items.push(moving_audio);
+    stack
+        .sync_item(&["moving-video".to_string(), "moving-audio".to_string()])
+        .unwrap();
+    let moving_group = sync_clips_id(stack.get_item("moving-video").unwrap().2);
+
+    assert!(stack.move_item_at_time(
+        "moving-audio",
+        "a",
+        5.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let video = &stack.children[0];
+    assert_eq!(video.items.len(), 3);
+    assert_eq!(video.items[0].duration(), 5.0);
+    assert_eq!(sync_clips_id(&video.items[0]), long_group);
+    assert_eq!(video.items[1].duration(), 3.0);
+    assert_eq!(sync_clips_id(&video.items[1]), moving_group);
+    assert_eq!(video.items[2].duration(), 2.0);
+    assert_eq!(sync_clips_id(&video.items[2]), long_group);
+
+    let audio = &stack.children[1];
+    assert_eq!(audio.items.len(), 3);
+    assert_eq!(audio.items[0].duration(), 5.0);
+    assert_eq!(sync_clips_id(&audio.items[0]), long_group);
+    assert_eq!(audio.items[0].get_id().as_deref(), Some("long-audio"));
+    assert_eq!(audio.items[1].duration(), 3.0);
+    assert_eq!(sync_clips_id(&audio.items[1]), moving_group);
+    assert_eq!(audio.items[1].get_id().as_deref(), Some("moving-audio"));
+    assert_eq!(audio.items[2].duration(), 2.0);
+    assert_eq!(sync_clips_id(&audio.items[2]), long_group);
+}
+
+#[test]
+fn move_synced_clip_with_reused_link_group_id_splits_long_column_on_video() {
+    const SHORT: f64 = 3.84;
+    const GAP_MID: f64 = 5.0;
+    const LONG: f64 = 54.08;
+    const LEAD: f64 = 5.0;
+    const SYNC_ID: i64 = 1;
+
+    let mut stack = Stack::default();
+    let mut a15 = Track::new(TrackKind::Audio, Some("A15".to_string()));
+    a15.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    a15.items.push(synced_clip_item(SHORT, "short-audio", SYNC_ID));
+    a15.items.push(Item::Gap(Gap::make_gap(GAP_MID)));
+    a15.items.push(synced_clip_item(LONG, "long-audio", SYNC_ID));
+
+    let mut v1 = Track::new(TrackKind::Video, Some("V1".to_string()));
+    v1.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    v1.items.push(synced_clip_item(SHORT, "short-video", SYNC_ID));
+    v1.items.push(Item::Clip(clip(GAP_MID, Some("screenshot"))));
+    v1.items.push(synced_clip_item(LONG, "long-video", SYNC_ID));
+
+    stack.children.push(a15);
+    stack.children.push(v1);
+
+    assert!(stack.move_item_at_time(
+        "short-audio",
+        "A15",
+        20.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (_, video_track) = stack.get_track_by_id("V1").unwrap();
+    let (_, short_video_index, _) = stack.get_item("short-video").unwrap();
+    assert!(
+        (video_track.start_time_of_item(short_video_index) - 20.0).abs() < 1e-6,
+        "short video partner should land at the move destination"
+    );
+    let (_, long_video_index, _) = stack.get_item("long-video").unwrap();
+    assert!((video_track.start_time_of_item(long_video_index) - 13.84).abs() < 1e-2);
+    assert!((video_track.items[long_video_index].duration() - 6.16).abs() < 1e-2);
+    let long_video_tail = video_track
+        .items
+        .get(long_video_index + 2)
+        .expect("long synced video tail after moved short clip");
+    let expected_tail = LONG - (20.0 - 13.84) - SHORT;
+    assert!(
+        (long_video_tail.duration() - expected_tail).abs() < 1e-2,
+        "tail duration {} expected {}",
+        long_video_tail.duration(),
+        expected_tail
+    );
+
+    let (_, audio_track) = stack.get_track_by_id("A15").unwrap();
+    let (_, short_audio_index, _) = stack.get_item("short-audio").unwrap();
+    assert!((audio_track.start_time_of_item(short_audio_index) - 20.0).abs() < 1e-6);
+    let (_, long_audio_index, _) = stack.get_item("long-audio").unwrap();
+    assert!((audio_track.items[long_audio_index].duration() - 6.16).abs() < 1e-2);
+}
+
+#[test]
+fn move_unsynced_image_into_synced_clip_override_assigns_new_link_group_to_right() {
+    const SYNC_ID: i64 = 2;
+    const SYNC_DUR: f64 = 42.0;
+    const IMAGE_DUR: f64 = 5.0;
+    const LEAD: f64 = 5.0;
+
+    let mut audio = Track::new(TrackKind::Audio, Some("A3".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    audio.items.push(synced_clip_item(SYNC_DUR, "sync-audio", SYNC_ID));
+
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    video.items.push(synced_clip_item(SYNC_DUR, "sync-video", SYNC_ID));
+    video
+        .items
+        .push(Item::Clip(clip(IMAGE_DUR, Some("screenshot"))));
+
+    let mut stack = Stack::default();
+    stack.children.push(audio);
+    stack.children.push(video);
+
+    assert!(stack.move_item_at_time(
+        "screenshot",
+        "v",
+        20.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(
+        sync_clips_id(stack.get_item("sync-video").unwrap().2),
+        Some(SYNC_ID)
+    );
+
+    let (_, video_track) = stack.get_track_by_id("v").unwrap();
+    let sync_group_ids: Vec<_> = video_track
+        .items
+        .iter()
+        .filter_map(sync_clips_id)
+        .collect();
+    assert_eq!(sync_group_ids, vec![SYNC_ID, SYNC_ID + 1]);
+    assert_eq!(
+        sync_clips_id(stack.get_item("screenshot").unwrap().2),
+        None
+    );
+
+    let (_, audio_track) = stack.get_track_by_id("A3").unwrap();
+    let audio_sync_group_ids: Vec<_> = audio_track
+        .items
+        .iter()
+        .filter_map(sync_clips_id)
+        .collect();
+    assert_eq!(audio_sync_group_ids, vec![SYNC_ID, SYNC_ID + 1]);
 }
 
 #[test]
