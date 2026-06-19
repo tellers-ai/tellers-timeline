@@ -2053,7 +2053,206 @@ impl Stack {
                 is_selected,
             });
         }
+
+        let selected_start = self.children[selected_track_index]
+            .start_time_of_item(selected_item_index);
+        let selected_duration = selected_item.duration().max(0.0);
+        if selected_duration <= EPS
+            || !items.iter().all(|move_item| {
+                let start = self.children[move_item.track_index]
+                    .start_time_of_item(move_item.item_index);
+                (start - selected_start).abs() <= EPS
+                    && (move_item.item.duration().max(0.0) - selected_duration).abs() <= EPS
+            })
+        {
+            return None;
+        }
+
         Some(items)
+    }
+
+    fn stack_item_start_time(&self, item_id: &str) -> Option<Seconds> {
+        let (track_index, item_index, _) = self.get_item(item_id)?;
+        Some(self.children[track_index].start_time_of_item(item_index))
+    }
+
+    fn linked_item_ids_for_move(&self, item_timeline_id: &str, item_to_move: &Item) -> Vec<String> {
+        let mut selected_ids = HashSet::from([item_timeline_id.to_string()]);
+        let mut selected_link_group_ids = HashSet::<i64>::new();
+        let mut selected_tellers_group_ids = HashSet::<i64>::new();
+        if let Some(link_group_id) = item_link_group_id(item_to_move) {
+            selected_link_group_ids.insert(link_group_id);
+        }
+        if let Some(tellers_group_id) = item_tellers_group_id(item_to_move) {
+            selected_tellers_group_ids.insert(tellers_group_id);
+        }
+        if selected_link_group_ids.is_empty() && selected_tellers_group_ids.is_empty() {
+            return Vec::new();
+        }
+
+        loop {
+            let mut changed = false;
+            for track in &self.children {
+                for item in &track.items {
+                    if !matches!(item, Item::Clip(_)) {
+                        continue;
+                    }
+                    let linked = item_link_group_id(item)
+                        .is_some_and(|id| selected_link_group_ids.contains(&id));
+                    let grouped = item_tellers_group_id(item)
+                        .is_some_and(|id| selected_tellers_group_ids.contains(&id));
+                    if !linked && !grouped {
+                        continue;
+                    }
+                    let Some(item_id) = item.get_id() else {
+                        continue;
+                    };
+                    if selected_ids.insert(item_id) {
+                        changed = true;
+                    }
+                    if let Some(link_group_id) = item_link_group_id(item) {
+                        changed |= selected_link_group_ids.insert(link_group_id);
+                    }
+                    if let Some(tellers_group_id) = item_tellers_group_id(item) {
+                        changed |= selected_tellers_group_ids.insert(tellers_group_id);
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        let mut linked_ids = Vec::new();
+        for track in &self.children {
+            for item in &track.items {
+                let Some(item_id) = item.get_id() else {
+                    continue;
+                };
+                if item_id != item_timeline_id && selected_ids.contains(&item_id) {
+                    linked_ids.push(item_id);
+                }
+            }
+        }
+        linked_ids
+    }
+
+    /// Move a primary clip and its linked / grouped partners while preserving
+    /// relative timeline offsets. Uses delete + insert so cluster column padding
+    /// applies for unsynced inserts inside a sync cluster.
+    fn move_linked_items_at_time(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_time: Seconds,
+        replace_with_gap: bool,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let item_to_move = match self.get_item(item_id) {
+            Some((_ti, _ii, item)) => item.clone(),
+            None => return false,
+        };
+        let dest_track_index = match self.get_track_by_id(dest_track_id) {
+            Some((index, _)) => index,
+            None => return false,
+        };
+        let backup = self.clone();
+        let primary_start_time = backup
+            .stack_item_start_time(item_id)
+            .unwrap_or(dest_time);
+        let linked_item_ids = backup.linked_item_ids_for_move(item_id, &item_to_move);
+        let mut ids_to_remove: Vec<String> = std::iter::once(item_id.to_string())
+            .chain(linked_item_ids.into_iter())
+            .collect();
+        ids_to_remove.sort_by(|left, right| {
+            let left_pos = backup.get_item(left).map(|(ti, ii, _)| (ti, ii));
+            let right_pos = backup.get_item(right).map(|(ti, ii, _)| (ti, ii));
+            right_pos.cmp(&left_pos)
+        });
+        ids_to_remove.dedup();
+
+        let mut removed_items = Vec::new();
+        for remove_id in ids_to_remove {
+            if let Some(removed) = self.delete_one_item(&remove_id, replace_with_gap) {
+                removed_items.push(removed);
+            }
+        }
+        if removed_items.is_empty() {
+            return false;
+        }
+
+        let mut linked_audio_items = Vec::new();
+        for (source_track_index, item) in removed_items {
+            if item
+                .get_id()
+                .as_deref()
+                .is_some_and(|id| id == item_id)
+            {
+                continue;
+            }
+            let item_destination_time = item
+                .get_id()
+                .as_deref()
+                .and_then(|id| backup.stack_item_start_time(id))
+                .map(|start_time| dest_time + start_time - primary_start_time)
+                .unwrap_or(dest_time);
+            let source_track_kind = backup
+                .children
+                .get(source_track_index)
+                .map(|track| track.kind.clone());
+            let is_same_time = (item_destination_time - dest_time).abs() <= EPS;
+            let is_same_time_audio_clip = is_same_time
+                && matches!(item, Item::Clip(_))
+                && matches!(source_track_kind, Some(TrackKind::Audio));
+            if is_same_time_audio_clip {
+                if let Item::Clip(clip) = item {
+                    linked_audio_items.push(Item::Clip(clip));
+                }
+            } else if is_same_time && matches!(item, Item::Gap(_)) {
+                // Drop same-time gaps left behind by sync deletion.
+            } else if let Some(source_track_id) = backup
+                .children
+                .get(source_track_index)
+                .and_then(|track| track.get_id())
+            {
+                let Some((target_track_index, _)) = self.get_track_by_id(&source_track_id) else {
+                    *self = backup;
+                    return false;
+                };
+                self.children[target_track_index].insert_at_time(
+                    item_destination_time,
+                    item,
+                    overlap_policy,
+                    insert_policy,
+                );
+            }
+        }
+
+        if linked_audio_items.is_empty() {
+            self.children[dest_track_index].insert_at_time(
+                dest_time,
+                item_to_move,
+                overlap_policy,
+                insert_policy,
+            );
+        } else if self
+            .insert_item_at_time(
+                dest_track_index,
+                dest_time,
+                item_to_move,
+                overlap_policy,
+                insert_policy,
+                Some(linked_audio_items),
+            )
+            .is_none()
+        {
+            *self = backup;
+            return false;
+        }
+
+        self.sanitize();
+        true
     }
 
     fn move_synced_items(
@@ -2521,14 +2720,35 @@ fn insertion_start_or_end_for_policy(
 }
 
 fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
-    metadata
+    resolve_metadata_i64(metadata, "Link Group ID")
+}
+
+fn resolve_tellers_group_id(metadata: &serde_json::Value) -> Option<i64> {
+    resolve_metadata_i64(metadata, "Tellers Group ID")
+}
+
+fn item_link_group_id(item: &Item) -> Option<i64> {
+    match item {
+        Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
+        Item::Gap(_) => None,
+    }
+}
+
+fn item_tellers_group_id(item: &Item) -> Option<i64> {
+    match item {
+        Item::Clip(clip) => resolve_tellers_group_id(&clip.metadata),
+        Item::Gap(_) => None,
+    }
+}
+
+fn resolve_metadata_i64(metadata: &serde_json::Value, key: &str) -> Option<i64> {
+    let raw = metadata
         .get("Resolve_OTIO")
-        .and_then(|v| v.get("Link Group ID"))
-        .and_then(|v| {
-            v.as_i64()
-                .or_else(|| v.as_u64().and_then(|n| i64::try_from(n).ok()))
-                .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
-        })
+        .or_else(|| metadata.get("resolve"))
+        .and_then(|v| v.get(key))?;
+    raw.as_i64()
+        .or_else(|| raw.as_u64().and_then(|value| i64::try_from(value).ok()))
+        .or_else(|| raw.as_str().and_then(|value| value.parse::<i64>().ok()))
 }
 
 fn set_resolve_sync_clips_id(metadata: &mut serde_json::Value, sync_clips_id: i64) {

@@ -1709,6 +1709,209 @@ fn insert_on_video_in_cluster_preserves_cluster_and_pads_bound_tracks() {
     }
 }
 
+fn resolve_metadata_clip_item(
+    duration: f64,
+    id: &str,
+    link_group_id: i64,
+    use_resolve_key: bool,
+) -> Item {
+    let mut clip = clip(duration, Some(id));
+    let key = if use_resolve_key {
+        "resolve"
+    } else {
+        "Resolve_OTIO"
+    };
+    clip.metadata[key] = serde_json::json!({
+        "Link Group ID": link_group_id
+    });
+    Item::Clip(clip)
+}
+
+fn stack_with_offset_linked_clips(use_resolve_key: bool) -> Stack {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
+    video.items.push(resolve_metadata_clip_item(
+        5.0,
+        "video-1",
+        1,
+        use_resolve_key,
+    ));
+    stack.children.push(video);
+
+    let mut audio = Track::new(TrackKind::Audio, Some("audio-track".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(2.0)));
+    audio.items.push(resolve_metadata_clip_item(
+        5.0,
+        "audio-1",
+        1,
+        use_resolve_key,
+    ));
+    stack.children.push(audio);
+    stack
+}
+
+#[test]
+fn move_offset_linked_clips_preserves_relative_offsets() {
+    for use_resolve_key in [false, true] {
+        let mut stack = stack_with_offset_linked_clips(use_resolve_key);
+        assert!(stack.move_item_at_time(
+            "video-1",
+            "video-track",
+            10.0,
+            true,
+            InsertPolicy::SplitAndInsert,
+            OverlapPolicy::Override,
+        ));
+
+        let (video_track, video_index, _) = stack.get_item("video-1").unwrap();
+        let (audio_track, audio_index, _) = stack.get_item("audio-1").unwrap();
+        assert_eq!(
+            stack.children[video_track].start_time_of_item(video_index),
+            10.0
+        );
+        assert_eq!(
+            stack.children[audio_track].start_time_of_item(audio_index),
+            12.0
+        );
+    }
+}
+
+#[test]
+fn move_synced_set_on_same_track_in_cluster_preserves_track_and_cluster_count() {
+    let mut stack = Stack::default();
+
+    for id in ["A1", "A2", "A3"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio.items.push(synced_clip_item_with_rate(
+            62.88,
+            0.0,
+            &format!("{id}-g3"),
+            3,
+            25.0,
+        ));
+        stack.children.push(audio);
+    }
+
+    let mut video = Track::new(TrackKind::Video, Some("video".to_string()));
+    video.items.push(synced_clip_item_with_rate(62.88, 0.0, "v-g3", 3, 25.0));
+    video.items.push(Item::Gap(Gap::make_gap(5.0)));
+    video
+        .items
+        .push(synced_clip_item_with_rate(62.88, 67.88, "v-g2", 2, 25.0));
+    stack.children.push(video);
+
+    let sync_group = sync_clips_id(stack.get_item("v-g3").unwrap().2);
+    let track_count = stack.children.len();
+    let clusters_before = stack.sync_track_info();
+
+    assert!(stack.move_item_at_time(
+        "v-g3",
+        "video",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count);
+    assert_sync_track_info_unchanged(&clusters_before, &stack.sync_track_info());
+
+    let (video_track, video_index, video_item) = stack.get_item("v-g3").unwrap();
+    assert_eq!(
+        stack.children[video_track].start_time_of_item(video_index),
+        4.0
+    );
+    assert_eq!(sync_clips_id(video_item), sync_group);
+
+    for id in ["A1-g3", "A2-g3", "A3-g3"] {
+        let (audio_track, audio_index, audio_item) = stack.get_item(id).unwrap();
+        assert_eq!(
+            stack.children[audio_track].start_time_of_item(audio_index),
+            4.0
+        );
+        assert_eq!(sync_clips_id(audio_item), sync_group);
+    }
+}
+
+#[test]
+fn move_unsynced_clip_between_video_tracks_in_cluster_preserves_track_and_cluster_count() {
+    let mut stack = Stack::default();
+
+    for id in ["A1", "A2", "A3"] {
+        let mut audio = Track::new(TrackKind::Audio, Some(id.to_string()));
+        audio.items.push(synced_clip_item_with_rate(
+            62.88,
+            0.0,
+            &format!("{id}-g3"),
+            3,
+            25.0,
+        ));
+        stack.children.push(audio);
+    }
+
+    let mut primary_video = Track::new(TrackKind::Video, Some("video".to_string()));
+    primary_video.items.push(synced_clip_item_with_rate(62.88, 0.0, "v-g3", 3, 25.0));
+    stack.children.push(primary_video);
+
+    let mut secondary_video = Track::new(TrackKind::Video, Some("video-2".to_string()));
+    secondary_video.items.push(Item::Gap(Gap::make_gap(10.0)));
+    stack.children.push(secondary_video);
+
+    let primary_video_index = stack
+        .get_track_by_id("video")
+        .map(|(index, _)| index)
+        .unwrap();
+    let secondary_video_index = stack
+        .get_track_by_id("video-2")
+        .map(|(index, _)| index)
+        .unwrap();
+
+    stack
+        .insert_item_at_time(
+            primary_video_index,
+            2.0,
+            Item::Clip(clip(1.5, Some("inserted-at-2"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            None,
+        )
+        .expect("insert should succeed");
+
+    let track_count = stack.children.len();
+    let clusters_before = stack.sync_track_info();
+
+    assert!(stack.move_item_at_time(
+        "inserted-at-2",
+        "video-2",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count);
+    assert_sync_track_info_unchanged(&clusters_before, &stack.sync_track_info());
+
+    let (moved_track, moved_index, moved_item) = stack.get_item("inserted-at-2").unwrap();
+    assert_eq!(moved_track, secondary_video_index);
+    assert_eq!(
+        stack.children[moved_track].start_time_of_item(moved_index),
+        4.0
+    );
+    assert_eq!(moved_item.duration(), 1.5);
+
+    for id in ["A1", "A2", "A3"] {
+        let audio_track_index = stack
+            .get_track_by_id(id)
+            .map(|(index, _)| index)
+            .unwrap();
+        let audio_track = &stack.children[audio_track_index];
+        let spacer_index = audio_track.get_item_at_time(2.0).unwrap();
+        assert!(matches!(audio_track.items[spacer_index], Item::Gap(_)));
+        assert_eq!(audio_track.items[spacer_index].duration(), 1.5);
+    }
+}
+
 #[test]
 fn modify_unsynced_insert_in_cluster_updates_padding_and_sync_assets() {
     let mut stack = Stack::default();
