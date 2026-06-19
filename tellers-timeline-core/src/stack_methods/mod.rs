@@ -1356,6 +1356,9 @@ impl Stack {
         if principal_track_index == candidate_track_index {
             return true;
         }
+        if self.children[candidate_track_index].kind == TrackKind::Video {
+            return false;
+        }
         if track_is_empty_boundary(&self.children[candidate_track_index]) {
             for track_index in (0..candidate_track_index).rev() {
                 if track_is_empty_boundary(&self.children[track_index]) {

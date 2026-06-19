@@ -224,8 +224,8 @@ fn stack_with_synced_audio_below_video() -> Stack {
     audio.items[1].set_id(Some("linked-audio".to_string()));
 
     let mut stack = Stack::default();
-    stack.children.push(video);
     stack.children.push(audio);
+    stack.children.push(video);
     stack
         .sync_item(&["linked-video".to_string(), "linked-audio".to_string()])
         .unwrap();
@@ -693,9 +693,10 @@ fn insert_unsynced_clip_with_push_moves_later_synced_assets() {
 #[test]
 fn insert_unsynced_clip_with_push_moves_synced_audio_below_video() {
     let mut stack = stack_with_synced_audio_below_video();
+    let video_track_index = track_index_by_id(&stack, "v");
 
     let insert_result = stack.insert_item_at_time(
-        0,
+        video_track_index,
         0.0,
         Item::Clip(clip(1.0, Some("inserted"))),
         OverlapPolicy::Push,
@@ -726,9 +727,10 @@ fn insert_unsynced_clip_with_push_moves_synced_audio_below_video_for_time_polici
         (InsertPolicy::InsertBeforeOrAfter, 3.75, 2.0),
     ] {
         let mut stack = stack_with_synced_audio_below_video();
+        let video_track_index = track_index_by_id(&stack, "v");
 
         let insert_result = stack.insert_item_at_time(
-            0,
+            video_track_index,
             dest_time,
             Item::Clip(clip(1.0, Some("inserted"))),
             OverlapPolicy::Push,
@@ -779,9 +781,10 @@ fn insert_unsynced_clip_at_index_with_push_moves_synced_audio_below_video() {
 #[test]
 fn insert_unsynced_clip_with_override_updates_synced_audio_below_video() {
     let mut stack = stack_with_synced_audio_below_video();
+    let video_track_index = track_index_by_id(&stack, "v");
 
     let insert_result = stack.insert_item_at_time(
-        0,
+        video_track_index,
         3.0,
         Item::Clip(clip(1.0, Some("inserted"))),
         OverlapPolicy::Override,
@@ -3120,8 +3123,8 @@ fn stack_v1_clip_a_clip_b_a1() -> Stack {
     audio.items.push(Item::Gap(Gap::make_gap(10.0)));
     audio.items.push(synced_clip_item(10.0, "clip-b-audio", 1));
     let mut stack = Stack::default();
-    stack.children.push(video);
     stack.children.push(audio);
+    stack.children.push(video);
     stack
 }
 
@@ -5765,8 +5768,8 @@ fn two_synced_clips() -> Stack {
     audio.items.push(audio_clip(4.0, "file:///aB.wav", None));
     audio.items[1].set_id(Some("aB".to_string()));
     let mut stack = Stack::default();
-    stack.children.push(video);
     stack.children.push(audio);
+    stack.children.push(video);
     stack.sync_item(&["vA".to_string(), "aA".to_string()]).unwrap();
     stack.sync_item(&["vB".to_string(), "aB".to_string()]).unwrap();
     stack
@@ -5829,9 +5832,10 @@ fn add_unsynced_clip_into_two_synced_clips_all_positions_and_policies() {
         for &op in &overlaps {
             for &ip in &insert_policies {
                 let mut stack = two_synced_clips();
+                let video_track_index = track_index_by_id(&stack, "v");
                 let label = format!("t={t} op={op:?} ip={ip:?}");
                 let result = stack.insert_item_at_time(
-                    0,
+                    video_track_index,
                     t,
                     Item::Clip(clip(1.0, Some("unsynced"))),
                     op,
@@ -5856,8 +5860,9 @@ fn add_unsynced_clip_into_two_synced_clips_all_positions_and_policies() {
 #[test]
 fn add_unsynced_clip_between_two_synced_clips_pushes_second_group_aligned() {
     let mut stack = two_synced_clips();
+    let video_track_index = track_index_by_id(&stack, "v");
     let result = stack.insert_item_at_time(
-        0,
+        video_track_index,
         4.0,
         Item::Clip(clip(1.0, Some("unsynced"))),
         OverlapPolicy::Push,
@@ -5885,9 +5890,10 @@ fn add_unsynced_clip_between_two_synced_clips_pushes_second_group_aligned() {
 #[test]
 fn add_unsynced_clip_over_synced_clip_override_splits_group_aligned() {
     let mut stack = two_synced_clips();
+    let video_track_index = track_index_by_id(&stack, "v");
     // Drop a 1.0 unsynced clip in the middle of synced clips A (over vA at 1..2).
     let result = stack.insert_item_at_time(
-        0,
+        video_track_index,
         1.0,
         Item::Clip(clip(1.0, Some("unsynced"))),
         OverlapPolicy::Override,
@@ -5900,7 +5906,7 @@ fn add_unsynced_clip_over_synced_clip_override_splits_group_aligned() {
     // so the group keeps one shared duration footprint.
     assert_sync_clips_track_aligned(&stack, "override-split");
     // The audio track got a 1.0 spacer at 1..2 mirroring the video split.
-    let audio = &stack.children[1];
+    let audio = &stack.children[track_index_by_id(&stack, "a")];
     let spacer = audio.get_item_at_time(1.0).unwrap();
     assert!(matches!(audio.items[spacer], Item::Gap(_)));
     assert_eq!(audio.items[spacer].duration(), 1.0);
@@ -5957,19 +5963,21 @@ fn move_synced_set_splits_other_synced_clips_on_all_tracks() {
     long_audio.set_id(Some("long-audio".to_string()));
     audio.items.push(long_audio);
 
-    stack.children.push(video);
     stack.children.push(audio);
+    stack.children.push(video);
     stack
         .sync_item(&["long-video".to_string(), "long-audio".to_string()])
         .unwrap();
     let long_group = sync_clips_id(stack.get_item("long-video").unwrap().2);
+    let video_track_index = track_index_by_id(&stack, "v");
+    let audio_track_index = track_index_by_id(&stack, "a");
 
-    stack.children[0]
+    stack.children[video_track_index]
         .items
         .push(Item::Clip(clip(3.0, Some("moving-video"))));
     let mut moving_audio = audio_clip(3.0, "file:///moving-audio.wav", None);
     moving_audio.set_id(Some("moving-audio".to_string()));
-    stack.children[1].items.push(moving_audio);
+    stack.children[audio_track_index].items.push(moving_audio);
     stack
         .sync_item(&["moving-video".to_string(), "moving-audio".to_string()])
         .unwrap();
@@ -5984,7 +5992,7 @@ fn move_synced_set_splits_other_synced_clips_on_all_tracks() {
         OverlapPolicy::Override,
     ));
 
-    let video = &stack.children[0];
+    let video = &stack.children[video_track_index];
     assert_eq!(video.items.len(), 3);
     assert_eq!(video.items[0].duration(), 5.0);
     assert_eq!(sync_clips_id(&video.items[0]), long_group);
@@ -5993,7 +6001,7 @@ fn move_synced_set_splits_other_synced_clips_on_all_tracks() {
     assert_eq!(video.items[2].duration(), 2.0);
     assert_eq!(sync_clips_id(&video.items[2]), long_group);
 
-    let audio = &stack.children[1];
+    let audio = &stack.children[audio_track_index];
     assert_eq!(audio.items.len(), 3);
     assert_eq!(audio.items[0].duration(), 5.0);
     assert_eq!(sync_clips_id(&audio.items[0]), long_group);
@@ -6132,9 +6140,10 @@ fn add_synced_clip_with_multiple_audio_into_two_synced_clips() {
         for &op in &overlaps {
             for &ip in &insert_policies {
                 let mut stack = two_synced_clips();
+                let video_track_index = track_index_by_id(&stack, "v");
                 let label = format!("multi-audio t={t} op={op:?} ip={ip:?}");
                 let result = stack.insert_item_at_time(
-                    0,
+                    video_track_index,
                     t,
                     Item::Clip(clip(2.0, Some("new-v"))),
                     op,
@@ -6347,7 +6356,6 @@ fn push_insert_at_start_of_synced_group_pushes_all_synced_audio_tracks() {
     video.items.push(Item::Clip(clip(2.0, Some("v-tail"))));
 
     let mut stack = Stack::default();
-    stack.children.push(video);
     let mut group_ids = vec!["v-g".to_string()];
     for i in 0..4 {
         let mut audio = Track::new(TrackKind::Audio, Some(format!("a{i}")));
@@ -6357,13 +6365,15 @@ fn push_insert_at_start_of_synced_group_pushes_all_synced_audio_tracks() {
         stack.children.push(audio);
         group_ids.push(format!("a-g{i}"));
     }
+    stack.children.push(video);
     stack.sync_item(&group_ids).unwrap();
     let group = sync_clips_id(stack.get_item("v-g").unwrap().2);
+    let video_track_index = track_index_by_id(&stack, "v");
 
     // Push-insert an unsynced clip at the very start of the video track.
     let insert_dur = 4.0;
     let result = stack.insert_item_at_time(
-        0,
+        video_track_index,
         0.0,
         Item::Clip(clip(insert_dur, Some("inserted"))),
         OverlapPolicy::Push,
