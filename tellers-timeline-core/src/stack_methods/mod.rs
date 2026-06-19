@@ -505,6 +505,36 @@ impl Stack {
         }
     }
 
+    fn try_reuse_video_track_for_audio_move(
+        &self,
+        track_index: usize,
+        audio_track_index: usize,
+        dest_time: Seconds,
+        end_time: Seconds,
+        sync_clips_id: Option<i64>,
+        use_sync_backed_track: bool,
+        overlap_policy: OverlapPolicy,
+    ) -> Option<usize> {
+        if self.children.get(track_index)?.kind != TrackKind::Video {
+            return None;
+        }
+        if range_is_gap_backed(&self.children[track_index], dest_time, end_time) {
+            return Some(track_index);
+        }
+        let has_blocking_clip = range_has_blocking_clip(
+            &self.children[track_index],
+            dest_time,
+            end_time,
+            sync_clips_id,
+        );
+        let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
+            && self.track_matches_primary_sync_boundary(audio_track_index, track_index);
+        if !has_blocking_clip || can_push_existing_boundary {
+            return use_sync_backed_track.then_some(track_index);
+        }
+        None
+    }
+
     fn find_or_create_video_track_for_audio(
         &mut self,
         audio_track_index: usize,
@@ -516,41 +546,54 @@ impl Stack {
         overlap_policy: OverlapPolicy,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
-        let mut group_start = audio_track_index;
-        while group_start > 0 && self.children[group_start - 1].kind == TrackKind::Audio {
-            group_start -= 1;
-            if track_is_empty_boundary(&self.children[group_start]) {
+        let mut audio_start = audio_track_index;
+        while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
+            audio_start -= 1;
+            if track_is_empty_boundary(&self.children[audio_start]) {
                 break;
             }
         }
-        if group_start > 0
-            && !track_is_empty_boundary(&self.children[group_start])
-            && self.children[group_start - 1].kind == TrackKind::Video
-        {
-            group_start -= 1;
+        let mut audio_end = audio_track_index + 1;
+        while audio_end < self.children.len() && self.children[audio_end].kind == TrackKind::Audio {
+            audio_end += 1;
         }
 
-        if self.children.get(group_start)?.kind == TrackKind::Video {
-            if range_is_gap_backed(&self.children[group_start], dest_time, end_time) {
-                return Some(group_start);
-            }
-            let has_blocking_clip = range_has_blocking_clip(
-                &self.children[group_start],
+        // Video-over-audio layout: reuse the video track directly above the audio group.
+        if audio_start > 0 && !track_is_empty_boundary(&self.children[audio_start]) {
+            if let Some(track_index) = self.try_reuse_video_track_for_audio_move(
+                audio_start - 1,
+                audio_track_index,
                 dest_time,
                 end_time,
                 sync_clips_id,
-            );
-            let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
-                && self.track_matches_primary_sync_boundary(audio_track_index, group_start);
-            if !has_blocking_clip || can_push_existing_boundary {
-                return use_sync_backed_track.then_some(group_start);
+                use_sync_backed_track,
+                overlap_policy,
+            ) {
+                return Some(track_index);
             }
         }
 
+        // Audio-over-video layout: reuse the video track directly below the audio group.
+        if audio_end < self.children.len() {
+            if let Some(track_index) = self.try_reuse_video_track_for_audio_move(
+                audio_end,
+                audio_track_index,
+                dest_time,
+                end_time,
+                sync_clips_id,
+                use_sync_backed_track,
+                overlap_policy,
+            ) {
+                return Some(track_index);
+            }
+        }
+
+        // Create the new video track directly below the moving audio group.
+        let insert_at = audio_end;
         let track = self.new_numbered_track(TrackKind::Video);
-        self.children.insert(group_start, track);
-        created_track_indices.push(group_start);
-        Some(group_start)
+        self.children.insert(insert_at, track);
+        created_track_indices.push(insert_at);
+        Some(insert_at)
     }
 
     fn item_occupies_column(

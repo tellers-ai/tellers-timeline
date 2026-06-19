@@ -1914,6 +1914,65 @@ fn move_synced_set_within_same_cluster_preserves_original_tracks_when_moving_fro
 }
 
 #[test]
+fn move_synced_audio_creates_video_track_below_audio_group_in_resolve_layout() {
+    let mut stack = Stack::default();
+    const DUR: f64 = 5.0;
+
+    let mut a15 = Track::new(TrackKind::Audio, Some("A15".to_string()));
+    a15.items.push(Item::Gap(Gap::make_gap(100.0)));
+    let mut aud = audio_clip(DUR, "file:///moving-aud.wav", None);
+    aud.set_id(Some("moving-aud".to_string()));
+    a15.items.push(aud);
+
+    let mut v1 = Track::new(TrackKind::Video, Some("V1".to_string()));
+    v1.items.push(Item::Gap(Gap::make_gap(100.0)));
+    v1.items
+        .push(Item::Clip(clip(DUR, Some("moving-vid"))));
+
+    stack.children.push(a15);
+    stack.children.push(v1);
+    stack
+        .sync_item(&["moving-vid".to_string(), "moving-aud".to_string()])
+        .unwrap();
+
+    let mut separator = Track::new(TrackKind::Video, Some("separator-v".to_string()));
+    separator
+        .items
+        .push(Item::Clip(clip(100.0, Some("separator-vid"))));
+    stack.children.push(separator);
+
+    let mut dest_a = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
+    dest_a.items.push(Item::Gap(Gap::make_gap(100.0)));
+    stack.children.push(dest_a);
+
+    let dest_a_index = stack.get_track_by_id("dest-a").unwrap().0;
+    let v1_index = stack.get_track_by_id("V1").unwrap().0;
+    let track_count_before = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "moving-aud",
+        "dest-a",
+        50.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count_before + 1);
+    let (video_track, video_index, _) = stack.get_item("moving-vid").unwrap();
+    assert_eq!(stack.children[video_track].kind, TrackKind::Video);
+    assert_eq!(
+        video_track, dest_a_index + 1,
+        "new video track must sit directly below dest-a, not at stack top or next to V1"
+    );
+    assert_eq!(stack.get_track_by_id("V1").unwrap().0, v1_index);
+    assert_eq!(
+        stack.children[video_track].start_time_of_item(video_index),
+        50.0
+    );
+}
+
+#[test]
 fn move_unsynced_clip_between_video_tracks_in_cluster_preserves_track_and_cluster_count() {
     let mut stack = Stack::default();
 
