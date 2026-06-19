@@ -42,7 +42,7 @@ impl Stack {
             Item::Gap(_) => None,
         };
         let synced_audio_input_provided = synced_audio_clips.is_some();
-        let synced_inputs = Self::normalize_synced_inputs(synced_audio_clips);
+        let synced_inputs = Self::normalize_synced_inputs(synced_audio_clips, None);
         let should_link = selected_sync_clips.is_some() || !synced_inputs.audio.is_empty();
         let sync_clips =
             selected_sync_clips.or_else(|| should_link.then(|| self.next_sync_clips_id()));

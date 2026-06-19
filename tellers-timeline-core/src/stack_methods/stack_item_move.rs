@@ -71,6 +71,7 @@ impl Stack {
                 overlap_policy,
                 insert_policy,
                 None,
+                None,
             )
             .is_some()
         {
@@ -122,6 +123,7 @@ impl Stack {
                 dest_index,
                 item_to_move,
                 overlap_policy,
+                None,
                 None,
             )
             .is_some()
