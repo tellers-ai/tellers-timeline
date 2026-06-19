@@ -4,10 +4,10 @@ use std::collections::HashSet;
 const EPS: Seconds = super::EPS;
 
 impl Stack {
-    pub fn unlink_item(&mut self, item_ids: &[String]) -> usize {
+    pub fn unsync_item(&mut self, item_ids: &[String]) -> usize {
         let mut targets = Vec::new();
         let mut seen_targets = HashSet::new();
-        let mut touched_link_groups = Vec::new();
+        let mut touched_sync_clips = Vec::new();
 
         for item_id in item_ids {
             let Some((track_index, item_index)) = self.clip_target(item_id) else {
@@ -17,8 +17,8 @@ impl Stack {
                 continue;
             }
             if let Item::Clip(clip) = &self.children[track_index].items[item_index] {
-                if let Some(link_group_id) = super::resolve_link_group_id(&clip.metadata) {
-                    touched_link_groups.push(link_group_id);
+                if let Some(sync_clips_id) = super::resolve_sync_clips_id(&clip.metadata) {
+                    touched_sync_clips.push(sync_clips_id);
                     targets.push((track_index, item_index));
                 }
             }
@@ -33,15 +33,15 @@ impl Stack {
             else {
                 continue;
             };
-            if super::remove_resolve_link_group_id(&mut clip.metadata) {
+            if super::remove_resolve_sync_clips_id(&mut clip.metadata) {
                 count += 1;
             }
         }
-        count += self.cleanup_singleton_link_groups(&touched_link_groups);
+        count += self.cleanup_singleton_sync_clips(&touched_sync_clips);
         count
     }
 
-    pub fn link_item(&mut self, item_ids: &[String]) -> Option<i64> {
+    pub fn sync_item(&mut self, item_ids: &[String]) -> Option<i64> {
         let mut targets = Vec::new();
         let mut seen_targets = HashSet::new();
         for item_id in item_ids {
@@ -66,7 +66,7 @@ impl Stack {
         }
 
         let backup = self.clone();
-        let mut touched_link_groups = Vec::new();
+        let mut touched_sync_clips = Vec::new();
         for (track_index, item_index) in &targets {
             let Some(Item::Clip(clip)) = self
                 .children
@@ -76,14 +76,14 @@ impl Stack {
                 *self = backup;
                 return None;
             };
-            if let Some(link_group_id) = super::resolve_link_group_id(&clip.metadata) {
-                touched_link_groups.push(link_group_id);
-                super::remove_resolve_link_group_id(&mut clip.metadata);
+            if let Some(sync_clips_id) = super::resolve_sync_clips_id(&clip.metadata) {
+                touched_sync_clips.push(sync_clips_id);
+                super::remove_resolve_sync_clips_id(&mut clip.metadata);
             }
         }
-        self.cleanup_singleton_link_groups(&touched_link_groups);
+        self.cleanup_singleton_sync_clips(&touched_sync_clips);
 
-        let link_group_id = self.next_link_group_id();
+        let sync_clips_id = self.next_sync_clips_id();
         for (track_index, item_index) in targets {
             let Some(Item::Clip(clip)) = self
                 .children
@@ -93,9 +93,9 @@ impl Stack {
                 *self = backup;
                 return None;
             };
-            super::set_resolve_link_group_id(&mut clip.metadata, link_group_id);
+            super::set_resolve_sync_clips_id(&mut clip.metadata, sync_clips_id);
         }
 
-        Some(link_group_id)
+        Some(sync_clips_id)
     }
 }

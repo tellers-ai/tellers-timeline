@@ -81,15 +81,15 @@ fn all_stack_ids(stack: &Stack) -> Vec<String> {
     ids
 }
 
-fn set_link_group(clip: &mut Clip, link_group_id: i64) {
+fn set_sync_clips(clip: &mut Clip, sync_clips_id: i64) {
     clip.metadata = serde_json::json!({
         "Resolve_OTIO": {
-            "Link Group ID": link_group_id
+            "Link Group ID": sync_clips_id
         }
     });
 }
 
-fn link_group_id(item: &Item) -> Option<i64> {
+fn sync_clips_id(item: &Item) -> Option<i64> {
     match item {
         Item::Clip(clip) => clip
             .metadata
@@ -242,9 +242,9 @@ fn timeline_sanitize_uses_stack_timeline_id_repair() {
 }
 
 #[test]
-fn stack_sanitize_removes_dangling_link_group() {
+fn stack_sanitize_removes_dangling_sync_clips() {
     let mut linked = clip(2.0, Some("dangling"));
-    set_link_group(&mut linked, 42);
+    set_sync_clips(&mut linked, 42);
     let mut track = Track::new(TrackKind::Video, Some("video".to_string()));
     track.items.push(Item::Clip(linked));
 
@@ -255,15 +255,15 @@ fn stack_sanitize_removes_dangling_link_group() {
 
     stack.sanitize();
 
-    assert_eq!(link_group_id(&stack.children[0].items[0]), None);
+    assert_eq!(sync_clips_id(&stack.children[0].items[0]), None);
 }
 
 #[test]
-fn stack_sanitize_keeps_non_dangling_link_group() {
+fn stack_sanitize_keeps_non_dangling_sync_clips() {
     let mut video_clip = clip(2.0, Some("video"));
     let mut audio_clip = clip(2.0, Some("audio"));
-    set_link_group(&mut video_clip, 42);
-    set_link_group(&mut audio_clip, 42);
+    set_sync_clips(&mut video_clip, 42);
+    set_sync_clips(&mut audio_clip, 42);
 
     let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
     video.items.push(Item::Clip(video_clip));
@@ -277,6 +277,6 @@ fn stack_sanitize_keeps_non_dangling_link_group() {
 
     stack.sanitize();
 
-    assert_eq!(link_group_id(&stack.children[0].items[0]), Some(42));
-    assert_eq!(link_group_id(&stack.children[1].items[0]), Some(42));
+    assert_eq!(sync_clips_id(&stack.children[0].items[0]), Some(42));
+    assert_eq!(sync_clips_id(&stack.children[1].items[0]), Some(42));
 }

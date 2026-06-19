@@ -79,7 +79,7 @@ impl Stack {
             t.sanitize();
         }
         self.ensure_unique_timeline_ids();
-        self.cleanup_dangling_link_groups();
+        self.cleanup_dangling_sync_clips();
     }
 
     pub(crate) fn sanitize_preserving_all_gap_tracks(&mut self) {
@@ -87,7 +87,7 @@ impl Stack {
             t.sanitize_preserving_all_gap_track();
         }
         self.ensure_unique_timeline_ids();
-        self.cleanup_dangling_link_groups();
+        self.cleanup_dangling_sync_clips();
     }
 
     fn ensure_unique_timeline_ids(&mut self) {
@@ -100,15 +100,15 @@ impl Stack {
         }
     }
 
-    fn cleanup_dangling_link_groups(&mut self) {
+    fn cleanup_dangling_sync_clips(&mut self) {
         let mut counts: HashMap<i64, usize> = HashMap::new();
         for track in &self.children {
             for item in &track.items {
                 let Item::Clip(clip) = item else {
                     continue;
                 };
-                if let Some(link_group_id) = resolve_link_group_id(&clip.metadata) {
-                    *counts.entry(link_group_id).or_default() += 1;
+                if let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) {
+                    *counts.entry(sync_clips_id).or_default() += 1;
                 }
             }
         }
@@ -118,11 +118,11 @@ impl Stack {
                 let Item::Clip(clip) = item else {
                     continue;
                 };
-                let Some(link_group_id) = resolve_link_group_id(&clip.metadata) else {
+                let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) else {
                     continue;
                 };
-                if counts.get(&link_group_id).copied().unwrap_or_default() < 2 {
-                    remove_resolve_link_group_id(&mut clip.metadata);
+                if counts.get(&sync_clips_id).copied().unwrap_or_default() < 2 {
+                    remove_resolve_sync_clips_id(&mut clip.metadata);
                 }
             }
         }
@@ -148,7 +148,7 @@ fn new_unused_timeline_id(used_ids: &mut HashSet<String>) -> String {
     }
 }
 
-fn resolve_link_group_id(metadata: &serde_json::Value) -> Option<i64> {
+fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
     metadata
         .get("Resolve_OTIO")
         .and_then(|v| v.get("Link Group ID"))
@@ -159,7 +159,7 @@ fn resolve_link_group_id(metadata: &serde_json::Value) -> Option<i64> {
         })
 }
 
-fn remove_resolve_link_group_id(metadata: &mut serde_json::Value) -> bool {
+fn remove_resolve_sync_clips_id(metadata: &mut serde_json::Value) -> bool {
     let Some(resolve) = metadata
         .get_mut("Resolve_OTIO")
         .and_then(|value| value.as_object_mut())

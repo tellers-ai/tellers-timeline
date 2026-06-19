@@ -1,4 +1,4 @@
-use super::TrackBoundaryGroupInfo;
+use super::SyncTrackInfo;
 use crate::{IdMetadataExt, Item, Stack, Track, TrackKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +74,7 @@ impl Stack {
     }
 
     /// Return boundary groups with their primary track and bound tracks.
-    pub fn track_boundary_group_info(&self) -> Vec<TrackBoundaryGroupInfo> {
+    pub fn sync_track_info(&self) -> Vec<SyncTrackInfo> {
         self.track_boundary_ranges()
             .into_iter()
             .map(|group| {
@@ -93,7 +93,7 @@ impl Stack {
                     .iter()
                     .map(|index| self.children[*index].get_id())
                     .collect();
-                TrackBoundaryGroupInfo {
+                SyncTrackInfo {
                     start_index: group.start,
                     end_index: group.end,
                     track_indices,
@@ -110,17 +110,17 @@ impl Stack {
     /// Delete a track by id. Returns the removed track on success.
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         let (i, track) = self.get_track_by_id(id)?;
-        let touched_link_groups: Vec<_> = track
+        let touched_sync_clips_ids: Vec<_> = track
             .items
             .iter()
             .filter_map(|item| match item {
-                Item::Clip(clip) => super::resolve_link_group_id(&clip.metadata),
+                Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata),
                 Item::Gap(_) => None,
             })
             .collect();
         let removed = self.children.remove(i);
-        for link_group_id in touched_link_groups {
-            self.delete_link_group(link_group_id, true);
+        for sync_clips_id in touched_sync_clips_ids {
+            self.delete_sync_clips(sync_clips_id, true);
         }
         self.sanitize_preserving_all_gap_tracks();
         Some(removed)
@@ -144,32 +144,55 @@ impl Stack {
             .find(|group| track_index >= group.start && track_index < group.end)
     }
 
-    fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
-        let mut groups = Vec::new();
-        let mut start = 0;
-        while start < self.children.len() {
-            let mut end = start + 1;
-            while end < self.children.len() && self.tracks_share_boundary_group(end - 1, end) {
-                end += 1;
-            }
-            groups.push(TrackBoundaryGroup { start, end });
-            start = end;
+    /// The ascending track indices of the sync group `track_index` belongs to
+    /// (the same grouping reported by `sync_track_info`). Falls back to the
+    /// track itself if it is not part of any multi-track group.
+    pub(super) fn boundary_group_indices(&self, track_index: usize) -> Vec<usize> {
+        match self.track_boundary_group_at(track_index) {
+            Some(group) => (group.start..group.end).collect(),
+            None => vec![track_index],
         }
-        groups
     }
 
-    fn tracks_share_boundary_group(&self, left: usize, right: usize) -> bool {
-        let Some(left_track) = self.children.get(left) else {
-            return false;
-        };
-        let Some(right_track) = self.children.get(right) else {
-            return false;
-        };
-        if !track_has_linked_clip(left_track) || !track_has_linked_clip(right_track) {
-            return false;
+    /// Build sync boundary groups from the bottom track upward.
+    ///
+    /// The last track is the initial principal. Each track above it is compared to
+    /// the current principal: if every synced clip on the candidate matches a
+    /// synced clip on the principal, or the candidate is an empty boundary track,
+    /// they share a cluster. Otherwise the candidate becomes the principal of a
+    /// new cluster. Repeat until index 0.
+    fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
+        let len = self.children.len();
+        if len == 0 {
+            return Vec::new();
         }
-        self.track_matches_primary_link_boundary(left, right)
-            || self.track_matches_primary_link_boundary(right, left)
+
+        let mut groups_bottom_up = Vec::new();
+        let mut principal = len - 1;
+        let mut cluster_start = principal;
+        let mut cluster_end = len;
+
+        for i in 1..len {
+            let candidate = len - 1 - i;
+            if self.track_matches_principal_cluster(principal, candidate) {
+                cluster_start = candidate;
+            } else {
+                groups_bottom_up.push(TrackBoundaryGroup {
+                    start: cluster_start,
+                    end: cluster_end,
+                });
+                principal = candidate;
+                cluster_start = candidate;
+                cluster_end = candidate + 1;
+            }
+        }
+        groups_bottom_up.push(TrackBoundaryGroup {
+            start: cluster_start,
+            end: cluster_end,
+        });
+
+        groups_bottom_up.reverse();
+        groups_bottom_up
     }
 
     fn is_primary_track_in_group(&self, track_index: usize, group: TrackBoundaryGroup) -> bool {
@@ -187,11 +210,4 @@ impl Stack {
         }
         group.start
     }
-}
-
-fn track_has_linked_clip(track: &Track) -> bool {
-    track.items.iter().any(|item| match item {
-        Item::Clip(clip) => super::resolve_link_group_id(&clip.metadata).is_some(),
-        Item::Gap(_) => false,
-    })
 }

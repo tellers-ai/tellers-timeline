@@ -179,7 +179,6 @@ fn insert_before_after_or_boundary() {
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
         None,
-        None,
     );
     let track = &stack.children[0];
     assert!(matches!(track.items[0], Item::Clip(_)));
@@ -191,7 +190,6 @@ fn insert_before_after_or_boundary() {
         make_clip(1.0, 0.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertAfter,
-        None,
         None,
     );
     let track = &stack.children[0];
@@ -205,7 +203,6 @@ fn insert_before_after_or_boundary() {
         make_clip(0.5, 0.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBeforeOrAfter,
-        None,
         None,
     );
     let track = &stack.children[0];
@@ -222,7 +219,6 @@ fn insert_plain_item_without_id_returns_assigned_id() {
         make_clip(1.0, 0.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
-        None,
         None,
     );
 
@@ -246,7 +242,6 @@ fn insert_plain_item_at_index_without_id_returns_assigned_id() {
         make_clip(1.0, 0.0),
         OverlapPolicy::Push,
         None,
-        None,
     );
 
     let Some(InsertItemAtTimeResult::ItemId(inserted_id)) = result else {
@@ -268,7 +263,6 @@ fn insert_missing_active_key_does_not_clamp_to_default_media() {
         make_clip_with_default_available_range(5.0, 3.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
-        None,
         None,
     );
 
@@ -292,7 +286,6 @@ fn insert_clamp_converts_rational_time_rates() {
         make_clip_with_mixed_rates(0.0, 120.0, 24.0, 1.0, 3.0, 1.0),
         OverlapPolicy::Push,
         InsertPolicy::InsertBefore,
-        None,
         None,
     );
 
@@ -320,7 +313,6 @@ fn insert_split_and_override() {
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
         None,
-        None,
     );
 
     // Expect an item at 3.0 of duration 4.0
@@ -343,7 +335,6 @@ fn insert_split_and_override_at_zero() {
         make_clip(4.0, 0.0),
         OverlapPolicy::Override,
         InsertPolicy::SplitAndInsert,
-        None,
         None,
     );
     let track = &stack.children[0];

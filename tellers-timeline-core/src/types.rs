@@ -1449,8 +1449,8 @@ impl Timeline {
     pub fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.tracks.reorder_track(id, insertion_index)
     }
-    pub fn track_boundary_group_info(&self) -> Vec<crate::TrackBoundaryGroupInfo> {
-        self.tracks.track_boundary_group_info()
+    pub fn sync_track_info(&self) -> Vec<crate::SyncTrackInfo> {
+        self.tracks.sync_track_info()
     }
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         self.tracks.delete_track(id)

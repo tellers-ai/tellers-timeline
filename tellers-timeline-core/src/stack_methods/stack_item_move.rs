@@ -2,6 +2,15 @@ use crate::{InsertPolicy, OverlapPolicy, Seconds, Stack};
 
 impl Stack {
     /// Move an item identified by `item_id` to `dest_time` on the track with `dest_track_id`.
+    ///
+    /// Chooses the appropriate strategy automatically:
+    /// - **Synced clips** (same link group, same start, same duration): moves the whole
+    ///   sync set together via [`Stack::move_synced_items`], preserving sync track layout.
+    /// - **Linked / grouped clips** (Resolve link group or Tellers group with offsets):
+    ///   moves the primary to the destination and re-inserts partners on their tracks
+    ///   with preserved relative offsets, using insert so cluster column padding applies.
+    /// - **Unsynced items**: delete + insert at the destination time.
+    ///
     /// Returns true if the item was successfully moved.
     pub fn move_item_at_time(
         &mut self,
@@ -12,26 +21,42 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) -> bool {
-        let item_to_move = match self.get_item(item_id) {
-            Some((_ti, _ii, it)) => it.clone(),
-            None => return false,
-        };
-        let dest_track_index = match self.get_track_by_id(dest_track_id) {
-            Some((i, _)) => i,
-            None => return false,
-        };
-        if let Some(items_to_move) = self.linked_move_items(item_id) {
-            return self.move_linked_items(
+        if let Some(items_to_move) = self.synced_move_items(item_id) {
+            let dest_track_index = match self.get_track_by_id(dest_track_id) {
+                Some((index, _)) => index,
+                None => return false,
+            };
+            return self.move_synced_items(
                 items_to_move,
                 dest_track_index,
                 replace_with_gap,
                 overlap_policy,
-                super::LinkedMovePlacement::Time {
+                super::SyncedMovePlacement::Time {
                     dest_time,
                     insert_policy,
                 },
             );
         }
+
+        let item_to_move = match self.get_item(item_id) {
+            Some((_ti, _ii, item)) => item.clone(),
+            None => return false,
+        };
+        if !self.linked_item_ids_for_move(item_id, &item_to_move).is_empty() {
+            return self.move_linked_items_at_time(
+                item_id,
+                dest_track_id,
+                dest_time,
+                replace_with_gap,
+                insert_policy,
+                overlap_policy,
+            );
+        }
+
+        let dest_track_index = match self.get_track_by_id(dest_track_id) {
+            Some((index, _)) => index,
+            None => return false,
+        };
 
         let backup = self.clone();
         if self.delete_one_item(item_id, replace_with_gap).is_none() {
@@ -46,10 +71,10 @@ impl Stack {
                 overlap_policy,
                 insert_policy,
                 None,
-                None,
             )
             .is_some()
         {
+            self.sanitize();
             true
         } else {
             *self = backup;
@@ -77,13 +102,13 @@ impl Stack {
             Some((i, _)) => i,
             None => return false,
         };
-        if let Some(items_to_move) = self.linked_move_items(item_id) {
-            return self.move_linked_items(
+        if let Some(items_to_move) = self.synced_move_items(item_id) {
+            return self.move_synced_items(
                 items_to_move,
                 dest_track_index,
                 replace_with_gap,
                 overlap_policy,
-                super::LinkedMovePlacement::Index { dest_index },
+                super::SyncedMovePlacement::Index { dest_index },
             );
         }
 
@@ -98,10 +123,10 @@ impl Stack {
                 item_to_move,
                 overlap_policy,
                 None,
-                None,
             )
             .is_some()
         {
+            self.sanitize();
             true
         } else {
             *self = backup;
