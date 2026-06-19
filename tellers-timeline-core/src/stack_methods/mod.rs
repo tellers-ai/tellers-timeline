@@ -610,6 +610,7 @@ impl Stack {
         sync_clips_id: Option<i64>,
         use_sync_backed_track: bool,
         overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
     ) -> Option<usize> {
         if self.children.get(track_index)?.kind != TrackKind::Video {
             return None;
@@ -625,7 +626,12 @@ impl Stack {
         );
         let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
             && self.track_matches_primary_sync_boundary(audio_track_index, track_index);
-        if !has_blocking_clip || can_push_existing_boundary {
+        // Override + SplitAndInsert splits destination clips at the insert
+        // point before the column lands, so an occupied cluster video track
+        // is still the correct target (e.g. cut into link group 7 on Video 2).
+        let will_split_for_override = overlap_policy == OverlapPolicy::Override
+            && matches!(insert_policy, InsertPolicy::SplitAndInsert);
+        if !has_blocking_clip || can_push_existing_boundary || will_split_for_override {
             return use_sync_backed_track.then_some(track_index);
         }
         None
@@ -640,6 +646,7 @@ impl Stack {
         sync_clips_id: Option<i64>,
         use_sync_backed_track: bool,
         overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
     ) -> Option<usize> {
         let end_time = dest_time + duration;
 
@@ -674,6 +681,7 @@ impl Stack {
                 sync_clips_id,
                 use_sync_backed_track,
                 overlap_policy,
+                insert_policy,
             ) {
                 return Some(track_index);
             }
@@ -1697,6 +1705,7 @@ impl Stack {
                 sync_clips_id,
                 true,
                 overlap_policy,
+                insert_policy,
             ) else {
                 *self = backup;
                 return None;
@@ -2476,8 +2485,26 @@ impl Stack {
         if selected_duration <= EPS {
             return None;
         }
-        let targets = self.sync_column_targets_at(sync_clips_id, selected_start, selected_duration);
+        let targets =
+            self.sync_column_targets_at(sync_clips_id, selected_start, selected_duration);
         if targets.len() <= 1 {
+            return None;
+        }
+
+        // Resolve exports often misalign video/audio columns. Defer to the
+        // linked-move path so each partner keeps its own duration.
+        let has_misaligned_video = self
+            .synced_clips_targets(sync_clips_id)
+            .into_iter()
+            .any(|(track_index, item_index)| {
+                self.children
+                    .get(track_index)
+                    .is_some_and(|track| track.kind == TrackKind::Video)
+                    && !targets
+                        .iter()
+                        .any(|(ti, ii)| ti == &track_index && ii == &item_index)
+            });
+        if has_misaligned_video {
             return None;
         }
 
@@ -2629,6 +2656,89 @@ impl Stack {
     /// Move a primary clip and its linked / grouped partners while preserving
     /// relative timeline offsets. Uses delete + insert so cluster column padding
     /// applies for unsynced inserts inside a sync cluster.
+    fn sync_clips_id_from_insert_result(
+        &self,
+        result: &InsertItemAtTimeResult,
+    ) -> Option<i64> {
+        match result {
+            InsertItemAtTimeResult::Synced(synced) => synced.sync_clips_id,
+            InsertItemAtTimeResult::ItemId(id) => self
+                .get_item(id)
+                .and_then(|(_, _, item)| item_link_group_id(item)),
+        }
+    }
+
+    fn place_link_group_video_partner(
+        &mut self,
+        dest_audio_track_index: usize,
+        dest_time: Seconds,
+        video_item: Item,
+        sync_clips_id: Option<i64>,
+        preferred_cluster_video_id: Option<&str>,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let video_duration = video_item.duration().max(0.0);
+        if video_duration <= EPS {
+            return false;
+        }
+        let Some(start) = insertion_start_or_end_for_policy(
+            &self.children[dest_audio_track_index],
+            dest_time,
+            insert_policy,
+        ) else {
+            return false;
+        };
+        let end_time = start + video_duration;
+
+        let mut created_track_indices = Vec::new();
+        let video_track_index = if let Some(preferred_id) = preferred_cluster_video_id {
+            self.get_track_by_id(preferred_id)
+                .map(|(track_index, _)| track_index)
+                .and_then(|track_index| {
+                    self.try_reuse_video_track_for_audio_move(
+                        track_index,
+                        dest_audio_track_index,
+                        start,
+                        end_time,
+                        sync_clips_id,
+                        true,
+                        overlap_policy,
+                        insert_policy,
+                    )
+                })
+        } else {
+            None
+        };
+        let Some(video_track_index) = video_track_index.or_else(|| {
+            self.find_or_create_video_track_for_audio(
+                dest_audio_track_index,
+                start,
+                video_duration,
+                &mut created_track_indices,
+                sync_clips_id,
+                true,
+                overlap_policy,
+                insert_policy,
+            )
+        }) else {
+            return false;
+        };
+
+        let mut used_ids = self.collect_timeline_ids();
+        let mut video_item = video_item;
+        Self::set_item_sync_clips(&mut video_item, sync_clips_id);
+        Self::ensure_unique_item_id(&mut video_item, &mut used_ids);
+
+        self.children[video_track_index].insert_at_time(
+            dest_time,
+            video_item,
+            overlap_policy,
+            insert_policy,
+        );
+        true
+    }
+
     fn move_linked_items_at_time(
         &mut self,
         item_id: &str,
@@ -2650,6 +2760,20 @@ impl Stack {
         let primary_start_time = backup
             .stack_item_start_time(item_id)
             .unwrap_or(dest_time);
+        let preferred_cluster_video_id = backup
+            .get_track_by_id(dest_track_id)
+            .map(|(dest_track_index, _)| dest_track_index)
+            .and_then(|dest_track_index| {
+                backup
+                    .boundary_group_indices(dest_track_index)
+                    .into_iter()
+                    .find_map(|track_index| {
+                        let track = backup.children.get(track_index)?;
+                        (track.kind == TrackKind::Video)
+                            .then(|| track.get_id().clone())
+                            .flatten()
+                    })
+            });
         let linked_item_ids = backup.linked_item_ids_for_move(item_id, &item_to_move);
         let mut ids_to_remove: Vec<String> = std::iter::once(item_id.to_string())
             .chain(linked_item_ids.into_iter())
@@ -2672,6 +2796,10 @@ impl Stack {
         }
 
         let mut linked_audio_items = Vec::new();
+        let mut linked_video_item = None;
+        let dest_is_audio = self.children.get(dest_track_index).is_some_and(|track| {
+            track.kind == TrackKind::Audio
+        });
         for (source_track_index, item) in removed_items {
             if item
                 .get_id()
@@ -2698,6 +2826,18 @@ impl Stack {
                 if let Item::Clip(clip) = item {
                     linked_audio_items.push(Item::Clip(clip));
                 }
+            } else if dest_is_audio
+                && matches!(source_track_kind, Some(TrackKind::Video))
+                && matches!(item, Item::Clip(_))
+            {
+                // Resolve link groups often misalign video/audio columns; when
+                // moving onto an audio destination, keep the video partner for
+                // the synced insert instead of leaving it on the source track.
+                if linked_video_item.is_some() {
+                    *self = backup;
+                    return false;
+                }
+                linked_video_item = Some(item);
             } else if is_same_time && matches!(item, Item::Gap(_)) {
                 // Drop same-time gaps left behind by sync deletion.
             } else if let Some(source_track_id) = backup
@@ -2719,7 +2859,9 @@ impl Stack {
             }
         }
 
-        if linked_audio_items.is_empty() {
+        let has_synced_partners =
+            !linked_audio_items.is_empty() || linked_video_item.is_some();
+        if !has_synced_partners {
             self.insert_at_time_with_sync_splits(
                 dest_track_index,
                 dest_time,
@@ -2727,20 +2869,38 @@ impl Stack {
                 overlap_policy,
                 insert_policy,
             );
-        } else if self
-            .insert_item_at_time(
+        } else {
+            let Some(insert_result) = self.insert_item_at_time(
                 dest_track_index,
                 dest_time,
                 item_to_move,
                 overlap_policy,
                 insert_policy,
-                Some(linked_audio_items),
+                (!linked_audio_items.is_empty()).then_some(linked_audio_items),
                 None,
-            )
-            .is_none()
-        {
-            *self = backup;
-            return false;
+            ) else {
+                *self = backup;
+                return false;
+            };
+            if let Some(video_item) = linked_video_item {
+                let sync_clips_id = self.sync_clips_id_from_insert_result(&insert_result);
+                let dest_audio_track_index = self
+                    .get_track_by_id(dest_track_id)
+                    .map(|(index, _)| index)
+                    .unwrap_or(dest_track_index);
+                if !self.place_link_group_video_partner(
+                    dest_audio_track_index,
+                    dest_time,
+                    video_item,
+                    sync_clips_id,
+                    preferred_cluster_video_id.as_deref(),
+                    insert_policy,
+                    overlap_policy,
+                ) {
+                    *self = backup;
+                    return false;
+                }
+            }
         }
 
         self.sanitize();
@@ -2913,6 +3073,10 @@ impl Stack {
             }
         }
 
+        let insert_policy_for_video = match &placement {
+            SyncedMovePlacement::Time { insert_policy, .. } => *insert_policy,
+            SyncedMovePlacement::Index { .. } => InsertPolicy::SplitAndInsert,
+        };
         let moved_start = match placement {
             SyncedMovePlacement::Time {
                 dest_time,
@@ -3026,6 +3190,7 @@ impl Stack {
                         Some(sync_clips_id),
                         true,
                         overlap_policy,
+                        insert_policy_for_video,
                     ) else {
                         *self = backup;
                         return false;

@@ -1,6 +1,6 @@
 use tellers_timeline_core::{
     Clip, Gap, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, SyncedInsertResult,
-    MediaReference, OverlapPolicy, RationalTime, Stack, SyncTrackInfo, TimeRange, Track,
+    MediaReference, OverlapPolicy, RationalTime, Stack, SyncTrackInfo, TimeRange, Timeline, Track,
     TrackKind,
 };
 
@@ -3270,6 +3270,12 @@ fn track_index_by_id(stack: &Stack, id: &str) -> usize {
         .unwrap_or_else(|| panic!("track {id:?} not found"))
 }
 
+fn fixture_path(name: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
 fn assert_item_span(track: &Track, item_index: usize, expected_start: f64, expected_duration: f64) {
     let start = track.start_time_of_item(item_index);
     let duration = track.items[item_index].duration();
@@ -5978,6 +5984,45 @@ fn move_synced_audio_to_lower_cluster_reuses_cluster_video_not_upper_neighbor() 
     assert!(
         stack.get_item("hh10-v").is_some(),
         "video partner must survive the audio-primary move"
+    );
+}
+
+#[test]
+fn move_synced_audio_cut_through_destination_cluster_reuses_video2_not_v1() {
+    let json =
+        std::fs::read_to_string(fixture_path("new_project_move_cut.otio")).expect("fixture");
+    let mut tl: Timeline = serde_json::from_str(&json).expect("parse");
+    tl.sanitize();
+
+    // Cut into link group 7 on A9 (~26 frames into the 63-frame tail clip).
+    const DEST_TIME: f64 = 7.716;
+    assert!(tl.tracks.move_item_at_time(
+        "68dd84161a27",
+        "A9",
+        DEST_TIME,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track, _, _) = tl.tracks.get_item("0399904de764").unwrap();
+    assert_eq!(
+        tl.tracks.children[video_track].get_id().as_deref(),
+        Some("4c7edef5-ed41-4699-8b5f-b4d91d7918c4"),
+        "synced video must stay on the destination cluster video track when the insert cuts through existing clips"
+    );
+    assert!(
+        tl.tracks.get_track_by_id("V1").is_none(),
+        "must not spawn V1 when Video 2 can host the override split insert"
+    );
+
+    let a9 = track_index_by_id(&tl.tracks, "A9");
+    let a9_track = &tl.tracks.children[a9];
+    let cut_index = a9_track.get_item_at_time(DEST_TIME).unwrap();
+    let cut_start = a9_track.start_time_of_item(cut_index);
+    assert!(
+        (cut_start - DEST_TIME).abs() < 0.05,
+        "moved audio should land at the cut point, got {cut_start}"
     );
 }
 
