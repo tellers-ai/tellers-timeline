@@ -754,16 +754,7 @@ impl Stack {
             Item::Gap(_) => None,
         };
         if let Some(sync_id) = sync_clips_id {
-            let column_start = self.children[track_index].start_time_of_item(item_index);
-            let column_duration = item.duration().max(0.0);
-            Some(
-                self.synced_clips_targets(sync_id)
-                    .into_iter()
-                    .filter(|(ti, ii)| {
-                        self.item_occupies_column(*ti, *ii, column_start, column_duration)
-                    })
-                    .collect(),
-            )
+            Some(self.synced_clips_targets(sync_id))
         } else {
             Some(vec![(track_index, item_index)])
         }
@@ -818,17 +809,6 @@ impl Stack {
 
         if matches!(item, Item::Gap(_)) {
             let removed = self.delete_clips_at_indices(vec![(track_index, item_index)], false);
-            if !removed.is_empty() {
-                self.sanitize();
-            }
-            return removed;
-        }
-
-        if item.duration() <= EPS {
-            let removed: Vec<_> = self
-                .delete_one_item(item_id, false)
-                .into_iter()
-                .collect();
             if !removed.is_empty() {
                 self.sanitize();
             }
