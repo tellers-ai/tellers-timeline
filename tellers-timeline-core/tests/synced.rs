@@ -3334,6 +3334,38 @@ fn delete_clip_a_collapse_pulls_synced_partner_left() {
     );
 }
 
+fn stack_v1_c1_c2_a1() -> Stack {
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(synced_clip_item(3.0, "c1", 1));
+    video.items.push(Item::Clip(clip(4.0, Some("c2"))));
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(synced_clip_item(3.0, "c1a", 1));
+    let mut stack = Stack::default();
+    stack.children.push(audio);
+    stack.children.push(video);
+    stack
+}
+
+#[test]
+fn delete_synced_audio_collapse_removes_video_partner_and_moves_following_clip() {
+    let mut stack = stack_v1_c1_c2_a1();
+    let v1 = track_index_by_id(&stack, "v1");
+    let a1 = track_index_by_id(&stack, "a1");
+
+    let removed = stack.delete_item("c1a", false);
+    assert_eq!(removed.len(), 2);
+    assert!(stack.get_item("c1a").is_none());
+    assert!(stack.get_item("c1").is_none());
+    assert!(stack.get_item("c2").is_some());
+
+    let video = &stack.children[v1];
+    assert_eq!(video.items.len(), 1);
+    assert_item_span(video, 0, 0.0, 4.0);
+    assert_eq!(video.items[0].get_id().as_deref(), Some("c2"));
+
+    assert!(stack.children[a1].items.is_empty());
+}
+
 #[test]
 fn delete_unsynced_item_only_removes_selected_item() {
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));

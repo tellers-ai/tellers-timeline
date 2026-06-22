@@ -717,12 +717,22 @@ impl Stack {
             if ii >= track.items.len() {
                 continue;
             }
-            let removed_item = track.items[ii].clone();
-            if !track.delete_clip_at(ii, replace_with_gap) {
+            if matches!(track.items[ii], Item::Gap(_)) && replace_with_gap {
                 continue;
             }
+            let start = track.start_time_of_item(ii);
+            let end = start + track.items[ii].duration().max(0.0);
+            let mut removed_items = track.delete_range(start, end, replace_with_gap);
+            let Some(removed_item) = removed_items.pop() else {
+                continue;
+            };
             if replace_with_gap {
-                if let (Some(used_ids), Some(item)) = (&mut used_ids, track.items.get_mut(ii)) {
+                if let (Some(used_ids), Some(item)) = (
+                    &mut used_ids,
+                    track
+                        .get_item_at_time(start)
+                        .and_then(|gap_index| track.items.get_mut(gap_index)),
+                ) {
                     if matches!(item, Item::Gap(_)) {
                         Self::ensure_unique_item_id(item, used_ids);
                     }
@@ -744,16 +754,7 @@ impl Stack {
             Item::Gap(_) => None,
         };
         if let Some(sync_id) = sync_clips_id {
-            let column_start = self.children[track_index].start_time_of_item(item_index);
-            let column_duration = item.duration().max(0.0);
-            Some(
-                self.synced_clips_targets(sync_id)
-                    .into_iter()
-                    .filter(|(ti, ii)| {
-                        self.item_occupies_column(*ti, *ii, column_start, column_duration)
-                    })
-                    .collect(),
-            )
+            Some(self.synced_clips_targets(sync_id))
         } else {
             Some(vec![(track_index, item_index)])
         }
@@ -770,6 +771,37 @@ impl Stack {
         removed
     }
 
+    fn sync_groups_behind_clips(&self, clips_to_delete: &[(usize, usize)]) -> HashSet<i64> {
+        let mut sync_groups = HashSet::new();
+        for &(ti, ii) in clips_to_delete {
+            let Some(track) = self.children.get(ti) else {
+                continue;
+            };
+            for item in track.items.iter().skip(ii + 1) {
+                if let Item::Clip(clip) = item {
+                    if let Some(sync_id) = resolve_sync_clips_id(&clip.metadata) {
+                        sync_groups.insert(sync_id);
+                    }
+                }
+            }
+        }
+        sync_groups
+    }
+
+    fn collapse_mutation_tracks(
+        &self,
+        clips_to_delete: &[(usize, usize)],
+        sync_groups_behind: &HashSet<i64>,
+    ) -> HashSet<usize> {
+        let mut tracks: HashSet<usize> = clips_to_delete.iter().map(|(ti, _)| *ti).collect();
+        for sync_id in sync_groups_behind {
+            for (ti, _) in self.synced_clips_targets(*sync_id) {
+                tracks.insert(ti);
+            }
+        }
+        tracks
+    }
+
     fn delete_item_collapse(&mut self, item_id: &str) -> Vec<(usize, Item)> {
         let Some((track_index, item_index, item)) = self.get_item(item_id) else {
             return Vec::new();
@@ -783,77 +815,38 @@ impl Stack {
             return removed;
         }
 
-        if item.duration() <= EPS {
-            let removed: Vec<_> = self
-                .delete_one_item(item_id, false)
-                .into_iter()
-                .collect();
-            if !removed.is_empty() {
-                self.sanitize();
-            }
-            return removed;
+        let Some(clips_to_delete) = self.delete_item_targets(item_id) else {
+            return Vec::new();
+        };
+        if clips_to_delete.is_empty() {
+            return Vec::new();
         }
 
         let column_start = self.children[track_index].start_time_of_item(item_index);
-        let column_duration = item.duration().max(0.0);
-        let linked_tracks = self.boundary_group_indices(track_index);
-        let sync_clips_id = match &item {
-            Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
-        };
+        let column_end = column_start + item.duration().max(0.0);
+        let sync_groups_behind = self.sync_groups_behind_clips(&clips_to_delete);
+        let tracks_to_mutate =
+            self.collapse_mutation_tracks(&clips_to_delete, &sync_groups_behind);
 
-        let backup = self.clone();
-        let mut clips_to_delete = Vec::new();
-        let mut covered_tracks = HashSet::new();
+        let mut removed = self.delete_clips_at_indices(clips_to_delete, false);
+        let mutated_tracks: HashSet<usize> = removed.iter().map(|(ti, _)| *ti).collect();
 
-        for &ti in &linked_tracks {
-            let Some(ii) = self.item_at_column(ti, column_start, column_duration) else {
+        let mut pending_range_tracks: Vec<_> = tracks_to_mutate
+            .into_iter()
+            .filter(|ti| !mutated_tracks.contains(ti))
+            .collect();
+        pending_range_tracks.sort_unstable();
+        pending_range_tracks.dedup();
+
+        for ti in pending_range_tracks {
+            let Some(track) = self.children.get_mut(ti) else {
                 continue;
             };
-            let column_item = &self.children[ti].items[ii];
-            let is_target = column_item.get_id().as_deref() == Some(item_id);
-            let is_synced = sync_clips_id.is_some_and(|sync_id| {
-                matches!(
-                    column_item,
-                    Item::Clip(clip) if resolve_sync_clips_id(&clip.metadata) == Some(sync_id)
-                )
-            });
-            if is_target || is_synced {
-                clips_to_delete.push((ti, ii));
-                covered_tracks.insert(ti);
+            for removed_item in track.delete_range(column_start, column_end, false) {
+                removed.push((ti, removed_item));
             }
         }
 
-        if covered_tracks.len() < linked_tracks.len() {
-            let mut used_ids = self.collect_timeline_ids();
-            for &ti in &linked_tracks {
-                if covered_tracks.contains(&ti) {
-                    continue;
-                }
-                if let Some(ii) = self.item_at_column(ti, column_start, column_duration) {
-                    let column_item = &self.children[ti].items[ii];
-                    if matches!(column_item, Item::Gap(_)) || Self::item_is_unsynced(column_item) {
-                        clips_to_delete.push((ti, ii));
-                        covered_tracks.insert(ti);
-                        continue;
-                    }
-                }
-                let mut gap = Item::Gap(Gap::make_gap(column_duration));
-                Self::ensure_unique_item_id(&mut gap, &mut used_ids);
-                if !self.insert_gap_only(ti, column_start, gap) {
-                    *self = backup;
-                    return Vec::new();
-                }
-                let Some(ii) = self.item_at_column(ti, column_start, column_duration) else {
-                    *self = backup;
-                    return Vec::new();
-                };
-                clips_to_delete.push((ti, ii));
-                covered_tracks.insert(ti);
-            }
-        }
-
-        let removed = self.delete_clips_at_indices(clips_to_delete, false);
         if !removed.is_empty() {
             self.sanitize();
         }
@@ -2355,26 +2348,23 @@ impl Stack {
             if let Some((ii, _)) = self.children[ti].get_item_by_id(item_id) {
                 let backup = self.clone();
                 let before_states = self.synced_clip_states();
-                let removed = self.children[ti].items[ii].clone();
                 // Use the track API for deletion and optional gap insertion/merge behavior
-                let deleted = self.children[ti].delete_clip(ii, replace_with_gap);
-                if deleted {
-                    if !replace_with_gap {
-                        let excluded_ids = removed.get_id().into_iter().collect();
-                        if !self.sync_changed_groups_after_resize(
-                            &before_states,
-                            &[ti],
-                            &excluded_ids,
-                            OverlapPolicy::Override,
-                        ) {
-                            *self = backup;
-                            return None;
-                        }
-                    }
-                    return Some((ti, removed));
-                } else {
+                let Some(removed) = self.children[ti].delete_clip(ii, replace_with_gap) else {
                     return None;
+                };
+                if !replace_with_gap {
+                    let excluded_ids = removed.get_id().into_iter().collect();
+                    if !self.sync_changed_groups_after_resize(
+                        &before_states,
+                        &[ti],
+                        &excluded_ids,
+                        OverlapPolicy::Override,
+                    ) {
+                        *self = backup;
+                        return None;
+                    }
                 }
+                return Some((ti, removed));
             }
         }
         None
