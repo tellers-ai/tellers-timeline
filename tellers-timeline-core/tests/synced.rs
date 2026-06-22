@@ -1467,7 +1467,7 @@ fn insert_unsynced_between_synced_clips_keeps_partial_boundary_tracks_aligned() 
 }
 
 #[test]
-fn sync_track_info_reports_primary_and_bound_tracks() {
+fn sync_track_info_reports_sync_groups() {
     let mut stack = Stack::default();
     stack
         .children
@@ -1501,8 +1501,6 @@ fn sync_track_info_reports_primary_and_bound_tracks() {
     let groups = stack.sync_track_info();
 
     assert_eq!(groups.len(), 3);
-    assert_eq!(groups[0].start_index, 0);
-    assert_eq!(groups[0].end_index, 2);
     assert_eq!(groups[0].track_indices, vec![0, 1]);
     // Audio ("A1") sits below the video at index 0; the video ("linked-v") is on top at
     // index 1.
@@ -1510,27 +1508,12 @@ fn sync_track_info_reports_primary_and_bound_tracks() {
         groups[0].track_ids,
         vec![Some("A1".to_string()), Some("linked-v".to_string())]
     );
-    assert_eq!(groups[0].primary_track_index, 1);
-    assert_eq!(
-        groups[0].primary_track_id.as_deref(),
-        Some("linked-v")
-    );
-    assert_eq!(groups[0].bound_track_indices, vec![0]);
-    assert_eq!(groups[0].bound_track_ids, vec![Some("A1".to_string())]);
 
     assert_eq!(groups[1].track_indices, vec![2]);
-    assert_eq!(
-        groups[1].primary_track_id.as_deref(),
-        Some("unlinked-a")
-    );
-    assert!(groups[1].bound_track_indices.is_empty());
+    assert_eq!(groups[1].track_ids, vec![Some("unlinked-a".to_string())]);
 
     assert_eq!(groups[2].track_indices, vec![3]);
-    assert_eq!(
-        groups[2].primary_track_id.as_deref(),
-        Some("unlinked-v")
-    );
-    assert!(groups[2].bound_track_indices.is_empty());
+    assert_eq!(groups[2].track_ids, vec![Some("unlinked-v".to_string())]);
 }
 
 #[test]
@@ -1575,9 +1558,6 @@ fn sync_track_info_merges_mixed_video_with_synced_audio_tracks() {
 
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].track_indices, vec![0, 1, 2, 3, 4, 5]);
-    assert_eq!(groups[0].primary_track_index, 5);
-    assert_eq!(groups[0].primary_track_id.as_deref(), Some("Video 1"));
-    assert_eq!(groups[0].bound_track_indices, vec![0, 1, 2, 3, 4]);
 }
 
 #[test]
@@ -1603,8 +1583,6 @@ fn sync_track_info_groups_tracks_that_share_link_group_despite_timing() {
 
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].track_indices, vec![0, 1, 2]);
-    assert_eq!(groups[0].primary_track_index, 1);
-    assert_eq!(groups[0].bound_track_indices, vec![0, 2]);
 }
 
 #[test]
@@ -1631,13 +1609,8 @@ fn sync_track_info_excludes_empty_tracks_from_link_group_cluster() {
 
     assert_eq!(groups.len(), 7);
     assert_eq!(groups[0].track_indices, vec![0, 1, 2, 9]);
-    assert_eq!(groups[0].primary_track_index, 9);
-    assert_eq!(groups[0].primary_track_id.as_deref(), Some("video"));
-    assert_eq!(groups[0].bound_track_indices, vec![0, 1, 2]);
     for (group, track_index) in groups[1..].iter().zip(3..9) {
         assert_eq!(group.track_indices, vec![track_index]);
-        assert_eq!(group.primary_track_index, track_index);
-        assert!(group.bound_track_indices.is_empty());
     }
 }
 
@@ -1655,11 +1628,8 @@ fn sync_track_info_splits_unrelated_empty_tracks_into_separate_clusters() {
 
     assert_eq!(groups.len(), 3);
     assert_eq!(groups[0].track_indices, vec![0]);
-    assert_eq!(groups[0].primary_track_index, 0);
     assert_eq!(groups[1].track_indices, vec![1]);
-    assert_eq!(groups[1].primary_track_index, 1);
     assert_eq!(groups[2].track_indices, vec![2]);
-    assert_eq!(groups[2].primary_track_index, 2);
 }
 
 #[test]
@@ -1691,7 +1661,6 @@ fn sync_track_info_clusters_tracks_within_one_frame() {
 
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].track_indices, vec![0, 1]);
-    assert_eq!(groups[0].primary_track_index, 1);
 }
 
 #[test]
@@ -1724,7 +1693,6 @@ fn insert_on_video_in_cluster_preserves_cluster_and_pads_bound_tracks() {
     let groups_before = stack.sync_track_info();
     assert_eq!(groups_before.len(), 1);
     assert_eq!(groups_before[0].track_indices, vec![0, 1, 2, 3]);
-    assert_eq!(groups_before[0].primary_track_index, video_track_index);
 
     let result = stack.insert_item_at_time(
         video_track_index,
@@ -1740,7 +1708,6 @@ fn insert_on_video_in_cluster_preserves_cluster_and_pads_bound_tracks() {
     let groups_after = stack.sync_track_info();
     assert_eq!(groups_after.len(), 1);
     assert_eq!(groups_after[0].track_indices, vec![0, 1, 2, 3]);
-    assert_eq!(groups_after[0].primary_track_index, video_track_index);
 
     let (insert_track_index, insert_item_index, insert_item) =
         stack.get_item("inserted-at-2").expect("inserted clip should exist");
@@ -2186,10 +2153,6 @@ fn modify_item_in_cluster_preserves_sync_track_info() {
     let groups_after_insert = stack.sync_track_info();
     assert_eq!(groups_after_insert.len(), 1);
     assert_eq!(groups_after_insert[0].track_indices, vec![0, 1, 2, 3]);
-    assert_eq!(
-        groups_after_insert[0].primary_track_index,
-        video_track_index,
-    );
 
     assert!(stack.modify_item("inserted-at-2", 0.0, 2.0, false, false, false));
     assert_sync_track_info_unchanged(&groups_after_insert, &stack.sync_track_info());
@@ -2272,7 +2235,7 @@ fn add_track_at_allows_insertion_inside_boundary_groups() {
 }
 
 #[test]
-fn reorder_track_moves_primary_group_only_to_boundary_edges() {
+fn reorder_track_moves_only_the_selected_track() {
     let mut stack = Stack::default();
     stack
         .children
@@ -2297,60 +2260,18 @@ fn reorder_track_moves_primary_group_only_to_boundary_edges() {
         .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
     stack.children.push(unsynced_video);
 
-    // New layout: synced audio ("A1") below the video at index 0, video ("linked-v") on
-    // top at index 1.
-    assert!(!stack.reorder_track("linked-v", 1));
-    assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("linked-v"));
-
-    // Moving the primary to the end carries its whole group: the unrelated tracks shift
-    // down and the group (A1 then linked-v) lands at the top.
+    // Layout: [A1 (0), linked-v (1), unlinked-a (2), unlinked-v (3)]
     assert!(stack.reorder_track("linked-v", 4));
-    assert_eq!(stack.children[0].get_id().as_deref(), Some("unlinked-a"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("unlinked-v"));
-    assert_eq!(stack.children[2].get_id().as_deref(), Some("A1"));
-    assert_eq!(stack.children[3].get_id().as_deref(), Some("linked-v"));
-}
-
-#[test]
-fn reorder_track_keeps_secondary_tracks_inside_current_boundary() {
-    let mut stack = Stack::default();
-    stack
-        .children
-        .push(Track::new(TrackKind::Video, Some("linked-v".to_string())));
-    insert_with_audio(
-        &mut stack,
-        0,
-        0.0,
-        clip(4.0, Some("linked-video")),
-        vec![audio_clip(4.0, "file:///linked-audio.wav", None)],
-    )
-    .expect("linked insert should succeed");
-
-    let mut unsynced_audio = Track::new(TrackKind::Audio, Some("unlinked-a".to_string()));
-    unsynced_audio
-        .items
-        .push(audio_clip(4.0, "file:///unlinked-audio.wav", None));
-    stack.children.push(unsynced_audio);
-    let mut unsynced_video = Track::new(TrackKind::Video, Some("unlinked-v".to_string()));
-    unsynced_video
-        .items
-        .push(Item::Clip(clip(4.0, Some("unlinked-video"))));
-    stack.children.push(unsynced_video);
-
-    // New layout: synced audio ("A1") below the video at index 0, video ("linked-v") on
-    // top at index 1. Reordering the secondary track outside its group boundary is
-    // rejected.
-    assert!(!stack.reorder_track("A1", 3));
     assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("linked-v"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("unlinked-a"));
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("unlinked-v"));
+    assert_eq!(stack.children[3].get_id().as_deref(), Some("linked-v"));
 
-    // Moving A1 inside its own boundary (above the video) is allowed.
     assert!(stack.reorder_track("A1", 2));
-    assert_eq!(stack.children[0].get_id().as_deref(), Some("linked-v"));
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("unlinked-a"));
     assert_eq!(stack.children[1].get_id().as_deref(), Some("A1"));
-    assert_eq!(stack.children[2].get_id().as_deref(), Some("unlinked-a"));
-    assert_eq!(stack.children[3].get_id().as_deref(), Some("unlinked-v"));
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("unlinked-v"));
+    assert_eq!(stack.children[3].get_id().as_deref(), Some("linked-v"));
 }
 
 #[test]

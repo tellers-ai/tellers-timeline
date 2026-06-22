@@ -1152,14 +1152,8 @@ fn sync_track_info_to_python(
         .into_iter()
         .map(|group| {
             let dict = PyDict::new(py);
-            dict.set_item("start_index", group.start_index)?;
-            dict.set_item("end_index", group.end_index)?;
             dict.set_item("track_indices", group.track_indices)?;
             dict.set_item("track_ids", group.track_ids)?;
-            dict.set_item("primary_track_index", group.primary_track_index)?;
-            dict.set_item("primary_track_id", group.primary_track_id)?;
-            dict.set_item("bound_track_indices", group.bound_track_indices)?;
-            dict.set_item("bound_track_ids", group.bound_track_ids)?;
             Ok(dict.into_py(py))
         })
         .collect()
