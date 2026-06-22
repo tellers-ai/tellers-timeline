@@ -1517,6 +1517,38 @@ fn sync_track_info_reports_sync_groups() {
 }
 
 #[test]
+fn sync_track_info_reports_overlapping_clusters_per_track() {
+    let mut stack = Stack::default();
+
+    let mut audio_g1 = Track::new(TrackKind::Audio, Some("audio-g1".to_string()));
+    audio_g1.items.push(synced_clip_item(4.0, "a-g1", 1));
+    stack.children.push(audio_g1);
+
+    let mut audio_g2 = Track::new(TrackKind::Audio, Some("audio-g2".to_string()));
+    audio_g2.items.push(synced_clip_item(4.0, "a-g2", 2));
+    stack.children.push(audio_g2);
+
+    let mut video = Track::new(TrackKind::Video, Some("video".to_string()));
+    video.items.push(synced_clip_item(4.0, "v-g1", 1));
+    video.items.push(synced_clip_item(4.0, "v-g2", 2));
+    stack.children.push(video);
+
+    let groups = stack.sync_track_info();
+
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].track_indices, vec![0, 1, 2]);
+    assert_eq!(groups[1].track_indices, vec![0, 2]);
+    assert_eq!(groups[2].track_indices, vec![1, 2]);
+    assert_eq!(
+        groups
+            .iter()
+            .filter(|group| group.track_indices.contains(&2))
+            .count(),
+        3
+    );
+}
+
+#[test]
 fn sync_track_info_merges_mixed_video_with_synced_audio_tracks() {
     let mut stack = Stack::default();
 

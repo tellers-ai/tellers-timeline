@@ -1,6 +1,6 @@
 use super::SyncTrackInfo;
 use crate::{IdMetadataExt, Item, Stack, Track};
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TrackBoundaryGroup {
@@ -80,70 +80,45 @@ impl Stack {
         Some(removed)
     }
 
-    fn track_boundary_group_at(&self, track_index: usize) -> Option<TrackBoundaryGroup> {
-        self.track_boundary_ranges()
-            .into_iter()
-            .find(|group| group.track_indices.contains(&track_index))
-    }
-
-    /// The ascending track indices of the sync group `track_index` belongs to
-    /// (the same grouping reported by `sync_track_info`). Falls back to the
-    /// track itself if it is not part of any multi-track group.
+    /// The ascending track indices of every sync group `track_index` belongs to,
+    /// merged for operations that need the full partner set (insert padding, etc.).
     pub(super) fn boundary_group_indices(&self, track_index: usize) -> Vec<usize> {
-        match self.track_boundary_group_at(track_index) {
-            Some(group) => group.track_indices,
-            None => vec![track_index],
+        let mut indices = HashSet::new();
+        for group in self.track_boundary_ranges() {
+            if group.track_indices.contains(&track_index) {
+                indices.extend(&group.track_indices);
+            }
         }
+        if indices.is_empty() {
+            return vec![track_index];
+        }
+        let mut result: Vec<_> = indices.into_iter().collect();
+        result.sort_unstable();
+        result
     }
 
-    /// Build sync boundary groups.
+    /// Build sync groups by expanding `tracks_share_sync_clips` from each track.
     ///
-    /// Tracks share a sync group when they share any link group. Timing, track
-    /// kind, and empty boundary tracks do not affect membership.
+    /// A track can appear in multiple groups when it shares different link
+    /// groups with different partners. Identical track sets are reported once.
     fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
         let len = self.children.len();
         if len == 0 {
             return Vec::new();
         }
 
-        let mut parents: Vec<_> = (0..len).collect();
-        let mut first_track_for_sync_clips = HashMap::new();
-
-        fn find_root(parents: &mut [usize], index: usize) -> usize {
-            if parents[index] != index {
-                parents[index] = find_root(parents, parents[index]);
-            }
-            parents[index]
-        }
-
-        for track_index in 0..len {
-            for sync_clips_id in self.track_sync_clips_ids(track_index) {
-                if let Some(previous_track_index) =
-                    first_track_for_sync_clips.insert(sync_clips_id, track_index)
-                {
-                    let previous_root = find_root(&mut parents, previous_track_index);
-                    let current_root = find_root(&mut parents, track_index);
-                    if previous_root != current_root {
-                        parents[current_root] = previous_root;
-                    }
-                }
+        let mut groups = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for anchor in 0..len {
+            let mut track_indices: Vec<usize> = (0..len)
+                .filter(|&candidate| self.tracks_share_sync_clips(anchor, candidate))
+                .collect();
+            track_indices.sort_unstable();
+            if seen.insert(track_indices.clone()) {
+                groups.push(TrackBoundaryGroup { track_indices });
             }
         }
-
-        let mut groups_by_root: HashMap<usize, Vec<usize>> = HashMap::new();
-        for track_index in 0..len {
-            let root = find_root(&mut parents, track_index);
-            groups_by_root.entry(root).or_default().push(track_index);
-        }
-
-        let mut groups: Vec<_> = groups_by_root
-            .into_values()
-            .map(|mut track_indices| {
-                track_indices.sort_unstable();
-                TrackBoundaryGroup { track_indices }
-            })
-            .collect();
-        groups.sort_by_key(|group| group.track_indices[0]);
+        groups.sort_by(|left, right| left.track_indices.cmp(&right.track_indices));
         groups
     }
 }
