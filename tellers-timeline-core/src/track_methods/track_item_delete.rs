@@ -3,14 +3,15 @@ use crate::{Item, Track};
 impl Track {
     /// Remove the clip or gap at `index`, optionally inserting a gap of the same
     /// duration. Does not run track sanitize; callers batch sanitize at the stack level.
-    pub(crate) fn delete_clip_at(&mut self, index: usize, replace_with_gap: bool) -> bool {
+    /// Returns the removed item on success.
+    pub(crate) fn delete_clip_at(&mut self, index: usize, replace_with_gap: bool) -> Option<Item> {
         if index >= self.items.len() {
-            return false;
+            return None;
         }
         match &self.items[index] {
             Item::Clip(c) => {
                 let removed_duration = c.source_range.duration.to_seconds().max(0.0);
-                self.items.remove(index);
+                let removed = self.items.remove(index);
                 if replace_with_gap && removed_duration > 0.0 {
                     self.items.insert(
                         index.min(self.items.len()),
@@ -18,26 +19,20 @@ impl Track {
                     );
                     self.merge_adjacent_gaps();
                 }
-                true
+                Some(removed)
             }
-            Item::Gap(_) if !replace_with_gap => {
-                self.items.remove(index);
-                true
-            }
-            Item::Gap(_) => false,
+            Item::Gap(_) if !replace_with_gap => Some(self.items.remove(index)),
+            Item::Gap(_) => None,
         }
     }
 
     /// Delete the clip at a given index. If `replace_with_gap` is true, insert a gap of the
     /// same duration at that position and merge adjacent gaps.
-    /// Returns whether a deletion occurred.
-    pub(crate) fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> bool {
-        if self.delete_clip_at(index, replace_with_gap) {
-            self.sanitize();
-            true
-        } else {
-            false
-        }
+    /// Returns the removed item on success.
+    pub(crate) fn delete_clip(&mut self, index: usize, replace_with_gap: bool) -> Option<Item> {
+        let removed = self.delete_clip_at(index, replace_with_gap)?;
+        self.sanitize();
+        Some(removed)
     }
 }
 
@@ -91,7 +86,7 @@ mod tests {
         track.items.push(clip(3.0));
         track.items.push(Item::Gap(Gap::make_gap(1.0)));
 
-        assert!(track.delete_clip(1, false));
+        assert!(matches!(track.delete_clip(1, false), Some(Item::Clip(_))));
 
         assert_eq!(track.items.len(), 1);
         assert!(matches!(track.items[0], Item::Clip(_)));

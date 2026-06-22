@@ -717,10 +717,9 @@ impl Stack {
             if ii >= track.items.len() {
                 continue;
             }
-            let removed_item = track.items[ii].clone();
-            if !track.delete_clip_at(ii, replace_with_gap) {
+            let Some(removed_item) = track.delete_clip_at(ii, replace_with_gap) else {
                 continue;
-            }
+            };
             if replace_with_gap {
                 if let (Some(used_ids), Some(item)) = (&mut used_ids, track.items.get_mut(ii)) {
                     if matches!(item, Item::Gap(_)) {
@@ -2355,26 +2354,23 @@ impl Stack {
             if let Some((ii, _)) = self.children[ti].get_item_by_id(item_id) {
                 let backup = self.clone();
                 let before_states = self.synced_clip_states();
-                let removed = self.children[ti].items[ii].clone();
                 // Use the track API for deletion and optional gap insertion/merge behavior
-                let deleted = self.children[ti].delete_clip(ii, replace_with_gap);
-                if deleted {
-                    if !replace_with_gap {
-                        let excluded_ids = removed.get_id().into_iter().collect();
-                        if !self.sync_changed_groups_after_resize(
-                            &before_states,
-                            &[ti],
-                            &excluded_ids,
-                            OverlapPolicy::Override,
-                        ) {
-                            *self = backup;
-                            return None;
-                        }
-                    }
-                    return Some((ti, removed));
-                } else {
+                let Some(removed) = self.children[ti].delete_clip(ii, replace_with_gap) else {
                     return None;
+                };
+                if !replace_with_gap {
+                    let excluded_ids = removed.get_id().into_iter().collect();
+                    if !self.sync_changed_groups_after_resize(
+                        &before_states,
+                        &[ti],
+                        &excluded_ids,
+                        OverlapPolicy::Override,
+                    ) {
+                        *self = backup;
+                        return None;
+                    }
                 }
+                return Some((ti, removed));
             }
         }
         None
