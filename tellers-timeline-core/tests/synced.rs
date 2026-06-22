@@ -1581,7 +1581,7 @@ fn sync_track_info_merges_mixed_video_with_synced_audio_tracks() {
 }
 
 #[test]
-fn sync_track_info_splits_cluster_when_sync_clip_timing_differs() {
+fn sync_track_info_groups_tracks_that_share_link_group_despite_timing() {
     let mut stack = Stack::default();
 
     let mut aligned_audio = Track::new(TrackKind::Audio, Some("aligned-a".to_string()));
@@ -1601,15 +1601,14 @@ fn sync_track_info_splits_cluster_when_sync_clip_timing_differs() {
 
     let groups = stack.sync_track_info();
 
-    assert_eq!(groups.len(), 2);
-    assert_eq!(groups[0].track_indices, vec![0, 1]);
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].track_indices, vec![0, 1, 2]);
     assert_eq!(groups[0].primary_track_index, 1);
-    assert_eq!(groups[1].track_indices, vec![2]);
-    assert_eq!(groups[1].primary_track_index, 2);
+    assert_eq!(groups[0].bound_track_indices, vec![0, 2]);
 }
 
 #[test]
-fn sync_track_info_includes_empty_tracks_in_principal_cluster() {
+fn sync_track_info_excludes_empty_tracks_from_link_group_cluster() {
     let mut stack = Stack::default();
 
     for id in ["A1", "A2", "A3"] {
@@ -1630,11 +1629,16 @@ fn sync_track_info_includes_empty_tracks_in_principal_cluster() {
 
     let groups = stack.sync_track_info();
 
-    assert_eq!(groups.len(), 1);
-    assert_eq!(groups[0].track_indices, (0..10).collect::<Vec<_>>());
+    assert_eq!(groups.len(), 7);
+    assert_eq!(groups[0].track_indices, vec![0, 1, 2, 9]);
     assert_eq!(groups[0].primary_track_index, 9);
     assert_eq!(groups[0].primary_track_id.as_deref(), Some("video"));
-    assert_eq!(groups[0].bound_track_indices, (0..9).collect::<Vec<_>>());
+    assert_eq!(groups[0].bound_track_indices, vec![0, 1, 2]);
+    for (group, track_index) in groups[1..].iter().zip(3..9) {
+        assert_eq!(group.track_indices, vec![track_index]);
+        assert_eq!(group.primary_track_index, track_index);
+        assert!(group.bound_track_indices.is_empty());
+    }
 }
 
 #[test]

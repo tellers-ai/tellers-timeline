@@ -15,21 +15,6 @@ mod stack_track;
 use stack_item_split::SyncSplitIdPolicy;
 
 const EPS: Seconds = 1e-9;
-/// Fallback frame rate when OTIO stores timeline positions with `rate: 1.0` (seconds).
-const DEFAULT_SYNC_FRAME_RATE: f64 = 24.0;
-
-fn frame_duration(rate: f64) -> Seconds {
-    let effective_rate = if rate > 1.0 + f64::EPSILON {
-        rate
-    } else {
-        DEFAULT_SYNC_FRAME_RATE
-    };
-    1.0 / effective_rate
-}
-
-fn sync_cluster_frame_tolerance(left_rate: f64, right_rate: f64) -> Seconds {
-    frame_duration(left_rate).max(frame_duration(right_rate))
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncedInsertResult {
@@ -79,14 +64,6 @@ struct SyncedClipState {
     start: Seconds,
     duration: Seconds,
     sync_clips_id: i64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct SyncedClipSpan {
-    sync_clips_id: i64,
-    start: Seconds,
-    duration: Seconds,
-    rate: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -1220,34 +1197,34 @@ impl Stack {
         segments
     }
 
-    fn flatten_synced_clips(&self, track_index: usize) -> Vec<SyncedClipSpan> {
+    pub(super) fn track_sync_clips_ids(&self, track_index: usize) -> HashSet<i64> {
         let Some(track) = self.children.get(track_index) else {
-            return Vec::new();
+            return HashSet::new();
         };
-        let mut clips = Vec::new();
-        let mut start = 0.0;
-        for item in &track.items {
-            let duration = item.duration().max(0.0);
-            if let Item::Clip(clip) = item {
-                if let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) {
-                    clips.push(SyncedClipSpan {
-                        sync_clips_id,
-                        start,
-                        duration,
-                        rate: clip.source_range.duration.rate,
-                    });
-                }
-            }
-            start += duration;
-        }
-        clips
+        track
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
+                Item::Gap(_) => None,
+            })
+            .collect()
     }
 
-    fn synced_clip_spans_match(left: &SyncedClipSpan, right: &SyncedClipSpan) -> bool {
-        let tolerance = sync_cluster_frame_tolerance(left.rate, right.rate);
-        left.sync_clips_id == right.sync_clips_id
-            && (left.start - right.start).abs() <= tolerance + EPS
-            && (left.duration - right.duration).abs() <= tolerance + EPS
+    pub(super) fn tracks_share_sync_clips(
+        &self,
+        left_track_index: usize,
+        right_track_index: usize,
+    ) -> bool {
+        if left_track_index == right_track_index {
+            return true;
+        }
+        let left_groups = self.track_sync_clips_ids(left_track_index);
+        !left_groups.is_empty()
+            && self
+                .track_sync_clips_ids(right_track_index)
+                .iter()
+                .any(|sync_clips_id| left_groups.contains(sync_clips_id))
     }
 
     fn flatten_boundary_for_sync_clips(
@@ -1360,78 +1337,7 @@ impl Stack {
         primary_track_index: usize,
         candidate_track_index: usize,
     ) -> bool {
-        if primary_track_index == candidate_track_index {
-            return true;
-        }
-        let Some(candidate_track) = self.children.get(candidate_track_index) else {
-            return false;
-        };
-        let primary_segments = self.flatten_track_segments(primary_track_index);
-        let mut start = 0.0;
-        for item in &candidate_track.items {
-            let duration = item.duration().max(0.0);
-            let end = start + duration;
-            match item {
-                Item::Gap(_) => {}
-                Item::Clip(clip) => {
-                    let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) else {
-                        return false;
-                    };
-                    // Match by sync group + overlapping position rather than exact
-                    // start/end. Synced members may differ slightly in start/duration
-                    // (the model is delta-based), so requiring exact equality wrongly
-                    // treats a synced partner's track as outside the boundary — which
-                    // makes inserts create new audio tracks instead of reusing it.
-                    if !primary_segments.iter().any(|segment| {
-                        segment.sync_clips_id == Some(sync_clips_id)
-                            && start < segment.end - EPS
-                            && end > segment.start + EPS
-                    }) {
-                        return false;
-                    }
-                }
-            }
-            start = end;
-        }
-        true
-    }
-
-    /// Whether `candidate_track_index` belongs to the sync cluster anchored on
-    /// `principal_track_index`. Every synced clip on the candidate must match a
-    /// synced clip on the principal with the same link group, duration, and
-    /// timeline start (sum of previous item durations). Gaps and unsynced clips
-    /// are ignored. Empty boundary tracks join only when a non-empty track above
-    /// them belongs to the same cluster.
-    pub(super) fn track_matches_principal_cluster(
-        &self,
-        principal_track_index: usize,
-        candidate_track_index: usize,
-    ) -> bool {
-        if principal_track_index == candidate_track_index {
-            return true;
-        }
-        if self.children[candidate_track_index].kind == TrackKind::Video {
-            return false;
-        }
-        if track_is_empty_boundary(&self.children[candidate_track_index]) {
-            for track_index in (0..candidate_track_index).rev() {
-                if track_is_empty_boundary(&self.children[track_index]) {
-                    continue;
-                }
-                return self.track_matches_principal_cluster(principal_track_index, track_index);
-            }
-            return false;
-        }
-        let primary_clips = self.flatten_synced_clips(principal_track_index);
-        let candidate_clips = self.flatten_synced_clips(candidate_track_index);
-        if candidate_clips.is_empty() {
-            return false;
-        }
-        candidate_clips.iter().all(|candidate_clip| {
-            primary_clips
-                .iter()
-                .any(|primary_clip| Self::synced_clip_spans_match(candidate_clip, primary_clip))
-        })
+        self.tracks_share_sync_clips(primary_track_index, candidate_track_index)
     }
 
     fn boundary_track_indices_for_anchors(
