@@ -1,4 +1,4 @@
-use crate::{Item, Track};
+use crate::{Item, Seconds, Track};
 
 impl Track {
     /// Remove the clip or gap at `index`, optionally inserting a gap of the same
@@ -24,6 +24,45 @@ impl Track {
             Item::Gap(_) if !replace_with_gap => Some(self.items.remove(index)),
             Item::Gap(_) => None,
         }
+    }
+
+    /// Delete every item fully contained in `[start_time, end_time)`.
+    /// Clips overlapping the boundaries are split first. When `replace_with_gap` is true,
+    /// a gap of the deleted span duration is inserted at `start_time`.
+    /// Does not run track sanitize; callers batch sanitize at the stack level.
+    pub(crate) fn delete_range(
+        &mut self,
+        start_time: Seconds,
+        end_time: Seconds,
+        replace_with_gap: bool,
+    ) -> Vec<Item> {
+        const EPS: Seconds = 1e-9;
+        let start = start_time.max(0.0);
+        let end = end_time.max(start);
+        if end <= start + EPS {
+            return Vec::new();
+        }
+
+        self.split_at_time(start);
+        self.split_at_time(end);
+
+        let start_index = self.get_item_at_time(start).unwrap_or(self.items.len());
+        let end_index = self.get_item_at_time(end).unwrap_or(self.items.len());
+        let removed = if end_index > start_index {
+            self.items.drain(start_index..end_index).collect()
+        } else {
+            Vec::new()
+        };
+
+        if replace_with_gap && end - start > EPS {
+            self.items.insert(
+                start_index,
+                Item::Gap(crate::types::Gap::make_gap(end - start)),
+            );
+            self.merge_adjacent_gaps();
+        }
+
+        removed
     }
 
     /// Delete the clip at a given index. If `replace_with_gap` is true, insert a gap of the
@@ -90,5 +129,47 @@ mod tests {
 
         assert_eq!(track.items.len(), 1);
         assert!(matches!(track.items[0], Item::Clip(_)));
+    }
+
+    #[test]
+    fn delete_range_collapses_spanning_items() {
+        let mut track = Track::default();
+        track.items.push(clip(2.0));
+        track.items.push(clip(3.0));
+        track.items.push(clip(4.0));
+
+        let removed = track.delete_range(1.0, 6.0, false);
+        assert_eq!(removed.len(), 3);
+        assert_eq!(track.items.len(), 2);
+        track.sanitize();
+        assert!((track.total_duration() - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn delete_range_replace_with_gap_preserves_timeline_duration() {
+        let mut track = Track::default();
+        track.items.push(clip(2.0));
+        track.items.push(clip(3.0));
+        track.items.push(clip(4.0));
+
+        let removed = track.delete_range(1.0, 6.0, true);
+        assert_eq!(removed.len(), 3);
+        assert_eq!(track.items.len(), 3);
+        track.sanitize();
+        assert!((track.total_duration() - 9.0).abs() < 1e-9);
+        assert!(matches!(track.items[1], Item::Gap(_)));
+    }
+
+    #[test]
+    fn delete_range_splits_partial_clip() {
+        let mut track = Track::default();
+        track.items.push(clip(10.0));
+
+        let removed = track.delete_range(2.0, 5.0, false);
+        assert_eq!(removed.len(), 1);
+        assert_eq!(track.items.len(), 2);
+        track.sanitize();
+        assert!((track.items[0].duration() - 2.0).abs() < 1e-9);
+        assert!((track.items[1].duration() - 5.0).abs() < 1e-9);
     }
 }
