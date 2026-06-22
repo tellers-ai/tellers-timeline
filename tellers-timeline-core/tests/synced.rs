@@ -3079,12 +3079,11 @@ fn synced_insert_clamps_synced_audio_before_duration_check() {
 }
 
 #[test]
-fn synced_insert_rejects_synced_audio_with_different_duration() {
+fn synced_insert_allows_synced_audio_with_different_duration() {
     let mut stack = Stack::default();
     stack
         .children
         .push(Track::new(TrackKind::Video, Some("v".to_string())));
-    let original = stack.clone();
 
     let result = insert_with_audio(
         &mut stack,
@@ -3092,7 +3091,7 @@ fn synced_insert_rejects_synced_audio_with_different_duration() {
         0.0,
         clip(8.0, Some("primary")),
         vec![Item::Clip(Clip::new_single_media_reference(
-            range(8.0),
+            range(3.0),
             MediaReference::ExternalReference {
                 target_url: "file:///short-audio.wav".to_string(),
                 available_range: Some(range(3.0)),
@@ -3104,10 +3103,45 @@ fn synced_insert_rejects_synced_audio_with_different_duration() {
             None,
         ))],
     )
-    .is_none();
+    .expect("linked audio may differ in duration from the primary");
 
-    assert!(result);
-    assert_eq!(stack.children, original.children);
+    let (audio_id, _) = &result.audio_clips[0];
+    let (_, _, primary_item) = stack.get_item("primary").unwrap();
+    let (_, _, audio_item) = stack.get_item(audio_id).unwrap();
+    assert_eq!(primary_item.duration(), 8.0);
+    assert_eq!(audio_item.duration(), 3.0);
+    assert_eq!(sync_clips_id(primary_item), sync_clips_id(audio_item));
+}
+
+#[test]
+fn synced_insert_allows_sync_video_with_different_duration_from_primary() {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("primary-audio-track".to_string())));
+
+    let mut primary = audio_clip(5.0, "file:///primary.wav", None);
+    primary.set_id(Some("primary-audio".to_string()));
+    let synced_video = Item::Clip(clip(2.0, Some("synced-video")));
+
+    let result = match stack.insert_item_at_time(
+        0,
+        0.0,
+        primary,
+        OverlapPolicy::Push,
+        InsertPolicy::InsertBeforeOrAfter,
+        None,
+        Some(synced_video),
+    ) {
+        Some(InsertItemAtTimeResult::Synced(result)) => result,
+        _ => panic!("audio-primary insert with shorter sync video should succeed"),
+    };
+
+    let (_, _, primary_item) = stack.get_item("primary-audio").unwrap();
+    let (_, _, video_item) = stack.get_item(result.synced_video_clip_id.as_deref().unwrap()).unwrap();
+    assert_eq!(primary_item.duration(), 5.0);
+    assert_eq!(video_item.duration(), 2.0);
+    assert_eq!(sync_clips_id(primary_item), sync_clips_id(video_item));
 }
 
 #[test]
@@ -3807,7 +3841,7 @@ fn move_item_at_index_moves_synced_clips() {
 }
 
 #[test]
-fn move_synced_item_rejects_duration_mismatch_unchanged() {
+fn move_synced_item_preserves_duration_mismatch() {
     let mut stack = Stack::default();
     stack
         .children
@@ -3825,9 +3859,8 @@ fn move_synced_item_rejects_duration_mismatch_unchanged() {
     if let Item::Clip(clip) = &mut stack.children[audio_track].items[audio_index] {
         clip.source_range.duration.value = 4.0;
     }
-    let original = stack.clone();
 
-    assert!(!stack.move_item_at_time(
+    assert!(stack.move_item_at_time(
         "primary",
         "v",
         1.0,
@@ -3835,7 +3868,12 @@ fn move_synced_item_rejects_duration_mismatch_unchanged() {
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override,
     ));
-    assert_eq!(stack.children, original.children);
+
+    let (_, _, primary_item) = stack.get_item("primary").unwrap();
+    let (_, _, audio_item) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(primary_item.duration(), 3.0);
+    assert_eq!(audio_item.duration(), 4.0);
+    assert_eq!(sync_clips_id(primary_item), sync_clips_id(audio_item));
 }
 
 #[test]

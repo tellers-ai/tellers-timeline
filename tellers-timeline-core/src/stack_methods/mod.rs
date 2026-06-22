@@ -1101,6 +1101,40 @@ impl Stack {
         Some((item, id))
     }
 
+    fn prepare_synced_item_preserve_duration(
+        item: Item,
+        sync_clips_id: Option<i64>,
+        used_ids: &mut HashSet<String>,
+    ) -> Option<(Item, String)> {
+        let Item::Clip(mut clip) = item else {
+            return None;
+        };
+        clamp_clip_to_active_available_range(&mut clip);
+        if clip.source_range.duration.to_seconds() <= EPS {
+            return None;
+        }
+
+        let mut item = Item::Clip(clip);
+        Self::set_item_sync_clips(&mut item, sync_clips_id);
+        let id = Self::ensure_unique_item_id(&mut item, used_ids);
+        Some((item, id))
+    }
+
+    fn synced_insert_column_span(primary_duration: Seconds, inputs: &SyncedInputs) -> Seconds {
+        let mut span = primary_duration;
+        for item in &inputs.audio {
+            if let Some(duration) = Self::sanitized_clip_duration(item) {
+                span = span.max(duration);
+            }
+        }
+        if let Some(video_item) = &inputs.video {
+            if let Some(duration) = Self::sanitized_clip_duration(video_item) {
+                span = span.max(duration);
+            }
+        }
+        span
+    }
+
     fn sanitized_clip_duration(item: &Item) -> Option<Seconds> {
         let Item::Clip(mut clip) = item.clone() else {
             return None;
@@ -1503,13 +1537,11 @@ impl Stack {
             return None;
         }
 
-        // The primary and every synced audio clip must share one duration.
         let modified_duration = primary_item.duration().max(0.0);
-        if modified_duration <= EPS
-            || !Self::synced_inputs_match_duration(modified_duration, &synced_inputs)
-        {
+        if modified_duration <= EPS {
             return None;
         }
+        let column_span = Self::synced_insert_column_span(modified_duration, &synced_inputs);
 
         // Resolved start on the primary track; every column member lands here.
         let start = if let Some(dest_index) = dest_index {
@@ -1539,7 +1571,7 @@ impl Stack {
         // the timeline), then newly created tracks below the video. We never
         // cross a video boundary or overwrite an occupied track.
         let needed = synced_inputs.audio.len();
-        let end_time = start + modified_duration;
+        let end_time = start + column_span;
         let mut audio_slots: Vec<usize> = cluster
             .iter()
             .copied()
@@ -1602,11 +1634,12 @@ impl Stack {
         let mut synced_video_clip_id = None;
         let mut column_video = None;
         if let Some(video_item) = synced_inputs.video {
+            let video_span = Self::sanitized_clip_duration(&video_item).unwrap_or(column_span);
             let track_count_before = self.children.len();
             let Some(video_track_index) = self.find_or_create_video_track_for_audio(
                 dest_track_index,
                 start,
-                modified_duration,
+                video_span,
                 &mut created_track_indices,
                 sync_clips_id,
                 true,
@@ -1625,9 +1658,8 @@ impl Stack {
                     &mut created_track_indices,
                 );
             }
-            let Some((video_item, video_id)) = Self::prepare_synced_item(
+            let Some((video_item, video_id)) = Self::prepare_synced_item_preserve_duration(
                 video_item,
-                modified_duration,
                 sync_clips_id,
                 &mut used_ids,
             ) else {
@@ -1662,9 +1694,8 @@ impl Stack {
         // Audio clips onto the nearest cluster audio tracks.
         let mut audio_clips = Vec::new();
         for (audio_item, &audio_track_index) in synced_inputs.audio.into_iter().zip(&audio_slots) {
-            let Some((audio_item, audio_id)) = Self::prepare_synced_item(
+            let Some((audio_item, audio_id)) = Self::prepare_synced_item_preserve_duration(
                 audio_item,
-                modified_duration,
                 sync_clips_id,
                 &mut used_ids,
             ) else {
