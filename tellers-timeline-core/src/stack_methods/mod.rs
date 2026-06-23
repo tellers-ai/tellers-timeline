@@ -1,5 +1,6 @@
 use crate::{
     Clip, Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track, TrackKind,
+    TrackInsertResult,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -324,15 +325,14 @@ impl Stack {
             insert_policy,
         );
         if primary_result.success {
-            let _ = self.propagate_track_insert_to_cluster(
-                track_index,
+            let updates = [(track_index, &primary_result)];
+            let _ = self.propagate_insert_to_cluster(
                 start,
                 duration,
                 overlap_policy,
-                &primary_result,
+                &updates,
                 &cluster,
                 None,
-                &[],
             );
         }
     }
@@ -1592,6 +1592,30 @@ impl Stack {
             },
         );
 
+        // Moves pass source audio track indices so partners land back on their original
+        // tracks. Empty preferred tracks (no clips, or gaps only) are part of the
+        // destination working cluster so insert propagation applies there too.
+        if let Some(preferred_indices) = preferred_audio_track_indices {
+            for &track_index in preferred_indices {
+                if track_index == dest_track_index {
+                    continue;
+                }
+                let Some(track) = self.children.get(track_index) else {
+                    continue;
+                };
+                if track.kind != TrackKind::Audio {
+                    continue;
+                }
+                if !track.items.is_empty() && !track_is_empty_boundary(track) {
+                    continue;
+                }
+                if !cluster.contains(&track_index) {
+                    cluster.push(track_index);
+                }
+            }
+            cluster.sort_unstable();
+        }
+
         // Audio targets: reuse existing audio tracks from the cluster, then create
         // new tracks directly below the destination until every clip has a slot.
         let needed = synced_inputs.audio.len();
@@ -1739,7 +1763,6 @@ impl Stack {
             column.push(video_placement);
         }
         column.sort_by_key(|(track_index, _)| *track_index);
-        let column_track_indices: Vec<usize> = column.iter().map(|(track_index, _)| *track_index).collect();
 
         let mut full_column = vec![(dest_track_index, primary_item)];
         full_column.extend(column);
@@ -1754,59 +1777,45 @@ impl Stack {
             full_column = dest_items;
         }
 
-        let mut primary_result = None;
+        let mut insert_updates: Vec<(usize, TrackInsertResult)> = Vec::new();
         for (track_index, item) in full_column {
-            let result = if track_index == dest_track_index {
-                if let Some(dest_index) = dest_index {
-                    self.children[track_index]
-                        .insert_at_index(dest_index, item, overlap_policy)
-                } else {
-                    self.children[track_index].insert_at_time(
-                        dest_time,
-                        item,
-                        overlap_policy,
-                        insert_policy,
-                    )
-                }
-            } else {
-                let sync_track_overlap_policy = if matches!(item, Item::Gap(_))
-                    && overlap_policy == OverlapPolicy::Override
-                    && start >= self.children[track_index].total_duration() - EPS
-                {
-                    OverlapPolicy::Push
-                } else {
-                    overlap_policy
-                };
-                self.children[track_index].insert_at_time(
-                    start,
-                    item,
-                    sync_track_overlap_policy,
-                    InsertPolicy::SplitAndInsert,
-                )
-            };
+            let result = self.children[track_index].insert_at_time(
+                start,
+                item,
+                overlap_policy,
+                InsertPolicy::SplitAndInsert,
+            );
             if !result.success {
                 *self = backup;
                 return None;
             }
-            if track_index == dest_track_index {
-                primary_result = Some(result);
-            }
+            insert_updates.push((track_index, result));
         }
 
-        let Some(primary_result) = primary_result else {
-            *self = backup;
-            return None;
-        };
-        if !self.propagate_track_insert_to_cluster(
-            dest_track_index,
+        let update_refs: Vec<_> = insert_updates
+            .iter()
+            .map(|(track_index, result)| (*track_index, result))
+            .collect();
+        if !self.propagate_insert_to_cluster(
             start,
             modified_duration,
             overlap_policy,
-            &primary_result,
+            &update_refs,
             &cluster,
             sync_clips_id,
-            &column_track_indices,
         ) {
+            *self = backup;
+            return None;
+        }
+        if overlap_policy == OverlapPolicy::Push
+            && !self.propagate_push_to_cluster(
+                start,
+                start + modified_duration,
+                modified_duration,
+                &update_refs,
+                &cluster,
+            )
+        {
             *self = backup;
             return None;
         }
@@ -3560,7 +3569,7 @@ fn item_tellers_group_id(item: &Item) -> Option<i64> {
     }
 }
 
-fn set_resolve_sync_clips_id(metadata: &mut serde_json::Value, sync_clips_id: i64) {
+pub(super) fn set_resolve_sync_clips_id(metadata: &mut serde_json::Value, sync_clips_id: i64) {
     if metadata.as_object().is_none() {
         *metadata = serde_json::Value::Object(serde_json::Map::new());
     }
