@@ -3188,6 +3188,154 @@ impl Stack {
         }
     }
 
+    fn replace_synced_item_via_insert(
+        &mut self,
+        items: Vec<SyncedMoveItem>,
+        dest_track_index: usize,
+        dest_time: Seconds,
+        item: Item,
+        synced_audio_clips: Option<Vec<Item>>,
+    ) -> bool {
+        let backup = self.clone();
+        if dest_track_index >= self.children.len() {
+            return false;
+        }
+
+        let Some(selected) = items.iter().find(|item| item.is_selected) else {
+            return false;
+        };
+        let Some(selected_id) = selected.item.get_id() else {
+            return false;
+        };
+
+        let synced_audio_input_provided = synced_audio_clips.is_some();
+        let synced_inputs = Self::normalize_synced_inputs(synced_audio_clips, None);
+        if !matches!(item, Item::Clip(_)) {
+            return false;
+        }
+        let mut primary_item = item;
+        primary_item.clamp_to_active_available_range();
+        primary_item.set_id(Some(selected_id.clone()));
+        let replacement_duration = primary_item.duration().max(0.0);
+        if replacement_duration <= EPS {
+            return false;
+        }
+        if synced_audio_input_provided
+            && !Self::synced_inputs_match_duration(replacement_duration, &synced_inputs)
+        {
+            return false;
+        }
+
+        let mut synced_audio = Vec::new();
+        let mut preferred_audio_track_indices = Vec::new();
+        let mut gap_only_audio_tracks = Vec::new();
+        let mut synced_video = None;
+        let mut audio_partners: Vec<_> = items
+            .iter()
+            .filter(|item| !item.is_selected && item.track_kind == TrackKind::Audio)
+            .collect();
+        audio_partners.sort_by_key(|item| item.track_index);
+
+        for item in &items {
+            if item.is_selected {
+                continue;
+            }
+            if item.track_kind == TrackKind::Video {
+                let mut video_item = item.item.clone();
+                video_item.set_duration(replacement_duration);
+                synced_video = Some(video_item);
+            }
+        }
+
+        if synced_audio_input_provided {
+            let mut synced_audio_inputs = synced_inputs.audio.into_iter();
+            for partner in audio_partners {
+                if let Some(mut next_audio) = synced_audio_inputs.next() {
+                    if let Some(audio_id) = partner.item.get_id() {
+                        next_audio.set_id(Some(audio_id));
+                    }
+                    next_audio.set_duration(replacement_duration);
+                    synced_audio.push(next_audio);
+                    preferred_audio_track_indices.push(partner.track_index);
+                } else {
+                    gap_only_audio_tracks.push(partner.track_index);
+                }
+            }
+            for audio_item in synced_audio_inputs {
+                synced_audio.push(audio_item);
+            }
+        } else {
+            for item in &items {
+                if item.is_selected || item.track_kind != TrackKind::Audio {
+                    continue;
+                }
+                let mut audio_item = item.item.clone();
+                audio_item.set_duration(replacement_duration);
+                synced_audio.push(audio_item);
+                preferred_audio_track_indices.push(item.track_index);
+            }
+        }
+
+        let Some(targets) = self.delete_item_targets(&selected_id) else {
+            return false;
+        };
+        let removed = self.delete_clips_at_indices(targets.clone(), true);
+        if removed.is_empty() {
+            return false;
+        }
+        let placeholder_gap_ids = self.collect_placeholder_gap_ids(&targets);
+
+        let synced_audio_clips = (!synced_audio.is_empty()).then_some(synced_audio);
+        let gap_only_exclude = (!gap_only_audio_tracks.is_empty())
+            .then_some(gap_only_audio_tracks.as_slice());
+        if self
+            .insert_synced_item_at_time(
+                dest_track_index,
+                dest_time,
+                None,
+                primary_item,
+                OverlapPolicy::Override,
+                InsertPolicy::SplitAndInsert,
+                synced_audio_clips,
+                synced_video,
+                None,
+                (!preferred_audio_track_indices.is_empty())
+                    .then_some(preferred_audio_track_indices.as_slice()),
+                gap_only_exclude,
+            )
+            .is_some()
+        {
+            self.remove_gaps_by_id(&placeholder_gap_ids);
+            let mut used_ids = self.collect_timeline_ids();
+            for &track_index in &gap_only_audio_tracks {
+                let start = dest_time;
+                let end = dest_time + replacement_duration;
+                let Some(track) = self.children.get_mut(track_index) else {
+                    *self = backup;
+                    return false;
+                };
+                track.delete_range(start, end, false);
+                let mut gap = Item::Gap(Gap::make_gap(replacement_duration));
+                Self::ensure_unique_item_id(&mut gap, &mut used_ids);
+                let result = track.insert_at_time(
+                    start,
+                    gap,
+                    OverlapPolicy::Override,
+                    InsertPolicy::InsertBefore,
+                );
+                if !result.success {
+                    *self = backup;
+                    return false;
+                }
+            }
+            self.sanitize_preserving_all_gap_tracks();
+            true
+        } else {
+            *self = backup;
+            false
+        }
+    }
+
     fn move_synced_items_at_time_via_insert(
         &mut self,
         items_to_move: Vec<SyncedMoveItem>,
