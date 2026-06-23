@@ -3713,6 +3713,60 @@ fn move_synced_video_creates_only_missing_destination_audio_tracks() {
 }
 
 #[test]
+fn move_synced_set_creates_audio_track_when_preferred_track_has_content() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("d-v".to_string()));
+    video
+        .items
+        .push(Item::Gap(Gap::make_gap(5.0)));
+    video
+        .items
+        .push(Item::Clip(clip(3.0, Some("d-vid"))));
+    let mut audio0 = Track::new(TrackKind::Audio, Some("d-a0".to_string()));
+    audio0.items.push(Item::Gap(Gap::make_gap(5.0)));
+    let mut a0 = audio_clip(3.0, "file:///d-a0.wav", None);
+    a0.set_id(Some("d-aud0".to_string()));
+    audio0.items.push(a0);
+    let mut audio1 = Track::new(TrackKind::Audio, Some("d-a1".to_string()));
+    audio1
+        .items
+        .push(Item::Clip(clip(2.0, Some("occupant"))));
+    audio1.items.push(Item::Gap(Gap::make_gap(3.0)));
+    let mut a1 = audio_clip(3.0, "file:///d-a1.wav", None);
+    a1.set_id(Some("d-aud1".to_string()));
+    audio1.items.push(a1);
+    stack.children.push(video);
+    stack.children.push(audio0);
+    stack.children.push(audio1);
+    stack
+        .sync_item(&[
+            "d-vid".to_string(),
+            "d-aud0".to_string(),
+            "d-aud1".to_string(),
+        ])
+        .unwrap();
+    let source_second_audio_track = stack.get_item("d-aud1").unwrap().0;
+    let track_count_before = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "d-vid",
+        "d-v",
+        0.0,
+        true,
+        InsertPolicy::InsertBefore,
+        OverlapPolicy::Push,
+    ));
+
+    assert!(stack.children.len() > track_count_before);
+    let (_, second_audio_track, _) = stack.get_item("d-aud1").unwrap();
+    assert_ne!(
+        second_audio_track, source_second_audio_track,
+        "second audio must not land on a preferred track that already has clips at the move time"
+    );
+    assert_sync_clips_track_aligned(&stack, "move-busy-preferred-audio");
+}
+
+#[test]
 fn move_synced_video_at_index_uses_destination_boundary_without_retiming() {
     let mut stack = Stack::default();
     stack

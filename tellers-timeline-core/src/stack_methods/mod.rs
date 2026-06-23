@@ -1197,6 +1197,92 @@ impl Stack {
         inputs
     }
 
+    fn preferred_move_audio_track_usable(
+        &self,
+        dest_track_index: usize,
+        candidate_index: usize,
+        dest_time: Seconds,
+        duration: Seconds,
+        used_audio_indices: &[usize],
+    ) -> bool {
+        if candidate_index == dest_track_index {
+            return false;
+        }
+        let Some(track) = self.children.get(candidate_index) else {
+            return false;
+        };
+        if track.kind != TrackKind::Audio || used_audio_indices.contains(&candidate_index) {
+            return false;
+        }
+        let end_time = dest_time + duration;
+        if track_is_empty_boundary(track) {
+            return true;
+        }
+        if range_is_gap_backed(track, dest_time, end_time) {
+            return true;
+        }
+        self.track_matches_primary_sync_boundary(dest_track_index, candidate_index)
+    }
+
+    fn assign_move_audio_slots(
+        &mut self,
+        dest_track_index: &mut usize,
+        cluster: &mut Vec<usize>,
+        created_track_indices: &mut Vec<usize>,
+        start: Seconds,
+        audio_durations: &[Seconds],
+        preferred_indices: &[usize],
+    ) -> Option<Vec<usize>> {
+        let needed = audio_durations.len();
+        let mut audio_slots = Vec::with_capacity(needed);
+        let mut used_audio_indices = Vec::new();
+        let mut used_audio_boundary_indices = Vec::new();
+
+        for (audio_index, &duration) in audio_durations.iter().enumerate() {
+            let track_count_before = self.children.len();
+            let preferred = preferred_indices.get(audio_index).copied();
+            let track_index = preferred
+                .filter(|&preferred_index| {
+                    self.preferred_move_audio_track_usable(
+                        *dest_track_index,
+                        preferred_index,
+                        start,
+                        duration,
+                        &used_audio_indices,
+                    )
+                })
+                .or_else(|| {
+                    self.find_or_create_move_audio_track(
+                        *dest_track_index,
+                        start,
+                        duration,
+                        created_track_indices,
+                        &used_audio_indices,
+                        &used_audio_boundary_indices,
+                    )
+                })?;
+
+            if self.children.len() > track_count_before {
+                Self::shift_insert_track_indices_after_create(
+                    track_index,
+                    dest_track_index,
+                    cluster,
+                    &mut audio_slots,
+                    created_track_indices,
+                );
+            }
+            let reused_empty_boundary = self.children.len() == track_count_before
+                && track_is_empty_boundary(&self.children[track_index]);
+            audio_slots.push(track_index);
+            used_audio_indices.push(track_index);
+            if reused_empty_boundary {
+                used_audio_boundary_indices.push(track_index);
+            }
+        }
+
+        Some(audio_slots)
+    }
+
     fn shift_insert_track_indices_after_create(
         inserted_at: usize,
         dest_track_index: &mut usize,
@@ -1619,29 +1705,53 @@ impl Stack {
         // Audio targets: reuse existing audio tracks from the cluster, then create
         // new tracks directly below the destination until every clip has a slot.
         let needed = synced_inputs.audio.len();
-        let mut audio_slots: Vec<usize> = cluster
+        let audio_durations: Vec<Seconds> = synced_inputs
+            .audio
             .iter()
-            .copied()
-            .filter(|&i| i != dest_track_index && self.children[i].kind == TrackKind::Audio)
+            .map(|item| Self::sanitized_clip_duration(item).unwrap_or(modified_duration))
             .collect();
-
-        if let Some(preferred_indices) = preferred_audio_track_indices {
-            for &track_index in preferred_indices {
-                if audio_slots.len() >= needed {
-                    break;
+        let mut audio_slots: Vec<usize> = if let Some(preferred_indices) =
+            preferred_audio_track_indices
+        {
+            self.assign_move_audio_slots(
+                &mut dest_track_index,
+                &mut cluster,
+                &mut created_track_indices,
+                start,
+                &audio_durations,
+                preferred_indices,
+            )?
+        } else {
+            let mut slots: Vec<usize> = cluster
+                .iter()
+                .copied()
+                .filter(|&i| i != dest_track_index && self.children[i].kind == TrackKind::Audio)
+                .collect();
+            while slots.len() < needed {
+                let insert_at = dest_track_index;
+                let track = self.new_numbered_track(TrackKind::Audio);
+                self.children.insert(insert_at, track);
+                for index in created_track_indices.iter_mut() {
+                    if *index >= insert_at {
+                        *index += 1;
+                    }
                 }
-                if track_index == dest_track_index {
-                    continue;
+                created_track_indices.push(insert_at);
+                dest_track_index += 1;
+                for index in cluster.iter_mut() {
+                    if *index >= insert_at {
+                        *index += 1;
+                    }
                 }
-                let Some(track) = self.children.get(track_index) else {
-                    continue;
-                };
-                if track.kind != TrackKind::Audio || audio_slots.contains(&track_index) {
-                    continue;
+                for index in slots.iter_mut() {
+                    if *index >= insert_at {
+                        *index += 1;
+                    }
                 }
-                audio_slots.push(track_index);
+                slots.push(insert_at);
             }
-        }
+            slots
+        };
 
         while audio_slots.len() < needed {
             let insert_at = dest_track_index;
