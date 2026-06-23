@@ -59,8 +59,6 @@ impl Stack {
 
         let backup = self.clone();
         let previous_start = backup.stack_item_start_time(item_id);
-        let overlap_policy =
-            Self::effective_move_overlap_policy(overlap_policy, previous_start, dest_time);
         if self.delete_one_item(item_id, replace_with_gap).is_none() {
             return false;
         }
