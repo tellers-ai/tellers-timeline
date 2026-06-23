@@ -60,21 +60,28 @@ impl Stack {
         for (ti, ii) in targets {
             let track_old_start = self.children[ti].start_time_of_item(ii);
             let track_new_start = track_old_start + start_delta;
+            let is_gap = matches!(self.children[ti].items[ii], Item::Gap(_));
             let mut new_item = self.children[ti].items[ii].clone();
             new_item.set_duration(new_duration);
             let track = &mut self.children[ti];
-            // Delete the item (replaced with a gap of old duration), then re-insert at
-            // the new position so the gap machinery handles neighbour merging.
-            if track.delete_clip_at(ii, true).is_none() {
-                *self = backup;
-                return false;
+            if is_gap {
+                // Gaps have no position on their own — just resize in place.
+                track.items[ii].set_duration(new_duration.max(0.0));
+                track.sanitize_preserving_all_gap_track();
+            } else {
+                // Delete the item (replaced with a gap of old duration), then re-insert at
+                // the new position so the gap machinery handles neighbour merging.
+                if track.delete_clip_at(ii, true).is_none() {
+                    *self = backup;
+                    return false;
+                }
+                track.insert_at_time(
+                    track_new_start,
+                    new_item,
+                    OverlapPolicy::Override,
+                    InsertPolicy::SplitAndInsert,
+                );
             }
-            track.insert_at_time(
-                track_new_start,
-                new_item,
-                OverlapPolicy::Override,
-                InsertPolicy::SplitAndInsert,
-            );
             modified_track_indices.push(ti);
         }
 
@@ -137,21 +144,27 @@ impl Stack {
 
         for (ti, ii) in targets {
             let track_old_start = self.children[ti].start_time_of_item(ii);
+            let is_gap = matches!(self.children[ti].items[ii], Item::Gap(_));
             let mut new_item = self.children[ti].items[ii].clone();
             new_item.set_duration(effective_duration);
             let track = &mut self.children[ti];
-            // Delete the item (replaced with a gap of old duration), then re-insert at
-            // the same position so the trailing gap is formed naturally.
-            if track.delete_clip_at(ii, true).is_none() {
-                *self = backup;
-                return false;
+            if is_gap {
+                track.items[ii].set_duration(effective_duration.max(0.0));
+                track.sanitize_preserving_all_gap_track();
+            } else {
+                // Delete the item (replaced with a gap of old duration), then re-insert at
+                // the same position so the trailing gap is formed naturally.
+                if track.delete_clip_at(ii, true).is_none() {
+                    *self = backup;
+                    return false;
+                }
+                track.insert_at_time(
+                    track_old_start,
+                    new_item,
+                    OverlapPolicy::Override,
+                    InsertPolicy::SplitAndInsert,
+                );
             }
-            track.insert_at_time(
-                track_old_start,
-                new_item,
-                OverlapPolicy::Override,
-                InsertPolicy::SplitAndInsert,
-            );
             modified_track_indices.push(ti);
         }
 
