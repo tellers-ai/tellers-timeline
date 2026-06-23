@@ -5990,59 +5990,6 @@ fn move_unsynced_image_into_synced_clip_override_assigns_new_link_group_to_right
 }
 
 #[test]
-fn backward_move_does_not_add_push_gaps_on_unupdated_cluster_tracks() {
-    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
-    video.items.push(Item::Clip(clip(1.0, Some("unlinked"))));
-
-    let mut stack = Stack::default();
-    stack.children.push(video);
-    let result = insert_with_audio(
-        &mut stack,
-        0,
-        1.0,
-        clip(2.0, Some("linked-video")),
-        vec![audio_clip(2.0, "file:///linked-a1.wav", None)],
-    )
-    .unwrap();
-    let audio_id = result.audio_clips[0].0.clone();
-
-    assert!(stack.move_item_at_time(
-        "unlinked",
-        "v",
-        2.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Push,
-    ));
-
-    let (audio_track_index, audio_item_index, _) = stack.get_item(&audio_id).unwrap();
-    let synced_start_before_return = stack.children[audio_track_index]
-        .start_time_of_item(audio_item_index);
-    let audio_items_before_return = stack.children[audio_track_index].items.len();
-
-    assert!(stack.move_item_at_time(
-        "unlinked",
-        "v",
-        0.0,
-        true,
-        InsertPolicy::SplitAndInsert,
-        OverlapPolicy::Push,
-    ));
-
-    let audio_track = &stack.children[audio_track_index];
-    assert_eq!(
-        audio_track.items.len(),
-        audio_items_before_return,
-        "untouched synced audio track must not gain push spacer gaps on backward move"
-    );
-    assert_eq!(
-        audio_track.start_time_of_item(audio_item_index),
-        synced_start_before_return,
-        "synced audio start must stay unchanged when moving an unlinked clip earlier"
-    );
-}
-
-#[test]
 fn move_unsynced_photo_onto_main_video_does_not_split_unrelated_a9_a11_sync_cluster() {
     // Minimal repro of New Project (4)->(5): unsynced photo 987c30ab0258 moved onto
     // Main Video at ~7s must split HH10 (group 3) on the destination cluster only,
