@@ -2546,6 +2546,22 @@ impl Stack {
         Some(self.children[track_index].start_time_of_item(item_index))
     }
 
+    /// Backward moves land earlier on the destination; Push would shove unrelated
+    /// tail content on that track rightward, so use Override for the insert itself.
+    fn effective_move_overlap_policy(
+        overlap_policy: OverlapPolicy,
+        previous_start: Option<Seconds>,
+        dest_time: Seconds,
+    ) -> OverlapPolicy {
+        if overlap_policy == OverlapPolicy::Push
+            && previous_start.is_some_and(|previous| dest_time < previous - EPS)
+        {
+            OverlapPolicy::Override
+        } else {
+            overlap_policy
+        }
+    }
+
     fn linked_item_ids_for_move(&self, item_timeline_id: &str, item_to_move: &Item) -> Vec<String> {
         let Some((primary_track_index, primary_item_index, _)) = self.get_item(item_timeline_id)
         else {
@@ -2755,6 +2771,8 @@ impl Stack {
         let primary_start_time = backup
             .stack_item_start_time(item_id)
             .unwrap_or(dest_time);
+        let overlap_policy =
+            Self::effective_move_overlap_policy(overlap_policy, Some(primary_start_time), dest_time);
         let preferred_cluster_video_id = backup
             .get_track_by_id(dest_track_id)
             .map(|(dest_track_index, _)| dest_track_index)
@@ -3149,6 +3167,11 @@ impl Stack {
         }
         let move_previous_start = backup.children[selected.track_index]
             .start_time_of_item(selected.item_index);
+        let overlap_policy = Self::effective_move_overlap_policy(
+            overlap_policy,
+            Some(move_previous_start),
+            dest_time,
+        );
         let move_source_track_indices: Vec<usize> =
             items_to_move.iter().map(|item| item.track_index).collect();
 
@@ -3212,6 +3235,12 @@ impl Stack {
         let selected_source_item_index = selected_item.item_index;
         let previous_start = backup.children[selected_source_track_index]
             .start_time_of_item(selected_source_item_index);
+        let moved_start = backup.children[dest_track_index].start_time_of_item(dest_index);
+        let overlap_policy = Self::effective_move_overlap_policy(
+            overlap_policy,
+            Some(previous_start),
+            moved_start,
+        );
         let Some(selected_id) = selected_item.item.get_id() else {
             return false;
         };
