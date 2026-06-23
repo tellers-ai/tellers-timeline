@@ -17,14 +17,8 @@ InsertPolicy = Literal[
 ]
 
 class SyncTrackInfo(TypedDict):
-    start_index: int
-    end_index: int
     track_indices: list[int]
     track_ids: list[Optional[str]]
-    primary_track_index: int
-    primary_track_id: Optional[str]
-    bound_track_indices: list[int]
-    bound_track_ids: list[Optional[str]]
 
 class MediaReference:
     def __init__(

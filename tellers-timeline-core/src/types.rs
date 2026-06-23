@@ -396,6 +396,21 @@ impl Clip {
             .set_from_seconds((clamped_end - source_start).max(0.0));
     }
 
+    /// Resolve link-group sync id from Resolve OTIO metadata (`Link Group ID`).
+    pub fn sync_clips_id(&self) -> Option<i64> {
+        Self::resolve_otio_i64(&self.metadata, "Link Group ID")
+    }
+
+    pub(crate) fn resolve_otio_i64(metadata: &serde_json::Value, key: &str) -> Option<i64> {
+        let raw = metadata
+            .get("Resolve_OTIO")
+            .or_else(|| metadata.get("resolve"))
+            .and_then(|v| v.get(key))?;
+        raw.as_i64()
+            .or_else(|| raw.as_u64().and_then(|value| i64::try_from(value).ok()))
+            .or_else(|| raw.as_str().and_then(|value| value.parse::<i64>().ok()))
+    }
+
     pub fn new_single_media_reference(
         source_range: TimeRange,
         reference: MediaReference,

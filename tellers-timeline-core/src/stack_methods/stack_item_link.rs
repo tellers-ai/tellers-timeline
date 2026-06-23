@@ -1,7 +1,5 @@
-use crate::{Item, Seconds, Stack};
+use crate::{Item, Stack};
 use std::collections::HashSet;
-
-const EPS: Seconds = super::EPS;
 
 impl Stack {
     pub fn unsync_item(&mut self, item_ids: &[String]) -> usize {
@@ -52,17 +50,6 @@ impl Stack {
         }
         if targets.len() < 2 {
             return None;
-        }
-
-        let (first_track_index, first_item_index) = targets[0];
-        let first_start = self.children[first_track_index].start_time_of_item(first_item_index);
-        let first_duration = self.children[first_track_index].items[first_item_index].duration();
-        for (track_index, item_index) in targets.iter().skip(1) {
-            let start = self.children[*track_index].start_time_of_item(*item_index);
-            let duration = self.children[*track_index].items[*item_index].duration();
-            if (start - first_start).abs() > EPS || (duration - first_duration).abs() > EPS {
-                return None;
-            }
         }
 
         let backup = self.clone();

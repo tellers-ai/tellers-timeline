@@ -1,4 +1,4 @@
-use crate::{Item, Seconds, Track};
+use crate::{IdMetadataExt, Item, Seconds, Track};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlapPolicy {
@@ -19,20 +19,57 @@ pub enum InsertPolicy {
     InsertBeforeOrAfter,
 }
 
+/// A clip that was split during insert. `left_clip_id` and `right_clip_id` are
+/// optional because override insertion may trim away one side.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SplitClipInfo {
+    pub old_clip_id: String,
+    pub left_clip_id: Option<String>,
+    pub right_clip_id: Option<String>,
+    pub sync_clips_id: Option<i64>,
+    pub split_time: Seconds,
+}
+
+/// A clip removed during override insert.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeletedClipInfo {
+    pub clip_id: String,
+    pub sync_clips_id: Option<i64>,
+}
+
+/// Result of a track-level insert: deleted clips, splits, and success flag.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TrackInsertResult {
+    pub success: bool,
+    pub deleted_clips: Vec<DeletedClipInfo>,
+    pub split_clips: Vec<SplitClipInfo>,
+}
+
+impl TrackInsertResult {
+    pub(crate) fn merge(&mut self, other: TrackInsertResult) {
+        self.success = self.success && other.success;
+        self.deleted_clips.extend(other.deleted_clips);
+        self.split_clips.extend(other.split_clips);
+    }
+}
+
 impl Track {
     pub(crate) fn insert_at_index(
         &mut self,
         index: usize,
         mut item: Item,
         overlap_policy: OverlapPolicy,
-    ) {
+    ) -> TrackInsertResult {
         item.clamp_to_active_available_range();
         if overlap_policy == OverlapPolicy::Push {
             self.insert_and_push(index, item);
-            return;
+            return TrackInsertResult {
+                success: true,
+                ..Default::default()
+            };
         }
 
-        self.insert_and_override(index, item);
+        self.insert_and_override(index, item)
     }
 
     pub(crate) fn insert_and_push(&mut self, index: usize, mut item: Item) {
@@ -40,9 +77,14 @@ impl Track {
         self.items.insert(index, item);
     }
 
-    pub(crate) fn insert_and_override(&mut self, index: usize, mut item: Item) {
+    pub(crate) fn insert_and_override(&mut self, index: usize, mut item: Item) -> TrackInsertResult {
         const EPS: Seconds = 1e-9;
         item.clamp_to_active_available_range();
+
+        let mut result = TrackInsertResult {
+            success: true,
+            ..Default::default()
+        };
 
         let mut insert_index = index.min(self.items.len());
         let insert_start = self.start_time_of_item(insert_index);
@@ -51,14 +93,16 @@ impl Track {
         if item.duration() <= EPS {
             self.items.insert(insert_index, item);
             self.sanitize_preserving_all_gap_track();
-            return;
+            return result;
         }
 
         // If the insertion start falls strictly inside an item at insert_index, split at start
         if let Some(containing_idx) = self.get_item_at_time(insert_start) {
             let containing_start = self.start_time_of_item(containing_idx);
             if insert_start > containing_start + EPS && containing_idx <= insert_index {
-                self.split_at_time(insert_start);
+                if let Some(split) = self.split_at_time(insert_start) {
+                    result.split_clips.push(split);
+                }
                 // After split, the right piece is at containing_idx + 1; our insertion point is after the left piece
                 if insert_index <= containing_idx {
                     insert_index = containing_idx + 1;
@@ -70,7 +114,9 @@ impl Track {
 
         // Split at end boundary if it falls inside an item
         if self.get_item_at_time(insert_end).is_some() {
-            self.split_at_time(insert_end);
+            if let Some(split) = self.split_at_time(insert_end) {
+                result.split_clips.push(split);
+            }
         }
 
         // After splitting at start and end, remove the exact range of items fully inside [insert_start, insert_end).
@@ -80,12 +126,19 @@ impl Track {
         if end_index > insert_index {
             let remove_count = end_index - insert_index;
             for _ in 0..remove_count {
+                if let Item::Clip(clip) = &self.items[insert_index] {
+                    result.deleted_clips.push(DeletedClipInfo {
+                        clip_id: clip.get_id().unwrap_or_default(),
+                        sync_clips_id: clip.sync_clips_id(),
+                    });
+                }
                 self.items.remove(insert_index);
             }
         }
 
         self.items.insert(insert_index, item);
         self.sanitize_preserving_all_gap_track();
+        result
     }
 
     /// Insert an item at a timeline time, controlling how overlaps are handled
@@ -96,7 +149,7 @@ impl Track {
         mut item: Item,
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
-    ) {
+    ) -> TrackInsertResult {
         item.clamp_to_active_available_range();
         let mut effective_insert_time = insert_time;
         let total_track_duration = self.total_duration();
@@ -118,19 +171,30 @@ impl Track {
                 .push(Item::Gap(crate::types::Gap::make_gap(gap_duration)));
             self.items.push(item);
             self.sanitize_preserving_all_gap_track();
-            return;
+            return TrackInsertResult {
+                success: true,
+                ..Default::default()
+            };
         }
 
         let containing_index = self.get_item_at_time(effective_insert_time);
 
         let insert_index = self.get_insertion_index(effective_insert_time, insert_policy);
 
+        let mut result = TrackInsertResult {
+            success: true,
+            ..Default::default()
+        };
+
         if let (InsertPolicy::SplitAndInsert, Some(_i)) = (insert_policy, containing_index) {
             // Create the boundary at the insertion time before inserting.
-            self.split_at_time(effective_insert_time);
+            if let Some(split) = self.split_at_time(effective_insert_time) {
+                result.split_clips.push(split);
+            }
         }
 
-        self.insert_at_index(insert_index, item, overlap_policy);
+        result.merge(self.insert_at_index(insert_index, item, overlap_policy));
+        result
     }
 
     /// Compute the insertion index according to the policy without.

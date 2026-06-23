@@ -220,14 +220,8 @@ def test_sync_track_info_translates_to_list_of_dicts():
     assert groups
     group = groups[0]
     assert set(group) == {
-        "start_index",
-        "end_index",
         "track_indices",
         "track_ids",
-        "primary_track_index",
-        "primary_track_id",
-        "bound_track_indices",
-        "bound_track_ids",
     }
     assert isinstance(group["track_indices"], list)
     assert isinstance(group["track_ids"], list)

@@ -107,7 +107,7 @@ impl Stack {
                 let Item::Clip(clip) = item else {
                     continue;
                 };
-                if let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) {
+                if let Some(sync_clips_id) = clip.sync_clips_id() {
                     *counts.entry(sync_clips_id).or_default() += 1;
                 }
             }
@@ -118,7 +118,7 @@ impl Stack {
                 let Item::Clip(clip) = item else {
                     continue;
                 };
-                let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) else {
+                let Some(sync_clips_id) = clip.sync_clips_id() else {
                     continue;
                 };
                 if counts.get(&sync_clips_id).copied().unwrap_or_default() < 2 {
@@ -146,17 +146,6 @@ fn new_unused_timeline_id(used_ids: &mut HashSet<String>) -> String {
             return id;
         }
     }
-}
-
-fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
-    metadata
-        .get("Resolve_OTIO")
-        .and_then(|v| v.get("Link Group ID"))
-        .and_then(|v| {
-            v.as_i64()
-                .or_else(|| v.as_u64().and_then(|n| i64::try_from(n).ok()))
-                .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
-        })
 }
 
 fn remove_resolve_sync_clips_id(metadata: &mut serde_json::Value) -> bool {

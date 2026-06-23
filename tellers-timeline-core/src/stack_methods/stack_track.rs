@@ -1,10 +1,10 @@
 use super::SyncTrackInfo;
-use crate::{IdMetadataExt, Item, Stack, Track, TrackKind};
+use crate::{IdMetadataExt, Item, Stack, Track};
+use std::collections::HashSet;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TrackBoundaryGroup {
-    start: usize,
-    end: usize,
+    track_indices: Vec<usize>,
 }
 
 impl Stack {
@@ -23,41 +23,11 @@ impl Stack {
     }
 
     /// Move a track to a new insertion index.
-    ///
-    /// Primary tracks move their whole boundary group to boundary-group edges.
-    /// Secondary tracks in a linked boundary can only move inside their current boundary group.
     pub fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         let Some((track_index, _)) = self.get_track_by_id(id) else {
             return false;
         };
         let dest_index = super::clamp_insertion_index(self.children.len(), insertion_index);
-        let Some(group) = self.track_boundary_group_at(track_index) else {
-            return false;
-        };
-
-        if self.is_primary_track_in_group(track_index, group) {
-            if !self.is_track_group_boundary_index(dest_index) {
-                return false;
-            }
-            if dest_index >= group.start && dest_index <= group.end {
-                return true;
-            }
-            let group_len = group.end - group.start;
-            let moved_tracks: Vec<_> = self.children.drain(group.start..group.end).collect();
-            let adjusted_dest_index = if dest_index > group.start {
-                dest_index - group_len
-            } else {
-                dest_index
-            };
-            for (offset, track) in moved_tracks.into_iter().enumerate() {
-                self.children.insert(adjusted_dest_index + offset, track);
-            }
-            self.sanitize();
-            return true;
-        } else if dest_index < group.start || dest_index > group.end {
-            return false;
-        }
-
         if dest_index == track_index || dest_index == track_index + 1 {
             return true;
         }
@@ -73,35 +43,19 @@ impl Stack {
         true
     }
 
-    /// Return boundary groups with their primary track and bound tracks.
+    /// Return sync groups of tracks that share a link group.
     pub fn sync_track_info(&self) -> Vec<SyncTrackInfo> {
         self.track_boundary_ranges()
             .into_iter()
             .map(|group| {
-                let primary_track_index = self.primary_track_index_in_group(group);
-                let track_indices: Vec<_> = (group.start..group.end).collect();
+                let track_indices = group.track_indices.clone();
                 let track_ids = track_indices
                     .iter()
                     .map(|index| self.children[*index].get_id())
                     .collect();
-                let bound_track_indices: Vec<_> = track_indices
-                    .iter()
-                    .copied()
-                    .filter(|index| *index != primary_track_index)
-                    .collect();
-                let bound_track_ids = bound_track_indices
-                    .iter()
-                    .map(|index| self.children[*index].get_id())
-                    .collect();
                 SyncTrackInfo {
-                    start_index: group.start,
-                    end_index: group.end,
                     track_indices,
                     track_ids,
-                    primary_track_index,
-                    primary_track_id: self.children[primary_track_index].get_id(),
-                    bound_track_indices,
-                    bound_track_ids,
                 }
             })
             .collect()
@@ -126,89 +80,45 @@ impl Stack {
         Some(removed)
     }
 
-    fn is_track_group_boundary_index(&self, index: usize) -> bool {
-        if index > self.children.len() {
-            return false;
-        }
-        index == 0
-            || index == self.children.len()
-            || self
-                .track_boundary_ranges()
-                .iter()
-                .any(|group| index == group.start || index == group.end)
-    }
-
-    fn track_boundary_group_at(&self, track_index: usize) -> Option<TrackBoundaryGroup> {
-        self.track_boundary_ranges()
-            .into_iter()
-            .find(|group| track_index >= group.start && track_index < group.end)
-    }
-
-    /// The ascending track indices of the sync group `track_index` belongs to
-    /// (the same grouping reported by `sync_track_info`). Falls back to the
-    /// track itself if it is not part of any multi-track group.
+    /// The ascending track indices of every sync group `track_index` belongs to,
+    /// merged for operations that need the full partner set (insert padding, etc.).
     pub(super) fn boundary_group_indices(&self, track_index: usize) -> Vec<usize> {
-        match self.track_boundary_group_at(track_index) {
-            Some(group) => (group.start..group.end).collect(),
-            None => vec![track_index],
+        let mut indices = HashSet::new();
+        for group in self.track_boundary_ranges() {
+            if group.track_indices.contains(&track_index) {
+                indices.extend(&group.track_indices);
+            }
         }
+        if indices.is_empty() {
+            return vec![track_index];
+        }
+        let mut result: Vec<_> = indices.into_iter().collect();
+        result.sort_unstable();
+        result
     }
 
-    /// Build sync boundary groups from the bottom track upward.
+    /// Build sync groups by expanding `tracks_share_sync_clips` from each track.
     ///
-    /// The last track is the initial principal. Each track above it is compared to
-    /// the current principal: if every synced clip on the candidate matches a
-    /// synced clip on the principal, or the candidate is an empty boundary track
-    /// whose first non-empty track above them is already in the cluster,
-    /// they share a cluster. Otherwise the candidate becomes the principal of a
-    /// new cluster. Repeat until index 0.
+    /// A track can appear in multiple groups when it shares different link
+    /// groups with different partners. Identical track sets are reported once.
     fn track_boundary_ranges(&self) -> Vec<TrackBoundaryGroup> {
         let len = self.children.len();
         if len == 0 {
             return Vec::new();
         }
 
-        let mut groups_bottom_up = Vec::new();
-        let mut principal = len - 1;
-        let mut cluster_start = principal;
-        let mut cluster_end = len;
-
-        for i in 1..len {
-            let candidate = len - 1 - i;
-            if self.track_matches_principal_cluster(principal, candidate) {
-                cluster_start = candidate;
-            } else {
-                groups_bottom_up.push(TrackBoundaryGroup {
-                    start: cluster_start,
-                    end: cluster_end,
-                });
-                principal = candidate;
-                cluster_start = candidate;
-                cluster_end = candidate + 1;
+        let mut groups = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for anchor in 0..len {
+            let mut track_indices: Vec<usize> = (0..len)
+                .filter(|&candidate| self.tracks_share_sync_clips(anchor, candidate))
+                .collect();
+            track_indices.sort_unstable();
+            if seen.insert(track_indices.clone()) {
+                groups.push(TrackBoundaryGroup { track_indices });
             }
         }
-        groups_bottom_up.push(TrackBoundaryGroup {
-            start: cluster_start,
-            end: cluster_end,
-        });
-
-        groups_bottom_up.reverse();
-        groups_bottom_up
-    }
-
-    fn is_primary_track_in_group(&self, track_index: usize, group: TrackBoundaryGroup) -> bool {
-        track_index == self.primary_track_index_in_group(group)
-    }
-
-    fn primary_track_index_in_group(&self, group: TrackBoundaryGroup) -> usize {
-        if group.end <= group.start + 1 {
-            return group.start;
-        }
-        if let Some(video_index) = (group.start..group.end)
-            .find(|index| self.children[*index].kind == TrackKind::Video)
-        {
-            return video_index;
-        }
-        group.start
+        groups.sort_by(|left, right| left.track_indices.cmp(&right.track_indices));
+        groups
     }
 }
