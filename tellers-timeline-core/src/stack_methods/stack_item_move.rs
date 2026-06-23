@@ -58,19 +58,25 @@ impl Stack {
         };
 
         let backup = self.clone();
+        let previous_start = backup.stack_item_start_time(item_id);
         if self.delete_one_item(item_id, replace_with_gap).is_none() {
             return false;
         }
 
         if self
-            .insert_item_at_time(
+            .insert_synced_item_at_time(
                 dest_track_index,
                 dest_time,
+                None,
                 item_to_move,
                 overlap_policy,
                 insert_policy,
                 None,
                 None,
+                None::<&str>,
+                None::<&[usize]>,
+                None::<&[usize]>,
+                previous_start,
             )
             .is_some()
         {

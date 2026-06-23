@@ -1508,6 +1508,7 @@ impl Stack {
         preferred_video_track_id: Option<&str>,
         preferred_audio_track_indices: Option<&[usize]>,
         move_source_track_indices: Option<&[usize]>,
+        move_previous_start: Option<Seconds>,
     ) -> Option<InsertItemAtTimeResult> {
         let mut primary_item = item;
         primary_item.clamp_to_active_available_range();
@@ -1826,6 +1827,7 @@ impl Stack {
                 modified_duration,
                 &update_refs,
                 &cluster,
+                move_previous_start,
             )
         {
             *self = backup;
@@ -2878,6 +2880,7 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 None::<&[usize]>,
+                Some(primary_start_time),
             ) else {
                 *self = backup;
                 return false;
@@ -3060,6 +3063,7 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 gap_only_exclude,
+                None,
             )
             .is_some()
         {
@@ -3143,6 +3147,8 @@ impl Stack {
             synced_audio.push(item.item.clone());
             preferred_audio_track_indices.push(item.track_index);
         }
+        let move_previous_start = backup.children[selected.track_index]
+            .start_time_of_item(selected.item_index);
         let move_source_track_indices: Vec<usize> =
             items_to_move.iter().map(|item| item.track_index).collect();
 
@@ -3170,6 +3176,7 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 Some(move_source_track_indices.as_slice()),
+                Some(move_previous_start),
             )
             .is_some()
         {
@@ -3202,6 +3209,9 @@ impl Stack {
         };
         let selected_item = &items_to_move[selected_position];
         let selected_source_track_index = selected_item.track_index;
+        let selected_source_item_index = selected_item.item_index;
+        let previous_start = backup.children[selected_source_track_index]
+            .start_time_of_item(selected_source_item_index);
         let Some(selected_id) = selected_item.item.get_id() else {
             return false;
         };
@@ -3390,11 +3400,16 @@ impl Stack {
         boundary_track_indices.sort_unstable();
         boundary_track_indices.dedup();
 
+        let is_backward_move = moved_start < previous_start - EPS;
+
         for track_index in boundary_track_indices {
             if placements
                 .iter()
                 .any(|(placement_track_index, _, _)| *placement_track_index == track_index)
             {
+                continue;
+            }
+            if is_backward_move {
                 continue;
             }
             let mut gap = Item::Gap(crate::Gap::make_gap(moved_duration));
