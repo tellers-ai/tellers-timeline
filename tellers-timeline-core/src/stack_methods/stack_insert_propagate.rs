@@ -461,7 +461,14 @@ impl Stack {
             };
 
             let right_sync_clips_id = match (insert_sync_clips_id, overlap_policy) {
-                (Some(id), OverlapPolicy::Override) => id,
+                (Some(insert_id), OverlapPolicy::Override) => {
+                    let right_id = sync_id + 1;
+                    if right_id == insert_id {
+                        insert_id + 1
+                    } else {
+                        right_id
+                    }
+                }
                 (Some(_), OverlapPolicy::Push) => self.next_sync_clips_id(),
                 (None, OverlapPolicy::Override) => self.next_sync_clips_id(),
                 (None, OverlapPolicy::Push) => sync_id,

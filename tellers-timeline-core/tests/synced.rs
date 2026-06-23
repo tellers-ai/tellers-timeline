@@ -3629,7 +3629,8 @@ fn move_synced_clip_between_boundaries_override_splits_destination_link_groups()
     let right_group = sync_clips_id(&video_track.items[right_index]);
     assert_eq!(left_group, Some(dest_group));
     assert_ne!(left_group, right_group);
-    assert_eq!(right_group, Some(dest_group + 1));
+    assert_ne!(right_group, moving_group);
+    assert_eq!(right_group, Some(dest_group + 1).max(moving_group.map(|id| id + 1)));
 
     let audio_track = &stack.children[dest_audio_index];
     let audio_left_index = audio_track.get_item_at_time(0.5).unwrap();
