@@ -1,6 +1,6 @@
 use crate::{
-    Clip, Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track, TrackKind,
-    TrackInsertResult,
+    ClampPolicy, Clip, Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack,
+    Track, TrackKind, TrackInsertResult,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -2326,6 +2326,76 @@ impl Stack {
             overlap_policy,
             clamp_to_media,
         )
+    }
+
+    /// Move the left edge of an item; the right edge stays fixed so duration adjusts.
+    /// `clamp_policy` applies only when `new_start_time > old_start` and the previous
+    /// neighbor is a clip (not a gap).
+    pub fn set_item_start_time(
+        &mut self,
+        item_id: &str,
+        new_start_time: Seconds,
+        overlap_policy: OverlapPolicy,
+        clamp_policy: ClampPolicy,
+    ) -> bool {
+        let Some((track_index, item_index, _)) = self.get_item(item_id) else {
+            return false;
+        };
+        let old_start = self.children[track_index].start_time_of_item(item_index);
+        let old_duration = self.children[track_index].items[item_index].duration().max(0.0);
+        let old_end = old_start + old_duration;
+
+        let effective_start = if new_start_time > old_start + EPS
+            && clamp_policy == ClampPolicy::ClampByPulling
+            && item_index > 0
+            && matches!(self.children[track_index].items[item_index - 1], Item::Clip(_))
+        {
+            let prev_end = self.children[track_index].start_time_of_item(item_index - 1)
+                + self.children[track_index].items[item_index - 1]
+                    .duration()
+                    .max(0.0);
+            new_start_time.min(prev_end)
+        } else {
+            new_start_time
+        };
+
+        let new_duration = (old_end - effective_start).max(0.0);
+        self.resize_item(item_id, effective_start, new_duration, overlap_policy, false)
+    }
+
+    /// Change the duration of an item; the left edge stays fixed.
+    /// `clamp_policy` applies only when `new_duration < old_duration` and the following
+    /// neighbor is a clip (not a gap).
+    pub fn set_item_duration(
+        &mut self,
+        item_id: &str,
+        new_duration: Seconds,
+        overlap_policy: OverlapPolicy,
+        clamp_policy: ClampPolicy,
+    ) -> bool {
+        let Some((track_index, item_index, _)) = self.get_item(item_id) else {
+            return false;
+        };
+        let old_start = self.children[track_index].start_time_of_item(item_index);
+        let old_duration = self.children[track_index].items[item_index].duration().max(0.0);
+
+        let effective_duration = if new_duration < old_duration - EPS
+            && clamp_policy == ClampPolicy::ClampByPulling
+        {
+            let next_index = item_index + 1;
+            if next_index < self.children[track_index].items.len()
+                && matches!(self.children[track_index].items[next_index], Item::Clip(_))
+            {
+                let next_start = self.children[track_index].start_time_of_item(next_index);
+                new_duration.max(next_start - old_start)
+            } else {
+                new_duration
+            }
+        } else {
+            new_duration
+        };
+
+        self.resize_item(item_id, old_start, effective_duration, overlap_policy, false)
     }
 
     fn resize_synced_clips_with_leading_gap(

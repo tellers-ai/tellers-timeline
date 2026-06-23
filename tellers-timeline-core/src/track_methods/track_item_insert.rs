@@ -7,6 +7,15 @@ pub enum OverlapPolicy {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClampPolicy {
+    /// Allow a gap to form between clips.
+    ReplaceGap,
+    /// Clamp our edge at the neighboring clip boundary so no gap forms.
+    /// The neighboring clip is not modified.
+    ClampByPulling,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertPolicy {
     /// If inserting inside a gap, split the gap into left-gap/item/right-gap.
     /// If inside a non-gap item, falls back to BeforeOrAfter.
