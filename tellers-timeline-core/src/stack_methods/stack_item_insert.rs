@@ -26,6 +26,8 @@ impl Stack {
             insert_policy,
             synced_audio_clips,
             synced_video_clip,
+            None,
+            None,
         )
     }
 
@@ -56,6 +58,8 @@ impl Stack {
             InsertPolicy::InsertBefore,
             synced_audio_clips,
             synced_video_clip,
+            None,
+            None,
         )
     }
 }
