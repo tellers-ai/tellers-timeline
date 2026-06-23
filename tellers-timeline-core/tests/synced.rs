@@ -6436,3 +6436,60 @@ fn push_insert_at_start_of_synced_group_pushes_all_synced_audio_tracks() {
     }
     assert_sync_clips_track_aligned(&stack, "push-insert-at-start-of-synced-group");
 }
+
+#[test]
+fn space_talking_cat_move_paris_onto_hh10_does_not_split_a1_a7() {
+    let otio = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/space_talking_cat.otio"),
+    )
+    .expect("fixture exists");
+    let mut timeline: Timeline = serde_json::from_str(&otio).expect("parse otio");
+    timeline.tracks.sanitize();
+
+    // paris clip on Main (link group 4); HH10 on A1-A7 is unsynced (no link group).
+    let hh10_a1_dur_before = timeline
+        .tracks
+        .get_item("1e659f868531")
+        .unwrap()
+        .2
+        .duration();
+    let a1_items_before = timeline
+        .tracks
+        .get_track_by_id("A1")
+        .unwrap()
+        .1
+        .items
+        .len();
+
+    // Move paris onto HH10 start on Main (~16.84s).
+    assert!(timeline.tracks.move_item_at_time(
+        "1acd33f0570a",
+        "23d9c4f632ed",
+        16.84,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (_, a1_track) = timeline.tracks.get_track_by_id("A1").unwrap();
+    assert_eq!(
+        a1_track.items.len(),
+        a1_items_before,
+        "A1 HH10 must not be split when moving paris on Main"
+    );
+    let (_, _, hh10_a1_after) = timeline.tracks.get_item("1e659f868531").unwrap();
+    assert!(
+        (hh10_a1_after.duration() - hh10_a1_dur_before).abs() < 1e-6,
+        "A1 HH10 duration must be unchanged"
+    );
+
+    for track_id in ["A2", "A3", "A4", "A5", "A6", "A7"] {
+        let (_, track) = timeline.tracks.get_track_by_id(track_id).unwrap();
+        assert_eq!(
+            track.items.len(),
+            2,
+            "{track_id} must stay gap+clip when moving paris on Main"
+        );
+    }
+}

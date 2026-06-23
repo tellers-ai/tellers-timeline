@@ -1570,6 +1570,12 @@ impl Stack {
         // destination working cluster so insert propagation applies there too.
         if let Some(preferred_indices) = preferred_audio_track_indices {
             for track_index in self.destination_move_audio_candidates(dest_track_index, &[]) {
+                let Some(track) = self.children.get(track_index) else {
+                    continue;
+                };
+                if !track.items.is_empty() && !track_is_empty_boundary(track) {
+                    continue;
+                }
                 if !cluster.contains(&track_index) {
                     cluster.push(track_index);
                 }
