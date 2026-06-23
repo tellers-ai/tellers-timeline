@@ -477,6 +477,7 @@ impl Stack {
             match (overlap_policy, outcome) {
                 (OverlapPolicy::Override, SplitOutcome::BothSides) => {
                     if !self.insert_override_gap_on_cluster_partners(
+                        sync_id,
                         insert_start,
                         insert_duration,
                         cluster,
@@ -574,16 +575,57 @@ impl Stack {
         true
     }
 
+    fn cluster_partner_accepts_sync_propagation_in_range(
+        &self,
+        track_index: usize,
+        range_start: Seconds,
+        range_end: Seconds,
+        sync_clips_id: i64,
+    ) -> bool {
+        let Some(track) = self.children.get(track_index) else {
+            return false;
+        };
+        let mut pos = 0.0;
+        for item in &track.items {
+            let item_start = pos;
+            let item_end = pos + item.duration().max(0.0);
+            if item_end <= range_start + EPS || item_start >= range_end - EPS {
+                pos = item_end;
+                continue;
+            }
+            match item {
+                Item::Gap(_) => {}
+                Item::Clip(clip) => {
+                    if resolve_sync_clips_id(&clip.metadata) != Some(sync_clips_id) {
+                        return false;
+                    }
+                }
+            }
+            pos = item_end;
+        }
+        true
+    }
+
     fn insert_override_gap_on_cluster_partners(
         &mut self,
+        sync_clips_id: i64,
         insert_start: Seconds,
         insert_duration: Seconds,
         cluster: &[usize],
         updated_tracks: &HashSet<usize>,
     ) -> bool {
+        let insert_end = insert_start + insert_duration;
         let mut used_ids = self.collect_timeline_ids();
         for &track_index in cluster {
             if updated_tracks.contains(&track_index) {
+                continue;
+            }
+            if !self.cluster_partner_accepts_sync_propagation_in_range(
+                track_index,
+                insert_start,
+                insert_end,
+                sync_clips_id,
+            ) {
                 continue;
             }
             if self.track_has_spacer_at(track_index, insert_start, insert_duration) {
@@ -638,6 +680,14 @@ impl Stack {
                 found
             };
             if !has_sync_clip_in_range {
+                continue;
+            }
+            if !self.cluster_partner_accepts_sync_propagation_in_range(
+                track_index,
+                insert_start,
+                insert_end,
+                sync_clips_id,
+            ) {
                 continue;
             }
             self.children[track_index].delete_range(insert_start, insert_end, true);

@@ -2544,6 +2544,30 @@ impl Stack {
         Some(self.children[track_index].start_time_of_item(item_index))
     }
 
+    /// Linked audio on a boundary-cluster track should land at the primary
+    /// destination when a synced clip precedes it (misaligned Resolve export).
+    /// Leading gaps only preserve the historical offset.
+    fn linked_audio_partner_should_snap_to_dest_time(
+        &self,
+        track_index: usize,
+        item_index: usize,
+    ) -> bool {
+        let Some(track) = self.children.get(track_index) else {
+            return false;
+        };
+        for (index, item) in track.items.iter().enumerate() {
+            if index >= item_index {
+                break;
+            }
+            if let Item::Clip(clip) = item {
+                if clip.sync_clips_id().is_some() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     fn linked_item_ids_for_move(&self, item_timeline_id: &str, item_to_move: &Item) -> Vec<String> {
         let Some((primary_track_index, primary_item_index, _)) = self.get_item(item_timeline_id)
         else {
@@ -2794,6 +2818,10 @@ impl Stack {
         let dest_is_audio = self.children.get(dest_track_index).is_some_and(|track| {
             track.kind == TrackKind::Audio
         });
+        let dest_cluster: std::collections::HashSet<usize> = backup
+            .boundary_group_indices(dest_track_index)
+            .into_iter()
+            .collect();
         for (source_track_index, item) in removed_items {
             if item
                 .get_id()
@@ -2816,11 +2844,26 @@ impl Stack {
             let is_same_time_audio_clip = is_same_time
                 && matches!(item, Item::Clip(_))
                 && matches!(source_track_kind, Some(TrackKind::Audio));
-            if is_same_time_audio_clip {
+            let is_cluster_audio_partner = matches!(source_track_kind, Some(TrackKind::Audio))
+                && matches!(item, Item::Clip(_))
+                && !dest_is_audio
+                && dest_cluster.contains(&source_track_index)
+                && item.get_id().as_deref().is_some_and(|id| {
+                    backup
+                        .get_item(id)
+                        .is_some_and(|(_, item_index, _)| {
+                            backup.linked_audio_partner_should_snap_to_dest_time(
+                                source_track_index,
+                                item_index,
+                            )
+                        })
+                });
+            if is_same_time_audio_clip || is_cluster_audio_partner {
                 if let Item::Clip(clip) = item {
                     linked_audio_items.push(Item::Clip(clip));
                     preferred_audio_track_indices.push(source_track_index);
                 }
+                continue;
             } else if dest_is_audio
                 && matches!(source_track_kind, Some(TrackKind::Video))
                 && matches!(item, Item::Clip(_))
