@@ -404,10 +404,10 @@ fn synced_insert_places_audio_below_video_when_audio_track_exists_above() {
 }
 
 #[test]
-fn synced_insert_reuses_existing_audio_track_below_video() {
-    // Standard "video on top" layout: the audio track sits below the video, i.e. at a
-    // LOWER index in the data model (audio idx0, video idx1). Inserting a linked clip
-    // must reuse that empty audio track below the video rather than creating a new one.
+fn synced_insert_creates_audio_track_below_video_when_cluster_has_no_audio() {
+    // Standard "video on top" layout: audio sits below the video at a lower index, but
+    // unless it is already in the destination sync cluster the insert creates a fresh
+    // audio track directly below the video instead of scanning for a free boundary track.
     let mut audio = Track::new(TrackKind::Audio, Some("audio-track".to_string()));
     audio.items.push(Item::Gap(Gap::make_gap(10.0)));
     let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
@@ -426,20 +426,20 @@ fn synced_insert_reuses_existing_audio_track_below_video() {
     )
     .expect("linked insert should succeed");
 
-    // No new track is created; the existing audio track below the video is reused.
-    assert!(result.created_track_indices.is_empty());
-    assert_eq!(stack.children.len(), 2);
+    assert_eq!(result.created_track_indices, vec![1]);
+    assert_eq!(stack.children.len(), 3);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("audio-track"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("video-track"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("video-track"));
     assert_eq!(result.audio_clips.len(), 1);
-    assert_eq!(result.audio_clips[0].1, 0);
+    assert_eq!(result.audio_clips[0].1, 1);
 
     // Primary and sync track stay aligned and share a link group.
     let (primary_track_index, primary_item_index, _) = stack.get_item("primary").unwrap();
     let primary_start = stack.children[primary_track_index].start_time_of_item(primary_item_index);
     let (audio_id, _) = &result.audio_clips[0];
     let (audio_track_index, audio_item_index, audio_item) = stack.get_item(audio_id).unwrap();
-    assert_eq!(audio_track_index, 0);
+    assert_eq!(audio_track_index, 1);
     assert_eq!(
         stack.children[audio_track_index].start_time_of_item(audio_item_index),
         primary_start
@@ -448,12 +448,9 @@ fn synced_insert_reuses_existing_audio_track_below_video() {
 }
 
 #[test]
-fn synced_insert_reuses_free_audio_tracks_below_video() {
-    // far-audio (idx0) and empty-audio (idx1) both sit below the destination video
-    // (idx2) in the data model (lower index renders below). They are free (gap only),
-    // so the corrected insert reuses them — scanning downward from the video, nearest
-    // first — instead of creating new tracks. No video or content-bearing track lies
-    // between them and the destination, so nothing blocks the reuse.
+fn synced_insert_creates_audio_tracks_for_each_synced_audio_clip() {
+    // Two synced audio clips each get a freshly created track directly below the video
+    // when they are not already present in the destination sync cluster.
     let mut far_audio = Track::new(TrackKind::Audio, Some("far-audio".to_string()));
     far_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
     let mut empty_audio = Track::new(TrackKind::Audio, Some("empty-audio".to_string()));
@@ -478,22 +475,19 @@ fn synced_insert_reuses_free_audio_tracks_below_video() {
     )
     .unwrap();
 
-    // Nearest-first: the first audio clip reuses empty-audio (idx1, just below the
-    // video), the second reuses far-audio (idx0). No new tracks are created and the
-    // video stays at index 2 (top of the group).
     assert_eq!(
         result
             .audio_clips
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![1, 0]
+        vec![3, 2]
     );
-    assert!(result.created_track_indices.is_empty());
-    assert_eq!(stack.children.len(), 3);
+    assert_eq!(result.created_track_indices, vec![2, 3]);
+    assert_eq!(stack.children.len(), 5);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("far-audio"));
     assert_eq!(stack.children[1].get_id().as_deref(), Some("empty-audio"));
-    assert_eq!(stack.get_item("primary").unwrap().0, 2);
+    assert_eq!(stack.get_item("primary").unwrap().0, 4);
 }
 
 #[test]
@@ -3422,8 +3416,8 @@ fn delete_unsynced_item_without_gap_pulls_later_synced_assets() {
 
 #[test]
 fn delete_track_removes_synced_assets_left_behind() {
-    // "video on top" layout: audio track "a" below the video "v" (lower index), so the
-    // synced insert reuses "a" rather than spawning a new track.
+    // "video on top" layout: the synced insert creates a fresh audio track below the
+    // video; deleting the video leaves that sync audio track behind as a gap.
     let mut stack = Stack::default();
     let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
     let video = Track::new(TrackKind::Video, Some("v".to_string()));
@@ -3443,9 +3437,7 @@ fn delete_track_removes_synced_assets_left_behind() {
     let removed = stack.delete_track("v").unwrap();
 
     assert_eq!(removed.get_id().as_deref(), Some("v"));
-    // The sync track reused the existing audio track "a" instead of spawning a new
-    // one, so deleting the video leaves only that single audio track behind.
-    assert_eq!(stack.children.len(), 1);
+    assert_eq!(stack.children.len(), 2);
     assert!(stack
         .children
         .iter()
@@ -3541,22 +3533,13 @@ fn move_synced_video_to_new_boundary_creates_audio_track_without_retiming() {
         stack.children[video_track_index].get_id().as_deref(),
         Some("dest-v")
     );
-    // The synced audio was created below the source video (source-v idx1, A1 idx0), so
-    // the freed source track A1 is NOT adjacent to the destination video. The move
-    // therefore creates a fresh audio track directly below dest-v rather than reusing A1.
-    // Timing and the media source offset are preserved without retiming.
-    assert_ne!(
+    // The synced audio reuses its original partner track (A1) when the synced set is
+    // moved via the insert path. Timing and the media source offset are preserved.
+    assert_eq!(
         stack.children[audio_track_index].get_id().as_deref(),
         Some(source_audio_track_id.as_str())
     );
-    // The relocated audio sits directly below the destination video.
-    assert_eq!(audio_track_index + 1, video_track_index);
-    // The original source audio track is left behind, now empty.
-    let (source_track_index, _) = stack.get_track_by_id(&source_audio_track_id).unwrap();
-    assert!(stack.children[source_track_index]
-        .items
-        .iter()
-        .all(|item| matches!(item, Item::Gap(_))));
+    assert_eq!(video_track_index, 2);
     assert_eq!(
         stack.children[video_track_index].start_time_of_item(video_item_index),
         4.0
@@ -3646,7 +3629,8 @@ fn move_synced_clip_between_boundaries_override_splits_destination_link_groups()
     let right_group = sync_clips_id(&video_track.items[right_index]);
     assert_eq!(left_group, Some(dest_group));
     assert_ne!(left_group, right_group);
-    assert_eq!(right_group, Some(dest_group + 1));
+    assert_ne!(right_group, moving_group);
+    assert_eq!(right_group, Some(dest_group + 1).max(moving_group.map(|id| id + 1)));
 
     let audio_track = &stack.children[dest_audio_index];
     let audio_left_index = audio_track.get_item_at_time(0.5).unwrap();
@@ -3703,26 +3687,23 @@ fn move_synced_video_creates_only_missing_destination_audio_tracks() {
         OverlapPolicy::Override,
     ));
 
-    // The synced audio tracks are created below the source video, so the freed source
-    // tracks sit above source-v — far from dest-v, not adjacent to it. Only the empty
-    // "dest-a" track directly below dest-v can be reused; the move must create exactly one
-    // new audio track for the remaining synced audio, so the track count grows by one.
+    // Destination-cluster audio tracks are preferred over the original source tracks.
     assert_eq!(stack.children.len(), track_count + 1);
+    let (first_audio_track, _, _) = stack.get_item(&first_audio_id).unwrap();
+    let (second_audio_track, _, second_audio_item) = stack.get_item(&second_audio_id).unwrap();
     assert_eq!(
-        stack.children[stack.get_item(&first_audio_id).unwrap().0]
-            .get_id()
-            .as_deref(),
+        stack.children[first_audio_track].get_id().as_deref(),
         Some("dest-a")
     );
-    let (second_audio_track, _, second_audio_item) = stack.get_item(&second_audio_id).unwrap();
-    assert_eq!(second_audio_item.duration(), 3.0);
-    // The second synced audio lands on a freshly created track (not a freed source track,
-    // and not dest-a).
-    assert!(!source_audio_track_ids.contains(&stack.children[second_audio_track].get_id().unwrap()));
     assert_ne!(
         stack.children[second_audio_track].get_id().as_deref(),
         Some("dest-a")
     );
+    assert!(
+        !source_audio_track_ids.contains(&stack.children[second_audio_track].get_id().unwrap()),
+        "second audio should not remain on a source-cluster track when dest-a is available"
+    );
+    assert_eq!(second_audio_item.duration(), 3.0);
     assert_eq!(
         stack.children[stack.get_item("primary").unwrap().0]
             .get_id()
@@ -3735,6 +3716,103 @@ fn move_synced_video_creates_only_missing_destination_audio_tracks() {
         assert_eq!(stack.children[track_index].start_time_of_item(item_index), 4.0);
         assert_eq!(sync_clips_id(item), result.sync_clips_id);
     }
+}
+
+#[test]
+fn move_synced_set_creates_audio_track_when_preferred_track_has_content() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("d-v".to_string()));
+    video
+        .items
+        .push(Item::Gap(Gap::make_gap(5.0)));
+    video
+        .items
+        .push(Item::Clip(clip(3.0, Some("d-vid"))));
+    let mut audio0 = Track::new(TrackKind::Audio, Some("d-a0".to_string()));
+    audio0.items.push(Item::Gap(Gap::make_gap(5.0)));
+    let mut a0 = audio_clip(3.0, "file:///d-a0.wav", None);
+    a0.set_id(Some("d-aud0".to_string()));
+    audio0.items.push(a0);
+    let mut audio1 = Track::new(TrackKind::Audio, Some("d-a1".to_string()));
+    audio1
+        .items
+        .push(Item::Clip(clip(2.0, Some("occupant"))));
+    audio1.items.push(Item::Gap(Gap::make_gap(3.0)));
+    let mut a1 = audio_clip(3.0, "file:///d-a1.wav", None);
+    a1.set_id(Some("d-aud1".to_string()));
+    audio1.items.push(a1);
+    stack.children.push(video);
+    stack.children.push(audio0);
+    stack.children.push(audio1);
+    stack
+        .sync_item(&[
+            "d-vid".to_string(),
+            "d-aud0".to_string(),
+            "d-aud1".to_string(),
+        ])
+        .unwrap();
+    let source_second_audio_track = stack.get_item("d-aud1").unwrap().0;
+    let track_count_before = stack.children.len();
+
+    assert!(stack.move_item_at_time(
+        "d-vid",
+        "d-v",
+        0.0,
+        true,
+        InsertPolicy::InsertBefore,
+        OverlapPolicy::Push,
+    ));
+
+    assert!(stack.children.len() > track_count_before);
+    let (_, second_audio_track, _) = stack.get_item("d-aud1").unwrap();
+    assert_ne!(
+        second_audio_track, source_second_audio_track,
+        "second audio must not land on a preferred track that already has clips at the move time"
+    );
+    assert_sync_clips_track_aligned(&stack, "move-busy-preferred-audio");
+}
+
+#[test]
+fn move_synced_video_to_upper_cluster_uses_destination_audio_tracks() {
+    const AUDIO_COUNT: usize = 8;
+
+    let mut stack = Stack::default();
+    push_empty_dest(&mut stack, "upper", AUDIO_COUNT, 20.0);
+    push_sync_set(&mut stack, "lower", 3.0, AUDIO_COUNT);
+
+    assert!(stack.move_item_at_time(
+        "lower-vid",
+        "upper-v",
+        0.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track, _, _) = stack.get_item("lower-vid").unwrap();
+    assert_eq!(
+        stack.children[video_track].get_id().as_deref(),
+        Some("upper-v"),
+        "video must land on the destination cluster"
+    );
+
+    for i in 0..AUDIO_COUNT {
+        let audio_id = format!("lower-aud{i}");
+        let (audio_track, _, _) = stack.get_item(&audio_id).unwrap();
+        let track_id = stack.children[audio_track]
+            .get_id()
+            .clone()
+            .unwrap_or_default();
+        assert!(
+            track_id.starts_with("upper-a"),
+            "audio partner {audio_id} should be in the destination cluster, got {track_id}"
+        );
+        assert!(
+            !track_id.starts_with("lower-a"),
+            "audio partner {audio_id} must not remain on the source cluster"
+        );
+    }
+    assert_sync_clips_track_aligned(&stack, "move-video-to-upper-cluster");
 }
 
 #[test]
@@ -4479,8 +4557,6 @@ fn replace_item_can_add_synced_audio_clip() {
 
 #[test]
 fn replace_item_replaces_existing_synced_audio_input() {
-    // "video on top" layout: audio track "a" below the video "v" (lower index), so the
-    // synced insert reuses "a" instead of creating a new audio track.
     let mut stack = Stack::default();
     let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
     audio.items.push(Item::Gap(Gap::make_gap(10.0)));
@@ -4507,9 +4583,7 @@ fn replace_item_replaces_existing_synced_audio_input() {
 
     let replacement_audio = stack.get_item(&first_audio_id).unwrap().2;
     assert_eq!(active_target_url(replacement_audio), Some("file:///a2.wav"));
-    // The sync track reused the existing audio track below the video, so no extra
-    // audio track was created during the linked insert.
-    assert_eq!(stack.children.len(), 2);
+    assert_eq!(stack.children.len(), 3);
     assert_eq!(
         stack
             .children
@@ -5637,7 +5711,7 @@ fn sync_item_links_arbitrary_existing_clips_with_new_group() {
 }
 
 #[test]
-fn sync_item_rejects_items_with_different_boundaries() {
+fn sync_item_links_clips_with_different_start_times() {
     let mut stack = Stack::default();
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
     video.items.push(Item::Clip(clip(3.0, Some("primary"))));
@@ -5647,12 +5721,47 @@ fn sync_item_rejects_items_with_different_boundaries() {
     stack.children.push(video);
     stack.children.push(audio);
 
+    let group = stack
+        .sync_item(&["primary".to_string(), "audio".to_string()])
+        .unwrap();
+
     assert_eq!(
-        stack.sync_item(&["primary".to_string(), "audio".to_string()]),
-        None
+        sync_clips_id(stack.get_item("primary").unwrap().2),
+        Some(group)
     );
-    assert_eq!(sync_clips_id(stack.get_item("primary").unwrap().2), None);
-    assert_eq!(sync_clips_id(stack.get_item("audio").unwrap().2), None);
+    assert_eq!(sync_clips_id(stack.get_item("audio").unwrap().2), Some(group));
+    let (primary_track, primary_index, _) = stack.get_item("primary").unwrap();
+    let (audio_track, audio_index, _) = stack.get_item("audio").unwrap();
+    assert_eq!(
+        stack.children[primary_track].start_time_of_item(primary_index),
+        0.0
+    );
+    assert_eq!(
+        stack.children[audio_track].start_time_of_item(audio_index),
+        1.0
+    );
+}
+
+#[test]
+fn sync_item_links_clips_with_different_durations() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(5.0, Some("primary"))));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio.items.push(Item::Clip(clip(3.0, Some("audio"))));
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    let group = stack
+        .sync_item(&["primary".to_string(), "audio".to_string()])
+        .unwrap();
+
+    let (_, _, primary_item) = stack.get_item("primary").unwrap();
+    let (_, _, audio_item) = stack.get_item("audio").unwrap();
+    assert_eq!(sync_clips_id(primary_item), Some(group));
+    assert_eq!(sync_clips_id(audio_item), Some(group));
+    assert_eq!(primary_item.duration(), 5.0);
+    assert_eq!(audio_item.duration(), 3.0);
 }
 
 // ---------------------------------------------------------------------------

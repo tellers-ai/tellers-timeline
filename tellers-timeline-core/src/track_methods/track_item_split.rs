@@ -1,11 +1,14 @@
-use crate::{Seconds, Track};
+use crate::{IdMetadataExt, Seconds, Track};
+
+use super::track_item_insert::SplitClipInfo;
 
 impl Track {
-    pub(crate) fn split_at_time(&mut self, split_time: Seconds) {
+    /// Split the item at `split_time`. Returns split metadata when a clip was split.
+    pub(crate) fn split_at_time(&mut self, split_time: Seconds) -> Option<SplitClipInfo> {
         const EPS: Seconds = 1e-9;
 
         let Some(item_index) = self.get_item_at_time(split_time) else {
-            return;
+            return None;
         };
 
         // Compute the offset from the start of the item
@@ -13,7 +16,7 @@ impl Track {
         let local_offset = split_time - item_start_time;
 
         if local_offset <= EPS {
-            return;
+            return None;
         }
 
         // Move the item out to avoid borrow issues
@@ -26,11 +29,13 @@ impl Track {
                 if local_offset >= total - EPS {
                     // Nothing to split, put the original back
                     self.items.insert(item_index, crate::Item::Clip(clip));
-                    return;
+                    return None;
                 }
 
                 let left_duration = local_offset.max(0.0);
                 let right_duration = (total - left_duration).max(0.0);
+                let old_clip_id = clip.get_id().unwrap_or_default();
+                let sync_clips_id = clip.sync_clips_id();
 
                 let mut left_clip = clip.clone();
                 left_clip
@@ -50,15 +55,28 @@ impl Track {
                     &mut clip,
                     Some(crate::types::gen_hex_id_12()),
                 );
+                let right_clip_id = clip.get_id();
 
                 self.items.insert(item_index, crate::Item::Clip(left_clip));
                 self.items.insert(item_index + 1, crate::Item::Clip(clip));
+
+                if old_clip_id.is_empty() {
+                    return None;
+                }
+
+                Some(SplitClipInfo {
+                    old_clip_id,
+                    left_clip_id: self.items[item_index].get_id(),
+                    right_clip_id,
+                    sync_clips_id,
+                    split_time,
+                })
             }
             crate::Item::Gap(mut gap) => {
                 let total = gap.source_range.duration.to_seconds().max(0.0);
                 if local_offset >= total - EPS {
                     self.items.insert(item_index, crate::Item::Gap(gap));
-                    return;
+                    return None;
                 }
 
                 let left_duration = local_offset.max(0.0);
@@ -78,6 +96,7 @@ impl Track {
 
                 self.items.insert(item_index, crate::Item::Gap(left_gap));
                 self.items.insert(item_index + 1, crate::Item::Gap(gap));
+                None
             }
         }
     }
