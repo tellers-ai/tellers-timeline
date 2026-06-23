@@ -47,6 +47,41 @@ fn make_clip(id: &str, duration: f64) -> Item {
     item
 }
 
+fn range_with_start(start: f64, duration: f64) -> TimeRange {
+    TimeRange {
+        otio_schema: "TimeRange.1".to_string(),
+        start_time: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: start },
+        duration: RationalTime { otio_schema: "RationalTime.1".to_string(), rate: 1.0, value: duration },
+    }
+}
+
+/// Clip with source_range.start_time = source_start and an available_range of [0, media_duration].
+fn make_clip_with_source_start(id: &str, duration: f64, source_start: f64, media_duration: f64) -> Item {
+    let mut refs = std::collections::HashMap::new();
+    refs.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::ExternalReference {
+            target_url: "mem://".to_string(),
+            available_range: Some(range_with_start(0.0, media_duration)),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::Value::Null,
+        },
+    );
+    let mut item = Item::Clip(Clip {
+        otio_schema: "Clip.2".to_string(),
+        enabled: true,
+        name: None,
+        source_range: range_with_start(source_start, duration),
+        media_references: refs,
+        active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
+        metadata: serde_json::Value::Null,
+        effects: Vec::new(),
+    });
+    item.set_id(Some(id.to_string()));
+    item
+}
+
 fn make_gap(duration: f64) -> Item {
     Item::Gap(Gap::make_gap(duration))
 }
@@ -146,21 +181,46 @@ fn set_start_clamp_by_pulling_no_effect_when_prev_is_gap() {
 }
 
 // [A:5][gap:3][B:5]  →  move B start from 8 to 6 (moving LEFT, growing into gap)
-// ClampByPulling only applies when moving right → left move is always free.
+// ClampByPulling only applies when moving right → left move is bounded only by media.
+// B has source_start=3, available_range=[0,20], so it has 3s of head room.
 #[test]
-fn set_start_moving_left_always_free() {
+fn set_start_moving_left_bounded_by_media() {
     let mut track = Track { kind: TrackKind::Video, ..Track::default() };
     track.items.push(make_clip("a", 5.0));
     track.items.push(make_gap(3.0));
-    track.items.push(make_clip("b", 5.0));
+    track.items.push(make_clip_with_source_start("b", 5.0, 3.0, 20.0)); // source_start=3
     let mut stack = Stack { children: vec![track], ..Stack::default() };
 
+    // Move B start from 8 to 6 (delta=-2); source_start goes from 3 to 1, still >= 0 → allowed
     let ok = stack.set_item_start_time("b", 6.0, OverlapPolicy::Override, ClampPolicy::ClampByPulling);
     assert!(ok);
 
     let (start, dur) = item_range(&stack, "b");
     assert!((start - 6.0).abs() < 1e-9, "b should start at 6, got {start}");
     assert!((dur - 7.0).abs() < 1e-9, "right edge stays at 13, duration = 7, got {dur}");
+}
+
+// When moving left would require source_start to go below 0, clamp at the media boundary.
+#[test]
+fn set_start_moving_left_clamped_by_media_boundary() {
+    let mut track = Track { kind: TrackKind::Video, ..Track::default() };
+    track.items.push(make_gap(5.0));
+    track.items.push(make_clip_with_source_start("b", 5.0, 2.0, 20.0)); // source_start=2, at [5,10]
+    let mut stack = Stack { children: vec![track], ..Stack::default() };
+
+    // Try to move B start from 5 to 1 (delta=-4); only 2s of head room → clamped to 3 (5-2)
+    let ok = stack.set_item_start_time("b", 1.0, OverlapPolicy::Override, ClampPolicy::ReplaceGap);
+    assert!(ok);
+
+    let (start, dur) = item_range(&stack, "b");
+    assert!((start - 3.0).abs() < 1e-9, "b should clamp to 3, got {start}");
+    assert!((dur - 7.0).abs() < 1e-9, "right edge stays at 10, duration = 7, got {dur}");
+    // source_range.start_time should now be 0
+    let (ti, ii, _) = stack.get_item("b").unwrap();
+    if let Item::Clip(clip) = &stack.children[ti].items[ii] {
+        let src_start = clip.source_range.start_time.to_seconds();
+        assert!((src_start - 0.0).abs() < 1e-9, "source_start should be 0, got {src_start}");
+    }
 }
 
 // Right edge is always fixed: moving start changes duration, not end position.

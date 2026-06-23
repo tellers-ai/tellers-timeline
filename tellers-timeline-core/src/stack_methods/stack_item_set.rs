@@ -39,8 +39,29 @@ impl Stack {
             unimplemented!("set_item_start_time on gaps is not yet implemented");
         }
 
+        // When growing left, clamp at media boundary (source_range.start_time can't go below
+        // available_range.start_time, typically 0).
+        let media_clamped_start = if new_start_time < old_start - EPS {
+            if let Item::Clip(clip) = &self.children[track_index].items[item_index] {
+                let source_start = clip.source_range.start_time.to_seconds();
+                let media_floor = clip
+                    .active_media_reference_key
+                    .as_deref()
+                    .and_then(|k| clip.media_references.get(k))
+                    .and_then(|r| r.available_range().as_ref())
+                    .map(|ar| ar.start_time.to_seconds().max(0.0))
+                    .unwrap_or(0.0);
+                let max_delta_left = (source_start - media_floor).max(0.0);
+                new_start_time.max(old_start - max_delta_left)
+            } else {
+                new_start_time
+            }
+        } else {
+            new_start_time
+        };
+
         // Clamping only applies to clips moving right away from a neighbouring clip.
-        let effective_start = if new_start_time > old_start + EPS
+        let effective_start = if media_clamped_start > old_start + EPS
             && clamp_policy == ClampPolicy::ClampByPulling
             && item_index > 0
             && matches!(self.children[track_index].items[item_index - 1], Item::Clip(_))
@@ -49,9 +70,9 @@ impl Stack {
                 + self.children[track_index].items[item_index - 1]
                     .duration()
                     .max(0.0);
-            new_start_time.min(prev_end)
+            media_clamped_start.min(prev_end)
         } else {
-            new_start_time
+            media_clamped_start
         };
 
         let start_delta = effective_start - old_start;
@@ -72,6 +93,14 @@ impl Stack {
             let track_new_start = track_old_start + start_delta;
             let mut new_item = self.children[ti].items[ii].clone();
             new_item.set_duration(new_duration);
+            // When growing left (start_delta < 0), shift source_range.start_time by the same delta
+            // so the clip exposes more media from the left.
+            if start_delta < -EPS {
+                if let Item::Clip(clip) = &mut new_item {
+                    let new_source_start = (clip.source_range.start_time.to_seconds() + start_delta).max(0.0);
+                    clip.source_range.start_time.set_from_seconds(new_source_start);
+                }
+            }
             let track = &mut self.children[ti];
             if track.delete_clip_at(ii, true).is_none() {
                 *self = backup;
