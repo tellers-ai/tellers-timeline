@@ -28,6 +28,7 @@ impl Stack {
             synced_video_clip,
             None::<&str>,
             None::<&[usize]>,
+            None::<&[usize]>,
         )
     }
 
@@ -59,6 +60,7 @@ impl Stack {
             synced_audio_clips,
             synced_video_clip,
             None::<&str>,
+            None::<&[usize]>,
             None::<&[usize]>,
         )
     }

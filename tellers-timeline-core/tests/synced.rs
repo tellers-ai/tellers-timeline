@@ -3687,16 +3687,22 @@ fn move_synced_video_creates_only_missing_destination_audio_tracks() {
         OverlapPolicy::Override,
     ));
 
-    // The synced audio partners keep their original source tracks when moved via insert.
-    assert_eq!(stack.children.len(), track_count);
+    // Destination-cluster audio tracks are preferred over the original source tracks.
+    assert_eq!(stack.children.len(), track_count + 1);
     let (first_audio_track, _, _) = stack.get_item(&first_audio_id).unwrap();
     let (second_audio_track, _, second_audio_item) = stack.get_item(&second_audio_id).unwrap();
-    assert!(source_audio_track_ids.contains(
-        &stack.children[first_audio_track].get_id().unwrap()
-    ));
-    assert!(source_audio_track_ids.contains(
-        &stack.children[second_audio_track].get_id().unwrap()
-    ));
+    assert_eq!(
+        stack.children[first_audio_track].get_id().as_deref(),
+        Some("dest-a")
+    );
+    assert_ne!(
+        stack.children[second_audio_track].get_id().as_deref(),
+        Some("dest-a")
+    );
+    assert!(
+        !source_audio_track_ids.contains(&stack.children[second_audio_track].get_id().unwrap()),
+        "second audio should not remain on a source-cluster track when dest-a is available"
+    );
     assert_eq!(second_audio_item.duration(), 3.0);
     assert_eq!(
         stack.children[stack.get_item("primary").unwrap().0]
@@ -3764,6 +3770,49 @@ fn move_synced_set_creates_audio_track_when_preferred_track_has_content() {
         "second audio must not land on a preferred track that already has clips at the move time"
     );
     assert_sync_clips_track_aligned(&stack, "move-busy-preferred-audio");
+}
+
+#[test]
+fn move_synced_video_to_upper_cluster_uses_destination_audio_tracks() {
+    const AUDIO_COUNT: usize = 8;
+
+    let mut stack = Stack::default();
+    push_empty_dest(&mut stack, "upper", AUDIO_COUNT, 20.0);
+    push_sync_set(&mut stack, "lower", 3.0, AUDIO_COUNT);
+
+    assert!(stack.move_item_at_time(
+        "lower-vid",
+        "upper-v",
+        0.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (video_track, _, _) = stack.get_item("lower-vid").unwrap();
+    assert_eq!(
+        stack.children[video_track].get_id().as_deref(),
+        Some("upper-v"),
+        "video must land on the destination cluster"
+    );
+
+    for i in 0..AUDIO_COUNT {
+        let audio_id = format!("lower-aud{i}");
+        let (audio_track, _, _) = stack.get_item(&audio_id).unwrap();
+        let track_id = stack.children[audio_track]
+            .get_id()
+            .clone()
+            .unwrap_or_default();
+        assert!(
+            track_id.starts_with("upper-a"),
+            "audio partner {audio_id} should be in the destination cluster, got {track_id}"
+        );
+        assert!(
+            !track_id.starts_with("lower-a"),
+            "audio partner {audio_id} must not remain on the source cluster"
+        );
+    }
+    assert_sync_clips_track_aligned(&stack, "move-video-to-upper-cluster");
 }
 
 #[test]

@@ -1197,6 +1197,79 @@ impl Stack {
         inputs
     }
 
+    fn destination_move_audio_candidates(
+        &self,
+        dest_track_index: usize,
+        used_audio_indices: &[usize],
+    ) -> Vec<usize> {
+        let Some(dest_track) = self.children.get(dest_track_index) else {
+            return Vec::new();
+        };
+        match dest_track.kind {
+            TrackKind::Video => {
+                let mut candidates = Vec::new();
+                let mut above = dest_track_index;
+                while above > 0 && self.children[above - 1].kind == TrackKind::Audio {
+                    above -= 1;
+                    if !used_audio_indices.contains(&above) {
+                        candidates.push(above);
+                    }
+                }
+                let mut below = dest_track_index + 1;
+                while below < self.children.len() && self.children[below].kind == TrackKind::Audio {
+                    if !used_audio_indices.contains(&below) {
+                        candidates.push(below);
+                    }
+                    below += 1;
+                }
+                candidates
+            }
+            TrackKind::Audio => self
+                .boundary_group_indices(dest_track_index)
+                .into_iter()
+                .filter(|&track_index| {
+                    track_index != dest_track_index
+                        && self.children.get(track_index).is_some_and(|track| {
+                            track.kind == TrackKind::Audio
+                                && !used_audio_indices.contains(&track_index)
+                        })
+                })
+                .collect(),
+            TrackKind::Other => Vec::new(),
+        }
+    }
+
+    fn find_usable_destination_move_audio_track(
+        &self,
+        dest_track_index: usize,
+        dest_time: Seconds,
+        duration: Seconds,
+        used_audio_indices: &[usize],
+        exclude_track_indices: &HashSet<usize>,
+    ) -> Option<usize> {
+        let end_time = dest_time + duration;
+        self.destination_move_audio_candidates(dest_track_index, used_audio_indices)
+            .into_iter()
+            .filter(|track_index| !exclude_track_indices.contains(track_index))
+            .find(|&track_index| {
+                self.children.get(track_index).is_some_and(|track| {
+                    track_is_empty_boundary(track)
+                        || range_is_gap_backed(track, dest_time, end_time)
+                        || self.track_matches_primary_sync_boundary(dest_track_index, track_index)
+                })
+            })
+    }
+
+    fn has_non_source_destination_audio_tracks(
+        &self,
+        dest_track_index: usize,
+        exclude_track_indices: &HashSet<usize>,
+    ) -> bool {
+        self.destination_move_audio_candidates(dest_track_index, &[])
+            .iter()
+            .any(|track_index| !exclude_track_indices.contains(track_index))
+    }
+
     fn preferred_move_audio_track_usable(
         &self,
         dest_track_index: usize,
@@ -1204,6 +1277,7 @@ impl Stack {
         dest_time: Seconds,
         duration: Seconds,
         used_audio_indices: &[usize],
+        exclude_track_indices: &HashSet<usize>,
     ) -> bool {
         if candidate_index == dest_track_index {
             return false;
@@ -1215,6 +1289,15 @@ impl Stack {
             return false;
         }
         let end_time = dest_time + duration;
+        let dest_cluster: HashSet<usize> = self
+            .boundary_group_indices(dest_track_index)
+            .into_iter()
+            .collect();
+        if !dest_cluster.contains(&candidate_index)
+            && self.has_non_source_destination_audio_tracks(dest_track_index, exclude_track_indices)
+        {
+            return false;
+        }
         if track_is_empty_boundary(track) {
             return true;
         }
@@ -1222,6 +1305,46 @@ impl Stack {
             return true;
         }
         self.track_matches_primary_sync_boundary(dest_track_index, candidate_index)
+    }
+
+    fn find_or_create_destination_move_audio_track(
+        &mut self,
+        dest_track_index: usize,
+        dest_time: Seconds,
+        duration: Seconds,
+        created_track_indices: &mut Vec<usize>,
+        used_audio_indices: &[usize],
+        exclude_track_indices: &HashSet<usize>,
+    ) -> Option<usize> {
+        if let Some(track_index) = self.find_usable_destination_move_audio_track(
+            dest_track_index,
+            dest_time,
+            duration,
+            used_audio_indices,
+            exclude_track_indices,
+        ) {
+            return Some(track_index);
+        }
+
+        let insert_at = match self.children.get(dest_track_index)?.kind {
+            TrackKind::Video => {
+                let mut above = dest_track_index;
+                while above > 0 && self.children[above - 1].kind == TrackKind::Audio {
+                    above -= 1;
+                }
+                if above < dest_track_index {
+                    dest_track_index
+                } else {
+                    dest_track_index + 1
+                }
+            }
+            TrackKind::Audio => dest_track_index + 1,
+            TrackKind::Other => return None,
+        };
+        self.children
+            .insert(insert_at, self.new_numbered_track(TrackKind::Audio));
+        created_track_indices.push(insert_at);
+        Some(insert_at)
     }
 
     fn assign_move_audio_slots(
@@ -1232,6 +1355,7 @@ impl Stack {
         start: Seconds,
         audio_durations: &[Seconds],
         preferred_indices: &[usize],
+        exclude_track_indices: &HashSet<usize>,
     ) -> Option<Vec<usize>> {
         let needed = audio_durations.len();
         let mut audio_slots = Vec::with_capacity(needed);
@@ -1249,16 +1373,26 @@ impl Stack {
                         start,
                         duration,
                         &used_audio_indices,
+                        exclude_track_indices,
                     )
                 })
                 .or_else(|| {
-                    self.find_or_create_move_audio_track(
+                    self.find_usable_destination_move_audio_track(
+                        *dest_track_index,
+                        start,
+                        duration,
+                        &used_audio_indices,
+                        exclude_track_indices,
+                    )
+                })
+                .or_else(|| {
+                    self.find_or_create_destination_move_audio_track(
                         *dest_track_index,
                         start,
                         duration,
                         created_track_indices,
                         &used_audio_indices,
-                        &used_audio_boundary_indices,
+                        exclude_track_indices,
                     )
                 })?;
 
@@ -1621,6 +1755,7 @@ impl Stack {
         synced_video_clip: Option<Item>,
         preferred_video_track_id: Option<&str>,
         preferred_audio_track_indices: Option<&[usize]>,
+        move_source_track_indices: Option<&[usize]>,
     ) -> Option<InsertItemAtTimeResult> {
         let mut primary_item = item;
         primary_item.clamp_to_active_available_range();
@@ -1682,6 +1817,11 @@ impl Stack {
         // tracks. Empty preferred tracks (no clips, or gaps only) are part of the
         // destination working cluster so insert propagation applies there too.
         if let Some(preferred_indices) = preferred_audio_track_indices {
+            for track_index in self.destination_move_audio_candidates(dest_track_index, &[]) {
+                if !cluster.contains(&track_index) {
+                    cluster.push(track_index);
+                }
+            }
             for &track_index in preferred_indices {
                 if track_index == dest_track_index {
                     continue;
@@ -1713,6 +1853,9 @@ impl Stack {
         let mut audio_slots: Vec<usize> = if let Some(preferred_indices) =
             preferred_audio_track_indices
         {
+            let exclude_track_indices: HashSet<usize> = move_source_track_indices
+                .map(|indices| indices.iter().copied().collect())
+                .unwrap_or_default();
             self.assign_move_audio_slots(
                 &mut dest_track_index,
                 &mut cluster,
@@ -1720,6 +1863,7 @@ impl Stack {
                 start,
                 &audio_durations,
                 preferred_indices,
+                &exclude_track_indices,
             )?
         } else {
             let mut slots: Vec<usize> = cluster
@@ -2975,6 +3119,7 @@ impl Stack {
                 preferred_cluster_video_id.as_deref(),
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
+                None::<&[usize]>,
             ) else {
                 *self = backup;
                 return false;
@@ -3068,15 +3213,17 @@ impl Stack {
         let mut synced_audio = Vec::new();
         let mut preferred_audio_track_indices = Vec::new();
         let mut synced_video = None;
+        let mut audio_partners: Vec<_> = items_to_move
+            .iter()
+            .filter(|item| !item.is_selected && item.track_kind == TrackKind::Audio)
+            .collect();
+        audio_partners.sort_by_key(|item| item.track_index);
         for item in &items_to_move {
             if item.is_selected {
                 continue;
             }
             match item.track_kind {
-                TrackKind::Audio => {
-                    synced_audio.push(item.item.clone());
-                    preferred_audio_track_indices.push(item.track_index);
-                }
+                TrackKind::Audio => continue,
                 TrackKind::Video => {
                     if synced_video.is_some() {
                         return false;
@@ -3086,6 +3233,12 @@ impl Stack {
                 TrackKind::Other => return false,
             }
         }
+        for item in audio_partners {
+            synced_audio.push(item.item.clone());
+            preferred_audio_track_indices.push(item.track_index);
+        }
+        let move_source_track_indices: Vec<usize> =
+            items_to_move.iter().map(|item| item.track_index).collect();
 
         let Some(targets) = self.delete_item_targets(&item_id) else {
             return false;
@@ -3110,6 +3263,7 @@ impl Stack {
                 None,
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
+                Some(move_source_track_indices.as_slice()),
             )
             .is_some()
         {
