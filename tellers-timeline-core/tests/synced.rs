@@ -5711,7 +5711,7 @@ fn sync_item_links_arbitrary_existing_clips_with_new_group() {
 }
 
 #[test]
-fn sync_item_rejects_items_with_different_boundaries() {
+fn sync_item_links_clips_with_different_start_times() {
     let mut stack = Stack::default();
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
     video.items.push(Item::Clip(clip(3.0, Some("primary"))));
@@ -5721,12 +5721,47 @@ fn sync_item_rejects_items_with_different_boundaries() {
     stack.children.push(video);
     stack.children.push(audio);
 
+    let group = stack
+        .sync_item(&["primary".to_string(), "audio".to_string()])
+        .unwrap();
+
     assert_eq!(
-        stack.sync_item(&["primary".to_string(), "audio".to_string()]),
-        None
+        sync_clips_id(stack.get_item("primary").unwrap().2),
+        Some(group)
     );
-    assert_eq!(sync_clips_id(stack.get_item("primary").unwrap().2), None);
-    assert_eq!(sync_clips_id(stack.get_item("audio").unwrap().2), None);
+    assert_eq!(sync_clips_id(stack.get_item("audio").unwrap().2), Some(group));
+    let (primary_track, primary_index, _) = stack.get_item("primary").unwrap();
+    let (audio_track, audio_index, _) = stack.get_item("audio").unwrap();
+    assert_eq!(
+        stack.children[primary_track].start_time_of_item(primary_index),
+        0.0
+    );
+    assert_eq!(
+        stack.children[audio_track].start_time_of_item(audio_index),
+        1.0
+    );
+}
+
+#[test]
+fn sync_item_links_clips_with_different_durations() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(5.0, Some("primary"))));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio.items.push(Item::Clip(clip(3.0, Some("audio"))));
+    stack.children.push(video);
+    stack.children.push(audio);
+
+    let group = stack
+        .sync_item(&["primary".to_string(), "audio".to_string()])
+        .unwrap();
+
+    let (_, _, primary_item) = stack.get_item("primary").unwrap();
+    let (_, _, audio_item) = stack.get_item("audio").unwrap();
+    assert_eq!(sync_clips_id(primary_item), Some(group));
+    assert_eq!(sync_clips_id(audio_item), Some(group));
+    assert_eq!(primary_item.duration(), 5.0);
+    assert_eq!(audio_item.duration(), 3.0);
 }
 
 // ---------------------------------------------------------------------------
