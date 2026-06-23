@@ -2359,8 +2359,53 @@ impl Stack {
             new_start_time
         };
 
+        let start_delta = effective_start - old_start;
         let new_duration = (old_end - effective_start).max(0.0);
-        self.resize_item(item_id, effective_start, new_duration, overlap_policy, false)
+
+        let targets = self.synced_clip_targets_for_item(item_id);
+        let excluded_ids: HashSet<_> = targets
+            .iter()
+            .filter_map(|(ti, ii)| self.children[*ti].items[*ii].get_id().map(String::from))
+            .collect();
+
+        let backup = self.clone();
+        let before_states = self.synced_clip_states();
+        let mut modified_track_indices = Vec::new();
+
+        for (ti, ii) in targets {
+            let track_old_start = self.children[ti].start_time_of_item(ii);
+            let track_new_start = track_old_start + start_delta;
+            let mut new_item = self.children[ti].items[ii].clone();
+            new_item.set_duration(new_duration);
+            let track = &mut self.children[ti];
+            // Delete the item (replaced with a gap of old duration), then re-insert at
+            // the new position so the gap machinery handles neighbour merging.
+            if track.delete_clip_at(ii, true).is_none() {
+                *self = backup;
+                return false;
+            }
+            track.insert_at_time(
+                track_new_start,
+                new_item,
+                OverlapPolicy::Override,
+                InsertPolicy::SplitAndInsert,
+            );
+            modified_track_indices.push(ti);
+        }
+
+        modified_track_indices.sort_unstable();
+        modified_track_indices.dedup();
+        if !self.sync_changed_groups_after_resize(
+            &before_states,
+            &modified_track_indices,
+            &excluded_ids,
+            overlap_policy,
+        ) {
+            *self = backup;
+            return false;
+        }
+        self.sanitize_preserving_all_gap_tracks();
+        true
     }
 
     /// Change the duration of an item; the left edge stays fixed.
@@ -2395,7 +2440,49 @@ impl Stack {
             new_duration
         };
 
-        self.resize_item(item_id, old_start, effective_duration, overlap_policy, false)
+        let targets = self.synced_clip_targets_for_item(item_id);
+        let excluded_ids: HashSet<_> = targets
+            .iter()
+            .filter_map(|(ti, ii)| self.children[*ti].items[*ii].get_id().map(String::from))
+            .collect();
+
+        let backup = self.clone();
+        let before_states = self.synced_clip_states();
+        let mut modified_track_indices = Vec::new();
+
+        for (ti, ii) in targets {
+            let track_old_start = self.children[ti].start_time_of_item(ii);
+            let mut new_item = self.children[ti].items[ii].clone();
+            new_item.set_duration(effective_duration);
+            let track = &mut self.children[ti];
+            // Delete the item (replaced with a gap of old duration), then re-insert at
+            // the same position so the trailing gap is formed naturally.
+            if track.delete_clip_at(ii, true).is_none() {
+                *self = backup;
+                return false;
+            }
+            track.insert_at_time(
+                track_old_start,
+                new_item,
+                OverlapPolicy::Override,
+                InsertPolicy::SplitAndInsert,
+            );
+            modified_track_indices.push(ti);
+        }
+
+        modified_track_indices.sort_unstable();
+        modified_track_indices.dedup();
+        if !self.sync_changed_groups_after_resize(
+            &before_states,
+            &modified_track_indices,
+            &excluded_ids,
+            overlap_policy,
+        ) {
+            *self = backup;
+            return false;
+        }
+        self.sanitize_preserving_all_gap_tracks();
+        true
     }
 
     fn resize_synced_clips_with_leading_gap(
