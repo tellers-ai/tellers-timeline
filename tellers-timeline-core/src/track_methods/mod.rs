@@ -4,5 +4,5 @@ pub mod track_item_insert;
 pub mod track_item_split;
 
 pub use track_item_insert::{
-    ClampPolicy, DeletedClipInfo, InsertPolicy, OverlapPolicy, SplitClipInfo, TrackInsertResult,
+    DeletedClipInfo, InsertPolicy, OverlapPolicy, SplitClipInfo, TrackInsertResult,
 };
