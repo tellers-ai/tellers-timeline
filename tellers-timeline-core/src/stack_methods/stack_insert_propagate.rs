@@ -1,5 +1,5 @@
 use crate::{
-    Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, SplitClipInfo, Stack,
+    Gap, InsertPolicy, Item, OverlapPolicy, Seconds, SplitClipInfo, Stack,
     TrackInsertResult,
 };
 use std::collections::{HashMap, HashSet};
@@ -720,36 +720,5 @@ impl Stack {
         }
         matches!(track.items[item_index], Item::Gap(_))
             && (track.items[item_index].duration() - duration).abs() <= EPS
-    }
-
-    pub(super) fn sync_clips_after_time_in_cluster(
-        &self,
-        insert_start: Seconds,
-        cluster: &[usize],
-        dest_track_index: usize,
-    ) -> Vec<(usize, String, i64)> {
-        let mut clips = Vec::new();
-        for &track_index in cluster {
-            if track_index == dest_track_index {
-                continue;
-            }
-            let Some(track) = self.children.get(track_index) else {
-                continue;
-            };
-            let mut pos = 0.0;
-            for item in &track.items {
-                if pos >= insert_start - EPS {
-                    if let Item::Clip(clip) = item {
-                        if let (Some(id), Some(sync_id)) =
-                            (item.get_id(), resolve_sync_clips_id(&clip.metadata))
-                        {
-                            clips.push((track_index, id, sync_id));
-                        }
-                    }
-                }
-                pos += item.duration().max(0.0);
-            }
-        }
-        clips
     }
 }

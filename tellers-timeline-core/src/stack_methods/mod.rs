@@ -63,25 +63,8 @@ struct SyncedClipState {
 }
 
 #[derive(Debug, Clone)]
-struct BoundarySegment {
-    start: Seconds,
-    end: Seconds,
-    sync_clips_id: Option<i64>,
-}
-
-#[derive(Debug, Clone)]
 struct FlattenedBoundary {
     track_indices: Vec<usize>,
-}
-
-enum SyncedMovePlacement {
-    Time {
-        dest_time: Seconds,
-        insert_policy: InsertPolicy,
-    },
-    Index {
-        dest_index: usize,
-    },
 }
 
 fn shift_track_index_after_insert(track_index: &mut usize, inserted_track_index: usize) {
@@ -218,15 +201,6 @@ impl Stack {
         true
     }
 
-    fn sync_split_id_policy_for_inserted_item(item: &Item) -> SyncSplitIdPolicy {
-        match item {
-            Item::Clip(clip) if resolve_sync_clips_id(&clip.metadata).is_some() => {
-                SyncSplitIdPolicy::KeepShared
-            }
-            _ => SyncSplitIdPolicy::AssignNewIdToRight,
-        }
-    }
-
     fn apply_sync_splits_for_column_insert(
         &mut self,
         start: Seconds,
@@ -259,33 +233,6 @@ impl Stack {
             }
         }
         true
-    }
-
-    fn prepare_sync_splits_for_insert(
-        &mut self,
-        track_index: usize,
-        insert_time: Seconds,
-        item: &Item,
-        insert_policy: InsertPolicy,
-        overlap_policy: OverlapPolicy,
-    ) {
-        let Some(start) = insertion_start_or_end_for_policy(
-            &self.children[track_index],
-            insert_time,
-            insert_policy,
-        ) else {
-            return;
-        };
-        let cluster = self.boundary_group_indices(track_index);
-        let id_policy = Self::sync_split_id_policy_for_inserted_item(item);
-        let _ = self.apply_sync_splits_for_column_insert(
-            start,
-            item.duration().max(0.0),
-            insert_policy,
-            overlap_policy,
-            id_policy,
-            Some(&cluster),
-        );
     }
 
     fn insert_at_time_with_sync_splits(
@@ -335,152 +282,6 @@ impl Stack {
                 None,
             );
         }
-    }
-
-    fn find_or_create_audio_track(
-        &mut self,
-        track_index: usize,
-        dest_time: Seconds,
-        duration: Seconds,
-        created_track_indices: &mut Vec<usize>,
-        used_audio_indices: &[usize],
-        used_audio_boundary_indices: &[usize],
-        sync_clips_id: Option<i64>,
-        use_sync_backed_track: bool,
-        overlap_policy: OverlapPolicy,
-    ) -> Option<usize> {
-        let end_time = dest_time + duration;
-        if self.children.get(track_index)?.kind == TrackKind::Video {
-            let mut index = track_index;
-            while index > 0 && self.children[index - 1].kind == TrackKind::Audio {
-                index -= 1;
-                if track_is_empty_boundary(&self.children[index])
-                    || used_audio_boundary_indices.contains(&index)
-                {
-                    break;
-                }
-            }
-            for audio_index in (index..track_index).rev() {
-                if used_audio_indices.contains(&audio_index) {
-                    if used_audio_boundary_indices.contains(&audio_index) {
-                        break;
-                    }
-                    continue;
-                }
-                if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
-                    return Some(audio_index);
-                }
-                let has_blocking_clip = range_has_blocking_clip(
-                    &self.children[audio_index],
-                    dest_time,
-                    end_time,
-                    sync_clips_id,
-                );
-                let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
-                    && self.track_matches_primary_sync_boundary(track_index, audio_index);
-                if !has_blocking_clip || can_push_existing_boundary {
-                    if use_sync_backed_track {
-                        return Some(audio_index);
-                    }
-                    continue;
-                }
-                let insert_at = audio_index + 1;
-                let track = self.new_numbered_track(TrackKind::Audio);
-                self.children.insert(insert_at, track);
-                created_track_indices.push(insert_at);
-                return Some(insert_at);
-            }
-
-            // No reusable audio track above the video. In the common video-over-audio
-            // layout the sync track belongs on the existing audio track below the video,
-            // so reuse an adjacent gap-backed audio track there before creating a new one.
-            let mut below_index = track_index + 1;
-            while below_index < self.children.len()
-                && self.children[below_index].kind == TrackKind::Audio
-            {
-                if used_audio_indices.contains(&below_index) {
-                    if used_audio_boundary_indices.contains(&below_index) {
-                        break;
-                    }
-                    below_index += 1;
-                    continue;
-                }
-                if range_is_gap_backed(&self.children[below_index], dest_time, end_time) {
-                    return Some(below_index);
-                }
-                let has_blocking_clip = range_has_blocking_clip(
-                    &self.children[below_index],
-                    dest_time,
-                    end_time,
-                    sync_clips_id,
-                );
-                let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
-                    && self.track_matches_primary_sync_boundary(track_index, below_index);
-                if !has_blocking_clip || can_push_existing_boundary {
-                    if use_sync_backed_track {
-                        return Some(below_index);
-                    }
-                    below_index += 1;
-                    continue;
-                }
-                break;
-            }
-
-            let track = self.new_numbered_track(TrackKind::Audio);
-            self.children.insert(track_index, track);
-            created_track_indices.push(track_index);
-            return Some(track_index);
-        }
-
-        let mut index = match self.children.get(track_index)?.kind {
-            TrackKind::Audio => {
-                let mut audio_start = track_index;
-                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
-                    audio_start -= 1;
-                    if track_is_empty_boundary(&self.children[audio_start])
-                        || used_audio_boundary_indices.contains(&audio_start)
-                    {
-                        break;
-                    }
-                }
-                audio_start
-            }
-            TrackKind::Video | TrackKind::Other => return None,
-        };
-
-        while index < self.children.len() && self.children[index].kind == TrackKind::Audio {
-            if used_audio_indices.contains(&index) {
-                if used_audio_boundary_indices.contains(&index) {
-                    break;
-                }
-                index += 1;
-                continue;
-            }
-            if range_is_gap_backed(&self.children[index], dest_time, end_time) {
-                return Some(index);
-            }
-            let has_blocking_clip =
-                range_has_blocking_clip(&self.children[index], dest_time, end_time, sync_clips_id);
-            let can_push_existing_boundary = overlap_policy == OverlapPolicy::Push
-                && self.track_matches_primary_sync_boundary(track_index, index);
-            if !has_blocking_clip || can_push_existing_boundary {
-                if use_sync_backed_track {
-                    return Some(index);
-                }
-                index += 1;
-                continue;
-            }
-            let track = self.new_numbered_track(TrackKind::Audio);
-            self.children.insert(index, track);
-            created_track_indices.push(index);
-            return Some(index);
-        }
-
-        let insert_at = index;
-        let track = self.new_numbered_track(TrackKind::Audio);
-        self.children.insert(insert_at, track);
-        created_track_indices.push(insert_at);
-        Some(insert_at)
     }
 
     fn find_or_create_move_audio_track(
@@ -714,18 +515,6 @@ impl Stack {
         }
         (track.start_time_of_item(item_index) - column_start).abs() <= EPS
             && (track.items[item_index].duration() - column_duration).abs() <= EPS
-    }
-
-    fn item_at_column(
-        &self,
-        track_index: usize,
-        column_start: Seconds,
-        column_duration: Seconds,
-    ) -> Option<usize> {
-        let track = self.children.get(track_index)?;
-        let item_index = track.get_item_at_time(column_start)?;
-        self.item_occupies_column(track_index, item_index, column_start, column_duration)
-            .then_some(item_index)
     }
 
     fn delete_clips_at_indices(
@@ -1444,28 +1233,6 @@ impl Stack {
         }
     }
 
-    fn flatten_track_segments(&self, track_index: usize) -> Vec<BoundarySegment> {
-        let Some(track) = self.children.get(track_index) else {
-            return Vec::new();
-        };
-        let mut segments = Vec::new();
-        let mut start = 0.0;
-        for item in &track.items {
-            let duration = item.duration().max(0.0);
-            let sync_clips_id = match item {
-                Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-                Item::Gap(_) => None,
-            };
-            segments.push(BoundarySegment {
-                start,
-                end: start + duration,
-                sync_clips_id,
-            });
-            start += duration;
-        }
-        segments
-    }
-
     pub(super) fn track_sync_clips_ids(&self, track_index: usize) -> HashSet<i64> {
         let Some(track) = self.children.get(track_index) else {
             return HashSet::new();
@@ -1630,21 +1397,6 @@ impl Stack {
             }
         }
         track_indices
-    }
-
-    fn synced_clips_adjacent_to_time(&self, track_index: usize, time: Seconds) -> Vec<i64> {
-        let mut groups = Vec::new();
-        for segment in self.flatten_track_segments(track_index) {
-            if (segment.start - time).abs() > EPS && (segment.end - time).abs() > EPS {
-                continue;
-            }
-            if let Some(group) = segment.sync_clips_id {
-                if !groups.contains(&group) {
-                    groups.push(group);
-                }
-            }
-        }
-        groups
     }
 
     fn sync_changed_groups_after_resize(
@@ -3432,7 +3184,7 @@ impl Stack {
         mut dest_track_index: usize,
         replace_with_gap: bool,
         overlap_policy: OverlapPolicy,
-        placement: SyncedMovePlacement,
+        dest_index: usize,
     ) -> bool {
         let backup = self.clone();
         if dest_track_index >= self.children.len() {
@@ -3480,29 +3232,8 @@ impl Stack {
             }
         }
 
-        let insert_policy_for_video = match &placement {
-            SyncedMovePlacement::Time { insert_policy, .. } => *insert_policy,
-            SyncedMovePlacement::Index { .. } => InsertPolicy::SplitAndInsert,
-        };
-        let moved_start = match placement {
-            SyncedMovePlacement::Time {
-                dest_time,
-                insert_policy,
-            } => {
-                let Some(start) = insertion_start_or_end_for_policy(
-                    &self.children[dest_track_index],
-                    dest_time,
-                    insert_policy,
-                ) else {
-                    *self = backup;
-                    return false;
-                };
-                start
-            }
-            SyncedMovePlacement::Index { dest_index } => {
-                self.children[dest_track_index].start_time_of_item(dest_index)
-            }
-        };
+        let insert_policy_for_video = InsertPolicy::SplitAndInsert;
+        let moved_start = self.children[dest_track_index].start_time_of_item(dest_index);
 
         let mut placements = vec![(
             dest_track_index,
@@ -3666,10 +3397,7 @@ impl Stack {
         }
         placements.sort_by_key(|(track_index, _, _)| *track_index);
 
-        let insert_policy = match placement {
-            SyncedMovePlacement::Time { insert_policy, .. } => insert_policy,
-            SyncedMovePlacement::Index { .. } => InsertPolicy::SplitAndInsert,
-        };
+        let insert_policy = InsertPolicy::SplitAndInsert;
         let cluster = self.boundary_group_indices(dest_track_index);
         if !self.apply_sync_splits_for_column_insert(
             moved_start,
@@ -3685,23 +3413,8 @@ impl Stack {
 
         for (track_index, item, is_selected) in placements {
             if is_selected {
-                match placement {
-                    SyncedMovePlacement::Time {
-                        dest_time,
-                        insert_policy,
-                    } => {
-                        let _ = self.children[track_index].insert_at_time(
-                            dest_time,
-                            item,
-                            overlap_policy,
-                            insert_policy,
-                        );
-                    }
-                    SyncedMovePlacement::Index { dest_index } => {
-                        let _ = self.children[track_index]
-                            .insert_at_index(dest_index, item, overlap_policy);
-                    }
-                }
+                let _ = self.children[track_index]
+                    .insert_at_index(dest_index, item, overlap_policy);
             } else {
                 let moved_end = moved_start + item.duration().max(0.0);
                 if range_is_gap_backed(&self.children[track_index], moved_start, moved_end) {
@@ -3727,34 +3440,6 @@ impl Stack {
         self.sanitize_preserving_all_gap_tracks();
         true
     }
-}
-
-pub(super) fn remove_gap_range(track: &mut Track, start: Seconds, end: Seconds) -> bool {
-    if !range_is_gap_backed(track, start, end) {
-        return false;
-    }
-
-    split_gap_boundary(track, end);
-    split_gap_boundary(track, start);
-
-    let mut pos = 0.0;
-    let mut index = 0;
-    while index < track.items.len() {
-        let duration = track.items[index].duration().max(0.0);
-        let item_start = pos;
-        let item_end = pos + duration;
-        if item_start >= start - EPS && item_end <= end + EPS {
-            if !matches!(track.items[index], Item::Gap(_)) {
-                return false;
-            }
-            track.items.remove(index);
-            pos = item_end;
-        } else {
-            pos = item_end;
-            index += 1;
-        }
-    }
-    true
 }
 
 pub(super) fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -> bool {
@@ -3961,10 +3646,6 @@ fn insertion_start_or_end_for_policy(
 
 fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
     Clip::resolve_otio_i64(metadata, "Link Group ID")
-}
-
-fn resolve_tellers_group_id(metadata: &serde_json::Value) -> Option<i64> {
-    Clip::resolve_otio_i64(metadata, "Tellers Group ID")
 }
 
 fn item_link_group_id(item: &Item) -> Option<i64> {

@@ -108,7 +108,7 @@ impl Stack {
                 dest_track_index,
                 replace_with_gap,
                 overlap_policy,
-                super::SyncedMovePlacement::Index { dest_index },
+                dest_index,
             );
         }
 
