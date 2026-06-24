@@ -186,27 +186,6 @@ impl Track {
             ..Default::default()
         };
 
-        let gap_fill_insert = containing_index.and_then(|i| {
-            const EPS: Seconds = 1e-9;
-            match self.items.get(i)? {
-                Item::Gap(gap) => {
-                    let gap_start = self.start_time_of_item(i);
-                    let gap_end = gap_start + gap.source_range.duration.to_seconds().max(0.0);
-                    let offset = effective_insert_time - gap_start;
-                    if offset <= EPS {
-                        return None;
-                    }
-                    let insert_end = effective_insert_time + item.duration().max(0.0);
-                    if insert_end <= gap_end + EPS {
-                        Some(())
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            }
-        });
-
         if let (InsertPolicy::SplitAndInsert, Some(_i)) = (insert_policy, containing_index) {
             // Create the boundary at the insertion time before inserting.
             if let Some(split) = self.split_at_time(effective_insert_time) {
@@ -214,14 +193,7 @@ impl Track {
             }
         }
 
-        // Push into interior gap space should consume the gap, not ripple later clips.
-        let effective_overlap = if overlap_policy == OverlapPolicy::Push && gap_fill_insert.is_some() {
-            OverlapPolicy::Override
-        } else {
-            overlap_policy
-        };
-
-        result.merge(self.insert_at_index(insert_index, item, effective_overlap));
+        result.merge(self.insert_at_index(insert_index, item, overlap_policy));
         result
     }
 
