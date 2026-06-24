@@ -1023,6 +1023,12 @@ impl PyStack {
     fn link_item(&mut self, item_ids: Vec<String>) -> Option<i64> {
         self.inner.sync_item(&item_ids)
     }
+    fn group_item(&mut self, item_ids: Vec<String>) -> Option<i64> {
+        self.inner.group_item(&item_ids)
+    }
+    fn ungroup_item(&mut self, item_ids: Vec<String>) -> usize {
+        self.inner.ungroup_item(&item_ids)
+    }
     fn move_item_at_time(
         &mut self,
         item_id: &str,
