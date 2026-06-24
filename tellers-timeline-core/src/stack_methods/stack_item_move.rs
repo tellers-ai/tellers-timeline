@@ -3,12 +3,58 @@ use crate::{InsertPolicy, OverlapPolicy, Seconds, Stack};
 impl Stack {
     /// Move an item identified by `item_id` to `dest_time` on the track with `dest_track_id`.
     ///
-    /// Sync columns (aligned video/audio partners) move as a unit. All other clips,
-    /// including linked groups and unsynced items, share the same delete + insert path
-    /// with cluster propagation.
+    /// When the selected clip belongs to a Tellers group, every sub-unit of the
+    /// group (each sync column, and each standalone clip) shifts by the same time
+    /// delta as the selected clip. Only the selected clip changes track; the other
+    /// members stay on their own tracks. Otherwise the move falls through to the
+    /// regular single-item path.
     ///
     /// Returns true if the item was successfully moved.
     pub fn move_item_at_time(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_time: Seconds,
+        replace_with_gap: bool,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        if let Some(plan) = self.tellers_group_move_plan(item_id, dest_track_id, dest_time) {
+            let backup = self.clone();
+            // The plan is ordered by current start time so members never collide
+            // while shifting: backward moves go smallest-start first, forward
+            // moves go biggest-start first. The selected clip is just one entry.
+            for (rep_id, track_id, rep_dest_time) in plan {
+                if !self.move_item_at_time_single(
+                    &rep_id,
+                    &track_id,
+                    rep_dest_time,
+                    replace_with_gap,
+                    insert_policy,
+                    overlap_policy,
+                ) {
+                    *self = backup;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        self.move_item_at_time_single(
+            item_id,
+            dest_track_id,
+            dest_time,
+            replace_with_gap,
+            insert_policy,
+            overlap_policy,
+        )
+    }
+
+    /// Move a single sub-unit: a sync column (aligned video/audio partners) moves
+    /// as a unit; all other clips, including link groups and unsynced items, share
+    /// the same delete + insert path with cluster propagation. This is the
+    /// group-unaware move used as a building block by `move_item_at_time`.
+    fn move_item_at_time_single(
         &mut self,
         item_id: &str,
         dest_track_id: &str,

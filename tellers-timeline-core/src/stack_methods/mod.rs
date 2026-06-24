@@ -158,6 +158,19 @@ impl Stack {
             + 1
     }
 
+    fn next_tellers_group_id(&self) -> i64 {
+        self.children
+            .iter()
+            .flat_map(|track| track.items.iter())
+            .filter_map(|item| match item {
+                Item::Clip(clip) => resolve_tellers_group_id(&clip.metadata),
+                Item::Gap(_) => None,
+            })
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
+
     fn insert_gap_only(&mut self, track_index: usize, dest_time: Seconds, item: Item) -> bool {
         if track_index >= self.children.len() || item.duration() <= EPS {
             return false;
@@ -577,8 +590,34 @@ impl Stack {
         }
     }
 
+    /// Like [`delete_item_targets`], but expands to the whole Tellers group when
+    /// the item belongs to one (including each member's sync partners). Used only
+    /// by the public delete entry points; the internal synced-move path keeps
+    /// using the sync-only [`delete_item_targets`].
+    fn delete_item_group_targets(&self, item_id: &str) -> Option<Vec<(usize, usize)>> {
+        let mut targets = self.delete_item_targets(item_id)?;
+        let (_, _, item) = self.get_item(item_id)?;
+        if let Item::Clip(clip) = item {
+            if let Some(group_id) = resolve_tellers_group_id(&clip.metadata) {
+                for member in self.tellers_group_targets(group_id) {
+                    targets.push(member);
+                    if let Some(Item::Clip(member_clip)) = self
+                        .children
+                        .get(member.0)
+                        .and_then(|track| track.items.get(member.1))
+                    {
+                        if let Some(sync_id) = resolve_sync_clips_id(&member_clip.metadata) {
+                            targets.extend(self.synced_clips_targets(sync_id));
+                        }
+                    }
+                }
+            }
+        }
+        Some(targets)
+    }
+
     fn delete_item_replace_with_gap(&mut self, item_id: &str) -> Vec<(usize, Item)> {
-        let Some(targets) = self.delete_item_targets(item_id) else {
+        let Some(targets) = self.delete_item_group_targets(item_id) else {
             return Vec::new();
         };
         let removed = self.delete_clips_at_indices(targets, true);
@@ -632,7 +671,7 @@ impl Stack {
             return removed;
         }
 
-        let Some(clips_to_delete) = self.delete_item_targets(item_id) else {
+        let Some(clips_to_delete) = self.delete_item_group_targets(item_id) else {
             return Vec::new();
         };
         if clips_to_delete.is_empty() {
@@ -695,6 +734,105 @@ impl Stack {
             }
         }
         targets
+    }
+
+    fn tellers_group_targets(&self, group_id: i64) -> Vec<(usize, usize)> {
+        let mut targets = Vec::new();
+        for (ti, track) in self.children.iter().enumerate() {
+            for (ii, item) in track.items.iter().enumerate() {
+                if let Item::Clip(clip) = item {
+                    if resolve_tellers_group_id(&clip.metadata) == Some(group_id) {
+                        targets.push((ti, ii));
+                    }
+                }
+            }
+        }
+        targets
+    }
+
+    /// Build the ordered list of moves for a grouped move of `item_id` to
+    /// `dest_track_id` / `dest_time`. Returns `None` when the selected clip is
+    /// not part of a Tellers group.
+    ///
+    /// Each entry is `(representative_item_id, dest_track_id, dest_time)`. A
+    /// sub-unit is one sync column (shared Link Group ID) or a single unsynced
+    /// clip; only one representative per sub-unit is emitted since
+    /// `move_item_at_time_single` moves a whole sync column at once. The selected
+    /// clip's sub-unit moves to the requested destination track; every other
+    /// sub-unit shifts by the same delta on its own track.
+    ///
+    /// Entries are ordered by their current start time so members never collide
+    /// while shifting: backward moves (delta < 0) go smallest-start first,
+    /// forward moves (delta >= 0) go biggest-start first.
+    fn tellers_group_move_plan(
+        &self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_time: Seconds,
+    ) -> Option<Vec<(String, String, Seconds)>> {
+        let (selected_track_index, selected_item_index, selected_item) = self.get_item(item_id)?;
+        let group_id = item_tellers_group_id(selected_item)?;
+        let Item::Clip(selected_clip) = selected_item else {
+            return None;
+        };
+        let selected_start =
+            self.children[selected_track_index].start_time_of_item(selected_item_index);
+        let delta = dest_time - selected_start;
+
+        let selected_key = match resolve_sync_clips_id(&selected_clip.metadata) {
+            Some(sync_id) => SubUnitKey::Sync(sync_id),
+            None => SubUnitKey::Clip(item_id.to_string()),
+        };
+
+        // (rep_id, dest_track_id, dest_time, old_start). The selected sub-unit
+        // goes to the requested destination track; the rest stay on their own.
+        let mut moves: Vec<(String, String, Seconds, Seconds)> = vec![(
+            item_id.to_string(),
+            dest_track_id.to_string(),
+            dest_time,
+            selected_start,
+        )];
+        let mut seen_keys = HashSet::new();
+        seen_keys.insert(selected_key);
+        for (track_index, item_index) in self.tellers_group_targets(group_id) {
+            let Some(Item::Clip(clip)) = self
+                .children
+                .get(track_index)
+                .and_then(|track| track.items.get(item_index))
+            else {
+                continue;
+            };
+            let Some(rep_id) = clip.get_id() else {
+                continue;
+            };
+            let key = match resolve_sync_clips_id(&clip.metadata) {
+                Some(sync_id) => SubUnitKey::Sync(sync_id),
+                None => SubUnitKey::Clip(rep_id.clone()),
+            };
+            if !seen_keys.insert(key) {
+                continue;
+            }
+            let Some(track_id) = self.children[track_index].get_id() else {
+                continue;
+            };
+            let rep_start = self.children[track_index].start_time_of_item(item_index);
+            moves.push((rep_id, track_id, rep_start + delta, rep_start));
+        }
+
+        moves.sort_by(|a, b| {
+            if delta < 0.0 {
+                a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal)
+            }
+        });
+
+        Some(
+            moves
+                .into_iter()
+                .map(|(rep_id, track_id, dest, _old_start)| (rep_id, track_id, dest))
+                .collect(),
+        )
     }
 
     fn sync_column_targets_at(
@@ -2577,14 +2715,10 @@ impl Stack {
 
         let mut selected_ids = HashSet::from([item_timeline_id.to_string()]);
         let mut selected_link_group_ids = HashSet::<i64>::new();
-        let mut selected_tellers_group_ids = HashSet::<i64>::new();
         if let Some(link_group_id) = item_link_group_id(item_to_move) {
             selected_link_group_ids.insert(link_group_id);
         }
-        if let Some(tellers_group_id) = item_tellers_group_id(item_to_move) {
-            selected_tellers_group_ids.insert(tellers_group_id);
-        }
-        if selected_link_group_ids.is_empty() && selected_tellers_group_ids.is_empty() {
+        if selected_link_group_ids.is_empty() {
             return Vec::new();
         }
 
@@ -2599,9 +2733,7 @@ impl Stack {
                     }
                     let linked = item_link_group_id(item)
                         .is_some_and(|id| selected_link_group_ids.contains(&id));
-                    let grouped = item_tellers_group_id(item)
-                        .is_some_and(|id| selected_tellers_group_ids.contains(&id));
-                    if !linked && !grouped {
+                    if !linked {
                         pos += item.duration().max(0.0);
                         continue;
                     }
@@ -2638,9 +2770,6 @@ impl Stack {
                     }
                     if let Some(link_group_id) = item_link_group_id(item) {
                         changed |= selected_link_group_ids.insert(link_group_id);
-                    }
-                    if let Some(tellers_group_id) = item_tellers_group_id(item) {
-                        changed |= selected_tellers_group_ids.insert(tellers_group_id);
                     }
                     pos += item.duration().max(0.0);
                 }
@@ -3709,9 +3838,58 @@ fn item_link_group_id(item: &Item) -> Option<i64> {
 
 fn item_tellers_group_id(item: &Item) -> Option<i64> {
     match item {
-        Item::Clip(clip) => Clip::resolve_otio_i64(&clip.metadata, "Tellers Group ID"),
+        Item::Clip(clip) => resolve_tellers_group_id(&clip.metadata),
         Item::Gap(_) => None,
     }
+}
+
+/// Identifies a movable sub-unit within a Tellers group: either a whole sync
+/// column (shared Link Group ID) or a single unsynced clip (by timeline id).
+#[derive(PartialEq, Eq, Hash, Clone)]
+enum SubUnitKey {
+    Sync(i64),
+    Clip(String),
+}
+
+/// Read the Tellers group id from `metadata["tellers.ai"]["Tellers Group ID"]`.
+///
+/// This is the Tellers-native grouping concept, kept separate from the
+/// Resolve "Link Group ID" (sync clips) and stored in the Tellers metadata
+/// namespace alongside `timeline_id`.
+pub(super) fn resolve_tellers_group_id(metadata: &serde_json::Value) -> Option<i64> {
+    let raw = metadata
+        .get("tellers.ai")
+        .and_then(|v| v.get("Tellers Group ID"))?;
+    raw.as_i64()
+        .or_else(|| raw.as_u64().and_then(|value| i64::try_from(value).ok()))
+        .or_else(|| raw.as_str().and_then(|value| value.parse::<i64>().ok()))
+}
+
+pub(super) fn set_tellers_group_id(metadata: &mut serde_json::Value, group_id: i64) {
+    if metadata.as_object().is_none() {
+        *metadata = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let map = metadata.as_object_mut().unwrap();
+    let ai = map
+        .entry("tellers.ai".to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if ai.as_object().is_none() {
+        *ai = serde_json::Value::Object(serde_json::Map::new());
+    }
+    ai.as_object_mut().unwrap().insert(
+        "Tellers Group ID".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(group_id)),
+    );
+}
+
+pub(super) fn remove_tellers_group_id(metadata: &mut serde_json::Value) -> bool {
+    let Some(ai) = metadata
+        .get_mut("tellers.ai")
+        .and_then(|value| value.as_object_mut())
+    else {
+        return false;
+    };
+    ai.remove("Tellers Group ID").is_some()
 }
 
 pub(super) fn set_resolve_sync_clips_id(metadata: &mut serde_json::Value, sync_clips_id: i64) {

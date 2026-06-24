@@ -204,6 +204,39 @@ def test_link_and_unlink_item_translate_return_types():
     assert isinstance(removed, int)
 
 
+def test_group_and_ungroup_item_translate_return_types():
+    stack = Stack(
+        [
+            Track(
+                kind="video",
+                children=[
+                    Item.from_clip(
+                        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///a.mov")}, id="a")
+                    )
+                ],
+            ),
+            Track(
+                kind="audio",
+                children=[
+                    Item.from_clip(
+                        Clip(3.0, {"DEFAULT_MEDIA": MediaReference("file:///b.wav")}, id="b")
+                    )
+                ],
+            ),
+        ]
+    )
+
+    group_id = stack.group_item(["a", "b"])
+    assert isinstance(group_id, int)
+
+    # The Tellers group id round-trips through the clip's tellers.ai metadata.
+    metadata = json.loads(stack.get_item("a")[2].get_metadata_json())
+    assert metadata.get("tellers.ai", {}).get("Tellers Group ID") == group_id
+
+    removed = stack.ungroup_item(["a"])
+    assert isinstance(removed, int)
+
+
 def test_sync_track_info_translates_to_list_of_dicts():
     stack = Stack([Track(kind="video", id="v")])
     stack.insert_item_at_time(
