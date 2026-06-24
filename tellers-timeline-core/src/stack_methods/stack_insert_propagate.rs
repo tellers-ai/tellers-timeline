@@ -189,8 +189,14 @@ impl Stack {
         insert_duration: Seconds,
         updates: &[TrackInsertUpdate<'_>],
         cluster: &[usize],
+        move_previous_start: Option<Seconds>,
     ) -> bool {
         if insert_duration <= EPS {
+            return true;
+        }
+        // Backward moves only retime updated tracks; untouched cluster partners
+        // already keep their historical leading layout.
+        if move_previous_start.is_some_and(|previous| insert_start < previous - EPS) {
             return true;
         }
         let updated_tracks = updated_track_set(updates);
@@ -619,28 +625,35 @@ impl Stack {
             let Some(track) = self.children.get(track_index) else {
                 continue;
             };
-            let has_sync_clip_in_range = {
-                let mut pos = 0.0;
-                let mut found = false;
-                for item in &track.items {
-                    let item_start = pos;
-                    let item_end = pos + item.duration().max(0.0);
-                    if item_end > insert_start + EPS && item_start < insert_end - EPS {
-                        if let Item::Clip(clip) = item {
-                            if resolve_sync_clips_id(&clip.metadata) == Some(sync_clips_id) {
-                                found = true;
-                                break;
-                            }
+            // Collect only the sub-ranges actually occupied by this sync group within the
+            // insert window. Deleting the whole [insert_start, insert_end] window would also
+            // clobber unrelated unsynced clips that happen to sit in that window (e.g. a
+            // separate audio clip after a gap). Trimming just the synced clip's own footprint
+            // keeps the partner aligned with the source track without disturbing neighbors;
+            // each deleted range is replaced with an equal-length gap, so downstream items
+            // keep their absolute positions.
+            let mut ranges: Vec<(Seconds, Seconds)> = Vec::new();
+            let mut pos = 0.0;
+            for item in &track.items {
+                let item_start = pos;
+                let item_end = pos + item.duration().max(0.0);
+                pos = item_end;
+                if item_end <= insert_start + EPS || item_start >= insert_end - EPS {
+                    continue;
+                }
+                if let Item::Clip(clip) = item {
+                    if resolve_sync_clips_id(&clip.metadata) == Some(sync_clips_id) {
+                        let start = item_start.max(insert_start);
+                        let end = item_end.min(insert_end);
+                        if end > start + EPS {
+                            ranges.push((start, end));
                         }
                     }
-                    pos = item_end;
                 }
-                found
-            };
-            if !has_sync_clip_in_range {
-                continue;
             }
-            self.children[track_index].delete_range(insert_start, insert_end, true);
+            for (start, end) in ranges {
+                self.children[track_index].delete_range(start, end, true);
+            }
         }
         true
     }

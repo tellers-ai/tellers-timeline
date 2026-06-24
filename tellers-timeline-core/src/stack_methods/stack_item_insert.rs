@@ -29,6 +29,7 @@ impl Stack {
             None::<&str>,
             None::<&[usize]>,
             None::<&[usize]>,
+            None,
         )
     }
 
@@ -62,6 +63,7 @@ impl Stack {
             None::<&str>,
             None::<&[usize]>,
             None::<&[usize]>,
+            None,
         )
     }
 }

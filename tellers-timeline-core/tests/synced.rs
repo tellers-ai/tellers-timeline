@@ -6436,3 +6436,189 @@ fn push_insert_at_start_of_synced_group_pushes_all_synced_audio_tracks() {
     }
     assert_sync_clips_track_aligned(&stack, "push-insert-at-start-of-synced-group");
 }
+
+#[test]
+fn space_talking_cat_move_paris_onto_hh10_does_not_split_a1_a7() {
+    let otio = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/space_talking_cat.otio"),
+    )
+    .expect("fixture exists");
+    let mut timeline: Timeline = serde_json::from_str(&otio).expect("parse otio");
+    timeline.tracks.sanitize();
+
+    // paris clip on Main (link group 4); HH10 on A1-A7 is unsynced (no link group).
+    let hh10_a1_dur_before = timeline
+        .tracks
+        .get_item("1e659f868531")
+        .unwrap()
+        .2
+        .duration();
+    let a1_items_before = timeline
+        .tracks
+        .get_track_by_id("A1")
+        .unwrap()
+        .1
+        .items
+        .len();
+
+    // Move paris onto HH10 start on Main (~16.84s).
+    assert!(timeline.tracks.move_item_at_time(
+        "1acd33f0570a",
+        "23d9c4f632ed",
+        16.84,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (_, a1_track) = timeline.tracks.get_track_by_id("A1").unwrap();
+    assert_eq!(
+        a1_track.items.len(),
+        a1_items_before,
+        "A1 HH10 must not be split when moving paris on Main"
+    );
+    let (_, _, hh10_a1_after) = timeline.tracks.get_item("1e659f868531").unwrap();
+    assert!(
+        (hh10_a1_after.duration() - hh10_a1_dur_before).abs() < 1e-6,
+        "A1 HH10 duration must be unchanged"
+    );
+
+    for track_id in ["A2", "A3", "A4", "A5", "A6", "A7"] {
+        let (_, track) = timeline.tracks.get_track_by_id(track_id).unwrap();
+        assert_eq!(
+            track.items.len(),
+            2,
+            "{track_id} must stay gap+clip when moving paris on Main"
+        );
+    }
+}
+
+#[test]
+fn move_unsynced_earlier_into_leading_gap_does_not_add_spurious_sync_padding() {
+    const LEAD: f64 = 5.0;
+    const SYNC_DUR: f64 = 2.0;
+    const GROUP: i64 = 1;
+
+    let mut stack = Stack::default();
+
+    let mut audio = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    audio
+        .items
+        .push(synced_clip_item(SYNC_DUR, "sync-a", GROUP));
+    stack.children.push(audio);
+
+    let mut video = Track::new(TrackKind::Video, Some("Main".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    video
+        .items
+        .push(synced_clip_item(SYNC_DUR, "sync-v", GROUP));
+    video
+        .items
+        .push(Item::Clip(clip(1.0, Some("unsynced"))));
+    stack.children.push(video);
+
+    // Photo starts at LEAD + SYNC_DUR = 7. Move earlier into the leading gap at 2.
+    assert!(stack.move_item_at_time(
+        "unsynced",
+        "Main",
+        2.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Push,
+    ));
+
+    let (sync_v_track, sync_v_index, sync_v) = stack.get_item("sync-v").unwrap();
+    let sync_v_start = stack.children[sync_v_track].start_time_of_item(sync_v_index);
+    assert!(
+        (sync_v_start - LEAD).abs() < 1e-6,
+        "synced video should stay at {LEAD}, got {sync_v_start}"
+    );
+    assert_eq!(sync_v.duration(), SYNC_DUR);
+
+    let (sync_a_track, sync_a_index, sync_a) = stack.get_item("sync-a").unwrap();
+    let audio_track = &stack.children[sync_a_track];
+    assert_eq!(
+        audio_track.start_time_of_item(sync_a_index),
+        sync_v_start,
+        "synced audio should stay aligned with video"
+    );
+    assert_eq!(sync_a.duration(), SYNC_DUR);
+    assert_eq!(
+        audio_track.items.len(),
+        2,
+        "audio must not gain a spurious gap when synced clip was not pushed"
+    );
+    assert!(
+        matches!(audio_track.items[0], Item::Gap(_)),
+        "leading cluster gap should remain"
+    );
+    assert!(
+        matches!(audio_track.items[1], Item::Clip(_)),
+        "synced audio clip should remain directly after the leading gap"
+    );
+}
+
+#[test]
+fn move_unsynced_backward_onto_synced_clip_does_not_clobber_partner_unsynced_clip() {
+    // Repro for the reported bug:
+    //   v1: C1[0-2] (sync) - gap[2-4] - c2[4-6] (unsynced)
+    //   a1: CA1[0-2] (sync) - gap[2-2.5] - c3[2.5-4.5] (unsynced)
+    // C1 and CA1 are synced. Moving c2 backward onto C1 (dest=1) flips Push->Override
+    // and splits C1. The cluster propagation reserves an Override gap of c2's full
+    // duration on the audio partner at the insert point -- which must NOT delete or
+    // shrink the unrelated unsynced c3 sitting on the audio track.
+    const GROUP: i64 = 1;
+    let mut stack = Stack::default();
+
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(synced_clip_item(2.0, "C1", GROUP));
+    video.items.push(Item::Gap(Gap::make_gap(2.0)));
+    video.items.push(Item::Clip(clip(2.0, Some("c2"))));
+    stack.children.push(video);
+
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(synced_clip_item(2.0, "CA1", GROUP));
+    audio.items.push(Item::Gap(Gap::make_gap(0.5)));
+    audio.items.push(Item::Clip(clip(2.0, Some("c3"))));
+    stack.children.push(audio);
+
+    assert!(stack.move_item_at_time(
+        "c2",
+        "v1",
+        1.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Push,
+    ));
+
+    // The unrelated unsynced c3 must be completely untouched: same start, same duration.
+    let (c3_track, c3_index, c3) = stack
+        .get_item("c3")
+        .expect("c3 must still exist after moving the unrelated unsynced c2");
+    assert_eq!(c3.duration(), 2.0, "c3 duration must not shrink");
+    assert_eq!(
+        stack.children[c3_track].start_time_of_item(c3_index),
+        2.5,
+        "c3 start must not move"
+    );
+
+    // The synced audio partner CA1 is trimmed to stay aligned with C1 on video: C1 was
+    // overwritten down to [0-1], so CA1 keeps only its [0-1] footprint.
+    let (ca1_track, ca1_index, ca1) = stack.get_item("CA1").expect("CA1 must still exist");
+    assert_eq!(
+        stack.children[ca1_track].start_time_of_item(ca1_index),
+        0.0,
+        "CA1 should still start at 0"
+    );
+    assert_eq!(ca1.duration(), 1.0, "CA1 should be trimmed to align with C1");
+
+    let (c1_track, c1_index, c1) = stack.get_item("C1").expect("C1 must still exist");
+    assert_eq!(
+        stack.children[c1_track].start_time_of_item(c1_index),
+        0.0,
+        "C1 should still start at 0"
+    );
+    assert_eq!(c1.duration(), 1.0, "C1 was overwritten down to [0-1]");
+}

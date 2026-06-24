@@ -1508,6 +1508,7 @@ impl Stack {
         preferred_video_track_id: Option<&str>,
         preferred_audio_track_indices: Option<&[usize]>,
         move_source_track_indices: Option<&[usize]>,
+        move_previous_start: Option<Seconds>,
     ) -> Option<InsertItemAtTimeResult> {
         let mut primary_item = item;
         primary_item.clamp_to_active_available_range();
@@ -1570,6 +1571,12 @@ impl Stack {
         // destination working cluster so insert propagation applies there too.
         if let Some(preferred_indices) = preferred_audio_track_indices {
             for track_index in self.destination_move_audio_candidates(dest_track_index, &[]) {
+                let Some(track) = self.children.get(track_index) else {
+                    continue;
+                };
+                if !track.items.is_empty() && !track_is_empty_boundary(track) {
+                    continue;
+                }
                 if !cluster.contains(&track_index) {
                     cluster.push(track_index);
                 }
@@ -1820,6 +1827,7 @@ impl Stack {
                 modified_duration,
                 &update_refs,
                 &cluster,
+                move_previous_start,
             )
         {
             *self = backup;
@@ -2538,6 +2546,22 @@ impl Stack {
         Some(self.children[track_index].start_time_of_item(item_index))
     }
 
+    /// Backward moves land earlier on the destination; Push would shove unrelated
+    /// tail content on that track rightward, so use Override for the insert itself.
+    fn effective_move_overlap_policy(
+        overlap_policy: OverlapPolicy,
+        previous_start: Option<Seconds>,
+        dest_time: Seconds,
+    ) -> OverlapPolicy {
+        if overlap_policy == OverlapPolicy::Push
+            && previous_start.is_some_and(|previous| dest_time < previous - EPS)
+        {
+            OverlapPolicy::Override
+        } else {
+            overlap_policy
+        }
+    }
+
     fn linked_item_ids_for_move(&self, item_timeline_id: &str, item_to_move: &Item) -> Vec<String> {
         let Some((primary_track_index, primary_item_index, _)) = self.get_item(item_timeline_id)
         else {
@@ -2747,6 +2771,11 @@ impl Stack {
         let primary_start_time = backup
             .stack_item_start_time(item_id)
             .unwrap_or(dest_time);
+        let overlap_policy = Self::effective_move_overlap_policy(
+            overlap_policy,
+            Some(primary_start_time),
+            dest_time,
+        );
         let preferred_cluster_video_id = backup
             .get_track_by_id(dest_track_id)
             .map(|(dest_track_index, _)| dest_track_index)
@@ -2850,16 +2879,23 @@ impl Stack {
 
         let has_synced_partners =
             !linked_audio_items.is_empty() || linked_video_item.is_some();
-        if !has_synced_partners {
-            self.insert_at_time_with_sync_splits(
+        let insert_result = if !has_synced_partners {
+            self.insert_synced_item_at_time(
                 dest_track_index,
                 dest_time,
+                None,
                 item_to_move,
                 overlap_policy,
                 insert_policy,
-            );
+                None,
+                None,
+                None::<&str>,
+                None::<&[usize]>,
+                None::<&[usize]>,
+                Some(primary_start_time),
+            )
         } else {
-            let Some(insert_result) = self.insert_synced_item_at_time(
+            self.insert_synced_item_at_time(
                 dest_track_index,
                 dest_time,
                 None,
@@ -2872,7 +2908,11 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 None::<&[usize]>,
-            ) else {
+                Some(primary_start_time),
+            )
+        };
+        if has_synced_partners {
+            let Some(insert_result) = insert_result else {
                 *self = backup;
                 return false;
             };
@@ -2895,6 +2935,9 @@ impl Stack {
                     return false;
                 }
             }
+        } else if insert_result.is_none() {
+            *self = backup;
+            return false;
         }
 
         self.sanitize();
@@ -3054,6 +3097,7 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 gap_only_exclude,
+                None,
             )
             .is_some()
         {
@@ -3137,6 +3181,13 @@ impl Stack {
             synced_audio.push(item.item.clone());
             preferred_audio_track_indices.push(item.track_index);
         }
+        let move_previous_start = backup.children[selected.track_index]
+            .start_time_of_item(selected.item_index);
+        let overlap_policy = Self::effective_move_overlap_policy(
+            overlap_policy,
+            Some(move_previous_start),
+            dest_time,
+        );
         let move_source_track_indices: Vec<usize> =
             items_to_move.iter().map(|item| item.track_index).collect();
 
@@ -3164,6 +3215,7 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 Some(move_source_track_indices.as_slice()),
+                Some(move_previous_start),
             )
             .is_some()
         {
