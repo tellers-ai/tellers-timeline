@@ -3823,13 +3823,15 @@ enum SubUnitKey {
     Clip(String),
 }
 
-/// Read the Tellers group id from `metadata["tellers.ai"]["group_id"]`.
+/// Read the Tellers group id from `metadata["tellers.ai"]["Tellers Group ID"]`.
 ///
 /// This is the Tellers-native grouping concept, kept separate from the
 /// Resolve "Link Group ID" (sync clips) and stored in the Tellers metadata
 /// namespace alongside `timeline_id`.
 pub(super) fn resolve_tellers_group_id(metadata: &serde_json::Value) -> Option<i64> {
-    let raw = metadata.get("tellers.ai").and_then(|v| v.get("group_id"))?;
+    let raw = metadata
+        .get("tellers.ai")
+        .and_then(|v| v.get("Tellers Group ID"))?;
     raw.as_i64()
         .or_else(|| raw.as_u64().and_then(|value| i64::try_from(value).ok()))
         .or_else(|| raw.as_str().and_then(|value| value.parse::<i64>().ok()))
@@ -3847,7 +3849,7 @@ pub(super) fn set_tellers_group_id(metadata: &mut serde_json::Value, group_id: i
         *ai = serde_json::Value::Object(serde_json::Map::new());
     }
     ai.as_object_mut().unwrap().insert(
-        "group_id".to_string(),
+        "Tellers Group ID".to_string(),
         serde_json::Value::Number(serde_json::Number::from(group_id)),
     );
 }
@@ -3859,7 +3861,7 @@ pub(super) fn remove_tellers_group_id(metadata: &mut serde_json::Value) -> bool 
     else {
         return false;
     };
-    ai.remove("group_id").is_some()
+    ai.remove("Tellers Group ID").is_some()
 }
 
 pub(super) fn set_resolve_sync_clips_id(metadata: &mut serde_json::Value, sync_clips_id: i64) {

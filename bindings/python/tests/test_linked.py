@@ -231,7 +231,7 @@ def test_group_and_ungroup_item_translate_return_types():
 
     # The Tellers group id round-trips through the clip's tellers.ai metadata.
     metadata = json.loads(stack.get_item("a")[2].get_metadata_json())
-    assert metadata.get("tellers.ai", {}).get("group_id") == group_id
+    assert metadata.get("tellers.ai", {}).get("Tellers Group ID") == group_id
 
     removed = stack.ungroup_item(["a"])
     assert isinstance(removed, int)

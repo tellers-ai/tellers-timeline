@@ -54,7 +54,7 @@ fn group_id(stack: &Stack, item_id: &str) -> Option<i64> {
         Item::Clip(clip) => clip
             .metadata
             .get("tellers.ai")
-            .and_then(|v| v.get("group_id"))
+            .and_then(|v| v.get("Tellers Group ID"))
             .and_then(|v| v.as_i64()),
         Item::Gap(_) => None,
     }
@@ -319,7 +319,7 @@ fn split_keeps_group_on_both_halves() {
         Item::Clip(clip) => clip
             .metadata
             .get("tellers.ai")
-            .and_then(|v| v.get("group_id"))
+            .and_then(|v| v.get("Tellers Group ID"))
             .and_then(|v| v.as_i64()),
         Item::Gap(_) => None,
     };
