@@ -19,12 +19,12 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) -> bool {
-        if let Some(subunits) = self.tellers_group_move_subunits(item_id, dest_time) {
+        if let Some(plan) = self.tellers_group_move_plan(item_id, dest_track_id, dest_time) {
             let backup = self.clone();
-            // Move the other sub-units first, then the selected clip last, so the
-            // selected clip's placement (and any track change it triggers) settles
-            // on top of the already-shifted group members.
-            for (rep_id, track_id, rep_dest_time) in subunits {
+            // The plan is ordered by current start time so members never collide
+            // while shifting: backward moves go smallest-start first, forward
+            // moves go biggest-start first. The selected clip is just one entry.
+            for (rep_id, track_id, rep_dest_time) in plan {
                 if !self.move_item_at_time_single(
                     &rep_id,
                     &track_id,
@@ -36,17 +36,6 @@ impl Stack {
                     *self = backup;
                     return false;
                 }
-            }
-            if !self.move_item_at_time_single(
-                item_id,
-                dest_track_id,
-                dest_time,
-                replace_with_gap,
-                insert_policy,
-                overlap_policy,
-            ) {
-                *self = backup;
-                return false;
             }
             return true;
         }

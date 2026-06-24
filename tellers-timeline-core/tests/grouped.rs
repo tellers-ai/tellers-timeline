@@ -239,6 +239,70 @@ fn move_group_moves_whole_sync_column_of_selected() {
 }
 
 #[test]
+fn move_group_orders_forward_moves_biggest_start_first() {
+    // Two grouped clips on the same track. Shifting both forward would collide if
+    // applied left-to-right, so forward moves are applied biggest-start first.
+    let mut stack = Stack::default();
+    stack.children.push(audio_track(
+        "t1",
+        vec![
+            clip_item(2.0, "A"),           // 0..2
+            Item::Gap(Gap::make_gap(2.0)), // 2..4
+            clip_item(2.0, "B"),           // 4..6
+        ],
+    ));
+    stack
+        .group_item(&["A".to_string(), "B".to_string()])
+        .unwrap();
+
+    // delta = +4: A 0->4, B 4->8.
+    assert!(stack.move_item_at_time(
+        "A",
+        "t1",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(start_of(&stack, "A"), 4.0);
+    assert_eq!(start_of(&stack, "B"), 8.0);
+}
+
+#[test]
+fn move_group_orders_backward_moves_smallest_start_first() {
+    // Two grouped clips on the same track. Shifting both backward would collide
+    // if applied right-to-left, so backward moves are applied smallest-start
+    // first.
+    let mut stack = Stack::default();
+    stack.children.push(audio_track(
+        "t1",
+        vec![
+            Item::Gap(Gap::make_gap(4.0)), // 0..4
+            clip_item(2.0, "B"),           // 4..6
+            Item::Gap(Gap::make_gap(2.0)), // 6..8
+            clip_item(2.0, "A"),           // 8..10
+        ],
+    ));
+    stack
+        .group_item(&["A".to_string(), "B".to_string()])
+        .unwrap();
+
+    // delta = -4: A 8->4, B 4->0.
+    assert!(stack.move_item_at_time(
+        "A",
+        "t1",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(start_of(&stack, "A"), 4.0);
+    assert_eq!(start_of(&stack, "B"), 0.0);
+}
+
+#[test]
 fn move_ungrouped_clip_is_unaffected() {
     let mut stack = Stack::default();
     stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));

@@ -750,17 +750,24 @@ impl Stack {
         targets
     }
 
-    /// For a grouped move of `item_id` to `dest_time`, return the sub-units of
-    /// the Tellers group other than the selected clip's own sub-unit. Each entry
-    /// is `(representative_item_id, its_track_id, its_destination_time)`, where
-    /// the destination is the sub-unit's current start shifted by the same delta
-    /// as the selected clip. Returns `None` when the selected clip is not part of
-    /// a Tellers group. A sub-unit is one sync column (shared Link Group ID) or a
-    /// single unsynced clip; only one representative per sub-unit is returned
-    /// since `move_item_at_time_single` moves a whole sync column at once.
-    fn tellers_group_move_subunits(
+    /// Build the ordered list of moves for a grouped move of `item_id` to
+    /// `dest_track_id` / `dest_time`. Returns `None` when the selected clip is
+    /// not part of a Tellers group.
+    ///
+    /// Each entry is `(representative_item_id, dest_track_id, dest_time)`. A
+    /// sub-unit is one sync column (shared Link Group ID) or a single unsynced
+    /// clip; only one representative per sub-unit is emitted since
+    /// `move_item_at_time_single` moves a whole sync column at once. The selected
+    /// clip's sub-unit moves to the requested destination track; every other
+    /// sub-unit shifts by the same delta on its own track.
+    ///
+    /// Entries are ordered by their current start time so members never collide
+    /// while shifting: backward moves (delta < 0) go smallest-start first,
+    /// forward moves (delta >= 0) go biggest-start first.
+    fn tellers_group_move_plan(
         &self,
         item_id: &str,
+        dest_track_id: &str,
         dest_time: Seconds,
     ) -> Option<Vec<(String, String, Seconds)>> {
         let (selected_track_index, selected_item_index, selected_item) = self.get_item(item_id)?;
@@ -777,9 +784,16 @@ impl Stack {
             None => SubUnitKey::Clip(item_id.to_string()),
         };
 
+        // (rep_id, dest_track_id, dest_time, old_start). The selected sub-unit
+        // goes to the requested destination track; the rest stay on their own.
+        let mut moves: Vec<(String, String, Seconds, Seconds)> = vec![(
+            item_id.to_string(),
+            dest_track_id.to_string(),
+            dest_time,
+            selected_start,
+        )];
         let mut seen_keys = HashSet::new();
         seen_keys.insert(selected_key);
-        let mut subunits = Vec::new();
         for (track_index, item_index) in self.tellers_group_targets(group_id) {
             let Some(Item::Clip(clip)) = self
                 .children
@@ -802,9 +816,23 @@ impl Stack {
                 continue;
             };
             let rep_start = self.children[track_index].start_time_of_item(item_index);
-            subunits.push((rep_id, track_id, rep_start + delta));
+            moves.push((rep_id, track_id, rep_start + delta, rep_start));
         }
-        Some(subunits)
+
+        moves.sort_by(|a, b| {
+            if delta < 0.0 {
+                a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal)
+            } else {
+                b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal)
+            }
+        });
+
+        Some(
+            moves
+                .into_iter()
+                .map(|(rep_id, track_id, dest, _old_start)| (rep_id, track_id, dest))
+                .collect(),
+        )
     }
 
     fn sync_column_targets_at(
