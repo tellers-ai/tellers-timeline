@@ -6493,3 +6493,69 @@ fn space_talking_cat_move_paris_onto_hh10_does_not_split_a1_a7() {
         );
     }
 }
+
+#[test]
+fn move_unsynced_earlier_into_leading_gap_does_not_add_spurious_sync_padding() {
+    const LEAD: f64 = 5.0;
+    const SYNC_DUR: f64 = 2.0;
+    const GROUP: i64 = 1;
+
+    let mut stack = Stack::default();
+
+    let mut audio = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    audio
+        .items
+        .push(synced_clip_item(SYNC_DUR, "sync-a", GROUP));
+    stack.children.push(audio);
+
+    let mut video = Track::new(TrackKind::Video, Some("Main".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(LEAD)));
+    video
+        .items
+        .push(synced_clip_item(SYNC_DUR, "sync-v", GROUP));
+    video
+        .items
+        .push(Item::Clip(clip(1.0, Some("unsynced"))));
+    stack.children.push(video);
+
+    // Photo starts at LEAD + SYNC_DUR = 7. Move earlier into the leading gap at 2.
+    assert!(stack.move_item_at_time(
+        "unsynced",
+        "Main",
+        2.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Push,
+    ));
+
+    let (sync_v_track, sync_v_index, sync_v) = stack.get_item("sync-v").unwrap();
+    let sync_v_start = stack.children[sync_v_track].start_time_of_item(sync_v_index);
+    assert!(
+        (sync_v_start - LEAD).abs() < 1e-6,
+        "synced video should stay at {LEAD}, got {sync_v_start}"
+    );
+    assert_eq!(sync_v.duration(), SYNC_DUR);
+
+    let (sync_a_track, sync_a_index, sync_a) = stack.get_item("sync-a").unwrap();
+    let audio_track = &stack.children[sync_a_track];
+    assert_eq!(
+        audio_track.start_time_of_item(sync_a_index),
+        sync_v_start,
+        "synced audio should stay aligned with video"
+    );
+    assert_eq!(sync_a.duration(), SYNC_DUR);
+    assert_eq!(
+        audio_track.items.len(),
+        2,
+        "audio must not gain a spurious gap when synced clip was not pushed"
+    );
+    assert!(
+        matches!(audio_track.items[0], Item::Gap(_)),
+        "leading cluster gap should remain"
+    );
+    assert!(
+        matches!(audio_track.items[1], Item::Clip(_)),
+        "synced audio clip should remain directly after the leading gap"
+    );
+}
