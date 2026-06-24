@@ -223,7 +223,7 @@ struct PyMediaReferencePosition {
 #[pymethods]
 impl PyMediaReferencePosition {
     #[new]
-    #[pyo3(signature = (x=0.5, y=0.5, rotation=0.0, zoom_x=1.0, zoom_y=1.0))]
+    #[pyo3(signature = (x=0.0, y=0.0, rotation=0.0, zoom_x=1.0, zoom_y=1.0))]
     fn new(x: f64, y: f64, rotation: f64, zoom_x: f64, zoom_y: f64) -> Self {
         Self {
             inner: MediaReferencePosition {

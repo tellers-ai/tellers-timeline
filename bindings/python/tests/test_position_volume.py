@@ -9,10 +9,10 @@ def test_get_set_position():
     ref = MediaReference("file:///test.mp4")
     clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
 
-    # Get initial position (should have defaults)
+    # Get initial position (should have defaults: (0, 0) center in Resolve pan/tilt space)
     pos = clip.get_position()
-    assert pos.get_x() == 0.5
-    assert pos.get_y() == 0.5
+    assert pos.get_x() == 0.0
+    assert pos.get_y() == 0.0
     assert pos.get_rotation() == 0.0
     assert pos.get_zoom_x() == 1.0
     assert pos.get_zoom_y() == 1.0

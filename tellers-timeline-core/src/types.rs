@@ -456,8 +456,10 @@ impl Clip {
 
     pub fn get_position(&self) -> MediaReferencePosition {
         let active_media_reference = self.media_references.get(self.active_media_reference_key.as_ref().unwrap()).unwrap();
-        let mut x = 0.5;
-        let mut y = 0.5;
+        // MediaReferencePosition uses [-0.5, +0.5] with (0, 0) at the screen center,
+        // matching Resolve's transformationPan/Tilt space where 0 is centered.
+        let mut x = 0.0;
+        let mut y = 0.0;
         let mut rotation = 0.0;
         let mut zoom_x = 1.0;
         let mut zoom_y = 1.0;
