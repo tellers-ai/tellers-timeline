@@ -21,16 +21,9 @@ impl Stack {
     ) -> bool {
         if let Some(subunits) = self.tellers_group_move_subunits(item_id, dest_time) {
             let backup = self.clone();
-            if !self.move_item_at_time_single(
-                item_id,
-                dest_track_id,
-                dest_time,
-                replace_with_gap,
-                insert_policy,
-                overlap_policy,
-            ) {
-                return false;
-            }
+            // Move the other sub-units first, then the selected clip last, so the
+            // selected clip's placement (and any track change it triggers) settles
+            // on top of the already-shifted group members.
             for (rep_id, track_id, rep_dest_time) in subunits {
                 if !self.move_item_at_time_single(
                     &rep_id,
@@ -43,6 +36,17 @@ impl Stack {
                     *self = backup;
                     return false;
                 }
+            }
+            if !self.move_item_at_time_single(
+                item_id,
+                dest_track_id,
+                dest_time,
+                replace_with_gap,
+                insert_policy,
+                overlap_policy,
+            ) {
+                *self = backup;
+                return false;
             }
             return true;
         }
