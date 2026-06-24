@@ -6559,3 +6559,66 @@ fn move_unsynced_earlier_into_leading_gap_does_not_add_spurious_sync_padding() {
         "synced audio clip should remain directly after the leading gap"
     );
 }
+
+#[test]
+fn move_unsynced_backward_onto_synced_clip_does_not_clobber_partner_unsynced_clip() {
+    // Repro for the reported bug:
+    //   v1: C1[0-2] (sync) - gap[2-4] - c2[4-6] (unsynced)
+    //   a1: CA1[0-2] (sync) - gap[2-2.5] - c3[2.5-4.5] (unsynced)
+    // C1 and CA1 are synced. Moving c2 backward onto C1 (dest=1) flips Push->Override
+    // and splits C1. The cluster propagation reserves an Override gap of c2's full
+    // duration on the audio partner at the insert point -- which must NOT delete or
+    // shrink the unrelated unsynced c3 sitting on the audio track.
+    const GROUP: i64 = 1;
+    let mut stack = Stack::default();
+
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(synced_clip_item(2.0, "C1", GROUP));
+    video.items.push(Item::Gap(Gap::make_gap(2.0)));
+    video.items.push(Item::Clip(clip(2.0, Some("c2"))));
+    stack.children.push(video);
+
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(synced_clip_item(2.0, "CA1", GROUP));
+    audio.items.push(Item::Gap(Gap::make_gap(0.5)));
+    audio.items.push(Item::Clip(clip(2.0, Some("c3"))));
+    stack.children.push(audio);
+
+    assert!(stack.move_item_at_time(
+        "c2",
+        "v1",
+        1.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Push,
+    ));
+
+    // The unrelated unsynced c3 must be completely untouched: same start, same duration.
+    let (c3_track, c3_index, c3) = stack
+        .get_item("c3")
+        .expect("c3 must still exist after moving the unrelated unsynced c2");
+    assert_eq!(c3.duration(), 2.0, "c3 duration must not shrink");
+    assert_eq!(
+        stack.children[c3_track].start_time_of_item(c3_index),
+        2.5,
+        "c3 start must not move"
+    );
+
+    // The synced audio partner CA1 is trimmed to stay aligned with C1 on video: C1 was
+    // overwritten down to [0-1], so CA1 keeps only its [0-1] footprint.
+    let (ca1_track, ca1_index, ca1) = stack.get_item("CA1").expect("CA1 must still exist");
+    assert_eq!(
+        stack.children[ca1_track].start_time_of_item(ca1_index),
+        0.0,
+        "CA1 should still start at 0"
+    );
+    assert_eq!(ca1.duration(), 1.0, "CA1 should be trimmed to align with C1");
+
+    let (c1_track, c1_index, c1) = stack.get_item("C1").expect("C1 must still exist");
+    assert_eq!(
+        stack.children[c1_track].start_time_of_item(c1_index),
+        0.0,
+        "C1 should still start at 0"
+    );
+    assert_eq!(c1.duration(), 1.0, "C1 was overwritten down to [0-1]");
+}
