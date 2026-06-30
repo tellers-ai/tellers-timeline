@@ -1107,6 +1107,32 @@ pub struct MediaReferencePosition {
     pub zoom_y: f64,
 }
 
+#[derive(Clone)]
+pub struct MediaReferenceCrop {
+    pub crop_left: f64,
+    pub crop_right: f64,
+    pub crop_top: f64,
+    pub crop_bottom: f64,
+}
+
+impl Default for MediaReferenceCrop {
+    fn default() -> Self {
+        Self {
+            crop_left: 0.0,
+            crop_right: 0.0,
+            crop_top: 0.0,
+            crop_bottom: 0.0,
+        }
+    }
+}
+
+fn clamp_crop_inset(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    value.clamp(0.0, 1.0)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "OTIO_SCHEMA")]
 pub enum MediaReference {
