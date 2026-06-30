@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Effect, EffectMetadata, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline,
+    validate_timeline, Clip, Effect, EffectMetadata, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -267,6 +267,52 @@ impl PyMediaReferencePosition {
     }
 }
 
+#[pyclass(name = "MediaReferenceCrop")]
+#[derive(Clone)]
+struct PyMediaReferenceCrop {
+    inner: MediaReferenceCrop,
+}
+
+#[pymethods]
+impl PyMediaReferenceCrop {
+    #[new]
+    #[pyo3(signature = (crop_left=0.0, crop_right=0.0, crop_top=0.0, crop_bottom=0.0))]
+    fn new(crop_left: f64, crop_right: f64, crop_top: f64, crop_bottom: f64) -> Self {
+        Self {
+            inner: MediaReferenceCrop {
+                crop_left,
+                crop_right,
+                crop_top,
+                crop_bottom,
+            },
+        }
+    }
+    fn get_crop_left(&self) -> f64 {
+        self.inner.crop_left
+    }
+    fn set_crop_left(&mut self, crop_left: f64) {
+        self.inner.crop_left = crop_left;
+    }
+    fn get_crop_right(&self) -> f64 {
+        self.inner.crop_right
+    }
+    fn set_crop_right(&mut self, crop_right: f64) {
+        self.inner.crop_right = crop_right;
+    }
+    fn get_crop_top(&self) -> f64 {
+        self.inner.crop_top
+    }
+    fn set_crop_top(&mut self, crop_top: f64) {
+        self.inner.crop_top = crop_top;
+    }
+    fn get_crop_bottom(&self) -> f64 {
+        self.inner.crop_bottom
+    }
+    fn set_crop_bottom(&mut self, crop_bottom: f64) {
+        self.inner.crop_bottom = crop_bottom;
+    }
+}
+
 #[pyclass(name = "Clip")]
 #[derive(Clone)]
 struct PyClip {
@@ -415,6 +461,13 @@ impl PyClip {
     }
     fn set_volume(&mut self, volume: f64) {
         self.inner.set_volume(volume);
+    }
+    fn get_crop(&self, py: Python<'_>) -> Py<PyMediaReferenceCrop> {
+        let crop = self.inner.get_crop();
+        Py::new(py, PyMediaReferenceCrop { inner: crop }).unwrap()
+    }
+    fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
+        self.inner.set_crop(crop.inner.clone());
     }
     #[staticmethod]
     fn parse_json(s: &str) -> PyResult<Self> {
@@ -623,6 +676,13 @@ impl PyItem {
     }
     fn set_volume(&mut self, volume: f64) {
         self.inner.set_volume(volume);
+    }
+    fn get_crop(&self, py: Python<'_>) -> Py<PyMediaReferenceCrop> {
+        let crop = self.inner.get_crop();
+        Py::new(py, PyMediaReferenceCrop { inner: crop }).unwrap()
+    }
+    fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
+        self.inner.set_crop(crop.inner.clone());
     }
 }
 
@@ -1296,6 +1356,7 @@ impl PyTimeline {
 fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyMediaReference>()?;
     m.add_class::<PyMediaReferencePosition>()?;
+    m.add_class::<PyMediaReferenceCrop>()?;
     m.add_class::<PyEffect>()?;
     m.add_class::<PyClip>()?;
     m.add_class::<PyGap>()?;
