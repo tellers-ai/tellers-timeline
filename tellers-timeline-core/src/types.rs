@@ -324,6 +324,17 @@ impl Item {
             c.set_volume(volume);
         }
     }
+    pub fn get_crop(&self) -> MediaReferenceCrop {
+        match self {
+            Item::Clip(c) => c.get_crop(),
+            Item::Gap(_g) => MediaReferenceCrop::default(),
+        }
+    }
+    pub fn set_crop(&mut self, crop: MediaReferenceCrop) {
+        if let Item::Clip(c) = self {
+            c.set_crop(crop);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -808,6 +819,104 @@ impl Clip {
             },
         });
     }
+
+    pub fn get_crop(&self) -> MediaReferenceCrop {
+        for effect in &self.effects {
+            if effect.effect_name == "Resolve Effect" {
+                if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_ref() {
+                    if resolve_otio_effect.effect_name == "Cropping"
+                        || resolve_otio_effect.name == "Cropping"
+                    {
+                        let mut crop = MediaReferenceCrop::default();
+                        for parameter in &resolve_otio_effect.parameters {
+                            if let ResolveOTIOParameter::Double(param) = parameter {
+                                match param.parameter_id.as_str() {
+                                    "cropLeft" => crop.crop_left = param.parameter_value,
+                                    "cropRight" => crop.crop_right = param.parameter_value,
+                                    "cropTop" => crop.crop_top = param.parameter_value,
+                                    "cropBottom" => crop.crop_bottom = param.parameter_value,
+                                    _ => {}
+                                }
+                            }
+                        }
+                        return crop;
+                    }
+                }
+            }
+        }
+        MediaReferenceCrop::default()
+    }
+
+    pub fn set_crop(&mut self, crop: MediaReferenceCrop) {
+        let crop_left = clamp_crop_inset(crop.crop_left);
+        let crop_right = clamp_crop_inset(crop.crop_right);
+        let crop_top = clamp_crop_inset(crop.crop_top);
+        let crop_bottom = clamp_crop_inset(crop.crop_bottom);
+
+        self.effects.retain(|effect| {
+            if effect.effect_name == "Resolve Effect" {
+                if let Some(resolve_otio_effect) = &effect.metadata.resolve_otio {
+                    if resolve_otio_effect.effect_name == "Cropping"
+                        || resolve_otio_effect.name == "Cropping"
+                    {
+                        return false;
+                    }
+                }
+            }
+            true
+        });
+
+        let cropping_effect = ResolveOTIOEffect {
+            effect_name: "Cropping".to_string(),
+            enabled: true,
+            name: "Cropping".to_string(),
+            parameters: vec![
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "cropLeft".to_string(),
+                    parameter_value: crop_left,
+                    default_parameter_value: Some(0.0),
+                    max_value: Some(1.0),
+                    min_value: Some(0.0),
+                }),
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "cropRight".to_string(),
+                    parameter_value: crop_right,
+                    default_parameter_value: Some(0.0),
+                    max_value: Some(1.0),
+                    min_value: Some(0.0),
+                }),
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "cropTop".to_string(),
+                    parameter_value: crop_top,
+                    default_parameter_value: Some(0.0),
+                    max_value: Some(1.0),
+                    min_value: Some(0.0),
+                }),
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "cropBottom".to_string(),
+                    parameter_value: crop_bottom,
+                    default_parameter_value: Some(0.0),
+                    max_value: Some(1.0),
+                    min_value: Some(0.0),
+                }),
+            ],
+            effect_type: 3,
+        };
+
+        self.effects.push(Effect {
+            otio_schema: default_effect_schema(),
+            name: "".to_string(),
+            effect_name: "Resolve Effect".to_string(),
+            metadata: EffectMetadata {
+                resolve_otio: Some(cropping_effect),
+                other: serde_json::Map::new(),
+            },
+        });
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -1105,6 +1214,32 @@ pub struct MediaReferencePosition {
     pub rotation: f64,
     pub zoom_x: f64,
     pub zoom_y: f64,
+}
+
+#[derive(Clone)]
+pub struct MediaReferenceCrop {
+    pub crop_left: f64,
+    pub crop_right: f64,
+    pub crop_top: f64,
+    pub crop_bottom: f64,
+}
+
+impl Default for MediaReferenceCrop {
+    fn default() -> Self {
+        Self {
+            crop_left: 0.0,
+            crop_right: 0.0,
+            crop_top: 0.0,
+            crop_bottom: 0.0,
+        }
+    }
+}
+
+fn clamp_crop_inset(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    value.clamp(0.0, 1.0)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
