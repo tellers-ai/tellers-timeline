@@ -284,6 +284,16 @@ impl Item {
             c.media_references = references;
         }
     }
+    /// Clear the `target_url` on every media reference of this item.
+    ///
+    /// No-op for gaps, which have no media references.
+    pub fn clear_target_urls(&mut self) {
+        if let Item::Clip(c) = self {
+            for reference in c.media_references.values_mut() {
+                reference.clear_target_url();
+            }
+        }
+    }
     pub fn get_effects(&self) -> Vec<Effect> {
         match self {
             Item::Clip(c) => c.effects.clone(),
@@ -1313,6 +1323,15 @@ impl MediaReference {
         }
     }
 
+    /// Clear the `target_url` on an external reference, leaving an empty string.
+    ///
+    /// No-op for generator references, which have no `target_url`.
+    pub fn clear_target_url(&mut self) {
+        if let MediaReference::ExternalReference { target_url, .. } = self {
+            target_url.clear();
+        }
+    }
+
     pub fn generator_kind(&self) -> Option<&String> {
         match self {
             MediaReference::ExternalReference { .. } => None,
@@ -1606,6 +1625,18 @@ impl Timeline {
     }
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         self.tracks.delete_track(id)
+    }
+    /// Clear the `target_url` on every media reference of every clip in the timeline.
+    ///
+    /// Used before serving a project or applying a front-end update so that
+    /// ephemeral (e.g. presigned) media URLs are not persisted or sent onward;
+    /// consumers re-resolve media from the reference metadata instead.
+    pub fn clear_target_urls(&mut self) {
+        for track in &mut self.tracks.children {
+            for item in &mut track.items {
+                item.clear_target_urls();
+            }
+        }
     }
 }
 

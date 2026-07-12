@@ -1276,6 +1276,10 @@ impl PyTimeline {
         self.inner.sanitize();
     }
 
+    fn clear_target_urls(&mut self) {
+        self.inner.clear_target_urls();
+    }
+
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
     }
