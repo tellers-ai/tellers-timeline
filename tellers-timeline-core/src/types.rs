@@ -329,6 +329,14 @@ impl Item {
             Item::Gap(_g) => 1.0,
         }
     }
+    /// The Rich Text Title HTML of this item's active media reference, if any.
+    /// None for gaps and non-rich-text clips.
+    pub fn get_rich_text(&self) -> Option<String> {
+        match self {
+            Item::Clip(c) => c.get_rich_text(),
+            Item::Gap(_g) => None,
+        }
+    }
     pub fn set_volume(&mut self, volume: f64) {
         if let Item::Clip(c) = self {
             c.set_volume(volume);
@@ -367,6 +375,16 @@ pub struct Clip {
 }
 
 impl Clip {
+    /// The Rich Text Title HTML of this clip's active media reference, if it is
+    /// a Rich generator reference. Mirrors the app's `extractTitleBlobHtml`.
+    pub fn get_rich_text(&self) -> Option<String> {
+        let key = self
+            .active_media_reference_key
+            .as_deref()
+            .unwrap_or("DEFAULT_MEDIA");
+        self.media_references.get(key)?.get_rich_text()
+    }
+
     pub fn bind_default_media_reference_when_needed(&mut self) {
         if self
             .active_media_reference_key
@@ -1679,6 +1697,24 @@ impl Track {
             .iter()
             .filter_map(crate::metadata::IdMetadataExt::get_id)
             .collect()
+    }
+
+    /// The mean volume across the track's clips (gaps ignored). Returns 0.0 when
+    /// the track has no clips. Mirrors the app's `Track.averageVolume`.
+    pub fn average_volume(&self) -> f64 {
+        let mut sum = 0.0;
+        let mut count = 0usize;
+        for item in &self.items {
+            if let Item::Clip(_) = item {
+                sum += item.get_volume();
+                count += 1;
+            }
+        }
+        if count == 0 {
+            0.0
+        } else {
+            sum / count as f64
+        }
     }
 
     /// Set the volume on every item in the track.
