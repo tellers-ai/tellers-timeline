@@ -1332,6 +1332,29 @@ impl MediaReference {
         }
     }
 
+    /// Clear the `target_url` only when this external reference is asset-backed,
+    /// i.e. its metadata carries a non-empty `tellers.ai.media_id`.
+    ///
+    /// Leaves a genuine non-asset external URL (no `media_id`) intact, and is a
+    /// no-op for generator references.
+    pub fn clear_asset_backed_target_url(&mut self) {
+        if let MediaReference::ExternalReference {
+            target_url,
+            metadata,
+            ..
+        } = self
+        {
+            let is_asset_backed = metadata
+                .get("tellers.ai")
+                .and_then(|v| v.get("media_id"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|media_id| !media_id.is_empty());
+            if is_asset_backed && !target_url.is_empty() {
+                target_url.clear();
+            }
+        }
+    }
+
     pub fn generator_kind(&self) -> Option<&String> {
         match self {
             MediaReference::ExternalReference { .. } => None,
@@ -1690,5 +1713,21 @@ impl Stack {
             }
         }
         None
+    }
+
+    /// Clear presigned `target_url`s on asset-backed external references across
+    /// the whole stack (every track's clips). Non-asset external URLs (no
+    /// `tellers.ai.media_id`) are left intact. See
+    /// [`MediaReference::clear_asset_backed_target_url`].
+    pub fn clear_asset_backed_target_urls(&mut self) {
+        for track in &mut self.children {
+            for item in &mut track.items {
+                if let Item::Clip(clip) = item {
+                    for reference in clip.media_references.values_mut() {
+                        reference.clear_asset_backed_target_url();
+                    }
+                }
+            }
+        }
     }
 }
