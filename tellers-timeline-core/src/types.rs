@@ -1680,6 +1680,17 @@ impl Track {
             .filter_map(crate::metadata::IdMetadataExt::get_id)
             .collect()
     }
+
+    /// Set the volume on every item in the track.
+    ///
+    /// A track has no single volume field, so "track volume" is applied by
+    /// setting the given `volume` on each of its items (see
+    /// [`Item::set_volume`]).
+    pub fn set_volume(&mut self, volume: f64) {
+        for item in &mut self.items {
+            item.set_volume(volume);
+        }
+    }
 }
 
 impl Stack {
