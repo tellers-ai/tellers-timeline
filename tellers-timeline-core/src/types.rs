@@ -207,11 +207,40 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[derive(Debug, Clone, Serialize, JsonSchema, PartialEq)]
 #[serde(untagged)]
 pub enum Item {
     Clip(Clip),
     Gap(Gap),
+}
+
+impl<'de> Deserialize<'de> for Item {
+    /// Dispatch on `OTIO_SCHEMA`: a `Gap.*` schema deserializes as [`Gap`],
+    /// everything else as [`Clip`].
+    ///
+    /// A plain `#[serde(untagged)]` deserialize would always match [`Clip`]
+    /// first — every `Clip` field but `source_range` is `#[serde(default)]`, so
+    /// a gap object parses cleanly as a `Clip` and the `Gap` variant is never
+    /// reached. Dispatching on the schema keeps gaps as gaps on the way in.
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let is_gap = value
+            .get("OTIO_SCHEMA")
+            .and_then(|schema| schema.as_str())
+            .is_some_and(|schema| {
+                schema.eq_ignore_ascii_case("Gap.1") || schema.eq_ignore_ascii_case("Gap")
+            });
+        if is_gap {
+            Gap::deserialize(value).map(Item::Gap).map_err(D::Error::custom)
+        } else {
+            Clip::deserialize(value)
+                .map(Item::Clip)
+                .map_err(D::Error::custom)
+        }
+    }
 }
 
 // No longer used; OTIO-only shape is parsed directly above
