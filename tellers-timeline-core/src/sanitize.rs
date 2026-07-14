@@ -82,6 +82,28 @@ impl Stack {
         self.cleanup_dangling_sync_clips();
     }
 
+    /// Sanitize only the tracks at the given indices, running the per-track
+    /// passes (clamp to available range, clamp negative durations, drop
+    /// zero-length items, merge adjacent gaps, drop a trailing gap), then the
+    /// stack-wide `ensure_unique_timeline_ids` pass so a split introduced by an
+    /// override move/insert can't leave two items sharing a timeline id.
+    ///
+    /// Unlike [`Self::sanitize`] this keeps the heavier per-track passes scoped
+    /// to the given tracks and skips `cleanup_dangling_sync_clips`, so it costs
+    /// O(items in the given tracks) plus a cheap id-hash pass rather than the
+    /// full per-track work over every track. It is meant for interactive
+    /// previews that touch only a couple of tracks and re-run the full
+    /// [`Self::sanitize`] when the edit is committed. Out-of-range indices are
+    /// ignored.
+    pub fn sanitize_tracks(&mut self, track_indices: &[usize]) {
+        for &index in track_indices {
+            if let Some(track) = self.children.get_mut(index) {
+                track.sanitize();
+            }
+        }
+        self.ensure_unique_timeline_ids();
+    }
+
     pub(crate) fn sanitize_preserving_all_gap_tracks(&mut self) {
         for t in &mut self.children {
             t.sanitize_preserving_all_gap_track();
@@ -156,4 +178,77 @@ fn remove_resolve_sync_clips_id(metadata: &mut serde_json::Value) -> bool {
         return false;
     };
     resolve.remove("Link Group ID").is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Clip, Gap, MediaReference, RationalTime, TimeRange, TrackKind};
+    use std::collections::HashMap;
+
+    fn range(duration: f64) -> TimeRange {
+        TimeRange {
+            otio_schema: "TimeRange.1".to_string(),
+            start_time: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: 0.0,
+            },
+            duration: RationalTime {
+                otio_schema: "RationalTime.1".to_string(),
+                rate: 1.0,
+                value: duration,
+            },
+        }
+    }
+
+    fn clip(duration: f64) -> Item {
+        let mut refs = HashMap::new();
+        refs.insert(
+            "DEFAULT_MEDIA".to_string(),
+            MediaReference::ExternalReference {
+                target_url: "media://dummy".to_string(),
+                available_range: None,
+                name: None,
+                available_image_bounds: None,
+                metadata: serde_json::Value::Null,
+            },
+        );
+        Item::Clip(Clip::new(
+            range(duration),
+            refs,
+            Some("DEFAULT_MEDIA".to_string()),
+            None,
+            None,
+        ))
+    }
+
+    fn track_with_mergeable_gaps() -> Track {
+        let mut t = Track::new(TrackKind::Video, None);
+        // clip | gap | gap : sanitize merges the gaps and drops the trailing one,
+        // leaving just the clip.
+        t.items = vec![
+            clip(2.0),
+            Item::Gap(Gap::new(1.0, None)),
+            Item::Gap(Gap::new(1.0, None)),
+        ];
+        t
+    }
+
+    #[test]
+    fn sanitize_tracks_only_touches_given_tracks() {
+        let mut stack = Stack::default();
+        stack.children = vec![track_with_mergeable_gaps(), track_with_mergeable_gaps()];
+
+        stack.sanitize_tracks(&[0]);
+
+        // Track 0 was sanitized: gaps merged + trailing gap removed -> clip only.
+        assert_eq!(stack.children[0].items.len(), 1);
+        // Track 1 was left untouched.
+        assert_eq!(stack.children[1].items.len(), 3);
+
+        // An out-of-range index is ignored (no panic, no effect).
+        stack.sanitize_tracks(&[99]);
+        assert_eq!(stack.children[1].items.len(), 3);
+    }
 }
