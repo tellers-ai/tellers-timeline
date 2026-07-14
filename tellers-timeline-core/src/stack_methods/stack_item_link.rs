@@ -77,7 +77,7 @@ impl Stack {
             else {
                 continue;
             };
-            super::set_tellers_group_id(&mut clip.metadata, group_id);
+            crate::set_tellers_group_id(&mut clip.metadata, group_id);
         }
         Some(group_id)
     }
@@ -93,7 +93,7 @@ impl Stack {
                 continue;
             };
             if let Item::Clip(clip) = &self.children[track_index].items[item_index] {
-                if let Some(group_id) = super::resolve_tellers_group_id(&clip.metadata) {
+                if let Some(group_id) = crate::resolve_tellers_group_id(&clip.metadata) {
                     group_ids.insert(group_id);
                 }
             }
@@ -109,7 +109,7 @@ impl Stack {
                 else {
                     continue;
                 };
-                if super::remove_tellers_group_id(&mut clip.metadata) {
+                if crate::remove_tellers_group_id(&mut clip.metadata) {
                     count += 1;
                 }
             }

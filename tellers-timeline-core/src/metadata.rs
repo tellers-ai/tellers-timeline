@@ -210,3 +210,88 @@ impl MetadataExt for Item {
         }
     }
 }
+
+// ---- Group-id metadata accessors -------------------------------------------
+//
+// Timeline items carry two distinct grouping ids in their metadata:
+//
+// * the Resolve "Link Group ID" (`metadata["Resolve_OTIO"]["Link Group ID"]`),
+//   which ties synchronised clips together, and
+// * the Tellers Group ID (`metadata["tellers.ai"]["Tellers Group ID"]`), the
+//   Tellers-native "move together" grouping.
+//
+// These accessors expose the read/write conventions for both so callers (the
+// editor bridge, the stack methods) don't re-implement the metadata layout.
+
+/// The Resolve "Link Group ID" of an item (the sync-clip group), or `None` for
+/// an ungrouped clip or a gap.
+pub fn item_link_group_id(item: &Item) -> Option<i64> {
+    match item {
+        Item::Clip(clip) => clip.sync_clips_id(),
+        Item::Gap(_) => None,
+    }
+}
+
+/// The Tellers Group ID of an item, or `None` for an ungrouped clip or a gap.
+pub fn item_tellers_group_id(item: &Item) -> Option<i64> {
+    match item {
+        Item::Clip(clip) => resolve_tellers_group_id(&clip.metadata),
+        Item::Gap(_) => None,
+    }
+}
+
+/// Set (or clear, when `group_id` is `None`) the Tellers Group ID on an item.
+pub fn set_item_tellers_group_id(item: &mut Item, group_id: Option<i64>) {
+    let metadata = item.get_metadata_mut();
+    match group_id {
+        Some(group_id) => set_tellers_group_id(metadata, group_id),
+        None => {
+            remove_tellers_group_id(metadata);
+        }
+    }
+}
+
+/// Read the Tellers group id from `metadata["tellers.ai"]["Tellers Group ID"]`.
+///
+/// This is the Tellers-native grouping concept, kept separate from the Resolve
+/// "Link Group ID" (sync clips) and stored in the Tellers metadata namespace
+/// alongside `timeline_id`. An int, uint, or stringified value all read back.
+pub fn resolve_tellers_group_id(metadata: &serde_json::Value) -> Option<i64> {
+    let raw = metadata
+        .get("tellers.ai")
+        .and_then(|v| v.get("Tellers Group ID"))?;
+    raw.as_i64()
+        .or_else(|| raw.as_u64().and_then(|value| i64::try_from(value).ok()))
+        .or_else(|| raw.as_str().and_then(|value| value.parse::<i64>().ok()))
+}
+
+/// Write `group_id` to `metadata["tellers.ai"]["Tellers Group ID"]`, creating
+/// the `tellers.ai` object if it is missing or not an object.
+pub fn set_tellers_group_id(metadata: &mut serde_json::Value, group_id: i64) {
+    if metadata.as_object().is_none() {
+        *metadata = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let map = metadata.as_object_mut().unwrap();
+    let ai = map
+        .entry("tellers.ai".to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if ai.as_object().is_none() {
+        *ai = serde_json::Value::Object(serde_json::Map::new());
+    }
+    ai.as_object_mut().unwrap().insert(
+        "Tellers Group ID".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(group_id)),
+    );
+}
+
+/// Remove the Tellers Group ID from `metadata`, returning whether one was
+/// present.
+pub fn remove_tellers_group_id(metadata: &mut serde_json::Value) -> bool {
+    let Some(ai) = metadata
+        .get_mut("tellers.ai")
+        .and_then(|value| value.as_object_mut())
+    else {
+        return false;
+    };
+    ai.remove("Tellers Group ID").is_some()
+}
