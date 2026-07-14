@@ -1,3 +1,4 @@
+use crate::metadata::{item_link_group_id, item_tellers_group_id, resolve_tellers_group_id};
 use crate::{
     Clip, Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track, TrackKind,
     TrackInsertResult,
@@ -3829,67 +3830,12 @@ fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
     Clip::resolve_otio_i64(metadata, "Link Group ID")
 }
 
-fn item_link_group_id(item: &Item) -> Option<i64> {
-    match item {
-        Item::Clip(clip) => clip.sync_clips_id(),
-        Item::Gap(_) => None,
-    }
-}
-
-fn item_tellers_group_id(item: &Item) -> Option<i64> {
-    match item {
-        Item::Clip(clip) => resolve_tellers_group_id(&clip.metadata),
-        Item::Gap(_) => None,
-    }
-}
-
 /// Identifies a movable sub-unit within a Tellers group: either a whole sync
 /// column (shared Link Group ID) or a single unsynced clip (by timeline id).
 #[derive(PartialEq, Eq, Hash, Clone)]
 enum SubUnitKey {
     Sync(i64),
     Clip(String),
-}
-
-/// Read the Tellers group id from `metadata["tellers.ai"]["Tellers Group ID"]`.
-///
-/// This is the Tellers-native grouping concept, kept separate from the
-/// Resolve "Link Group ID" (sync clips) and stored in the Tellers metadata
-/// namespace alongside `timeline_id`.
-pub(super) fn resolve_tellers_group_id(metadata: &serde_json::Value) -> Option<i64> {
-    let raw = metadata
-        .get("tellers.ai")
-        .and_then(|v| v.get("Tellers Group ID"))?;
-    raw.as_i64()
-        .or_else(|| raw.as_u64().and_then(|value| i64::try_from(value).ok()))
-        .or_else(|| raw.as_str().and_then(|value| value.parse::<i64>().ok()))
-}
-
-pub(super) fn set_tellers_group_id(metadata: &mut serde_json::Value, group_id: i64) {
-    if metadata.as_object().is_none() {
-        *metadata = serde_json::Value::Object(serde_json::Map::new());
-    }
-    let map = metadata.as_object_mut().unwrap();
-    let ai = map
-        .entry("tellers.ai".to_string())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    if ai.as_object().is_none() {
-        *ai = serde_json::Value::Object(serde_json::Map::new());
-    }
-    ai.as_object_mut().unwrap().insert(
-        "Tellers Group ID".to_string(),
-        serde_json::Value::Number(serde_json::Number::from(group_id)),
-    );
-}
-
-pub(super) fn remove_tellers_group_id(metadata: &mut serde_json::Value) -> bool {
-    let Some(ai) = metadata
-        .get_mut("tellers.ai")
-        .and_then(|value| value.as_object_mut())
-    else {
-        return false;
-    };
-    ai.remove("Tellers Group ID").is_some()
 }
 
 pub(super) fn set_resolve_sync_clips_id(metadata: &mut serde_json::Value, sync_clips_id: i64) {
