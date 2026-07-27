@@ -1767,4 +1767,29 @@ impl Stack {
         }
         None
     }
+
+    /// Every track whose name is exactly `name`, in stack order.
+    ///
+    /// Track names are display labels, not keys: nothing stops two tracks from
+    /// sharing one, so this can return several matches. Callers that want a
+    /// single track should use [`Stack::get_track_by_name`].
+    pub fn find_tracks_by_name(&self, name: &str) -> Vec<(usize, &Track)> {
+        self.children
+            .iter()
+            .enumerate()
+            .filter(|(_, tr)| tr.name.as_deref() == Some(name))
+            .collect()
+    }
+
+    /// The one track named `name`.
+    ///
+    /// Returns `None` both when no track carries the name and when several do —
+    /// an ambiguous name has no correct answer, so it is not resolved to an
+    /// arbitrary track. Use [`Stack::find_tracks_by_name`] to tell the two
+    /// cases apart, or [`Stack::get_track_by_id`] when the caller holds an id.
+    pub fn get_track_by_name(&self, name: &str) -> Option<(usize, &Track)> {
+        let mut matches = self.find_tracks_by_name(name).into_iter();
+        let only = matches.next()?;
+        matches.next().is_none().then_some(only)
+    }
 }

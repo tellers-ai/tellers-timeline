@@ -922,6 +922,23 @@ impl PyStack {
             (i, Py::new(py, PyTrack { inner: tr }).unwrap())
         })
     }
+    /// The one track named `name`, or None when no track — or several tracks —
+    /// carry that name.
+    fn get_track_by_name(&self, py: Python<'_>, name: &str) -> Option<(usize, Py<PyTrack>)> {
+        self.inner.get_track_by_name(name).map(|(i, _t)| {
+            let tr = self.inner.children[i].clone();
+            (i, Py::new(py, PyTrack { inner: tr }).unwrap())
+        })
+    }
+    /// Every track named `name`, in stack order. Names are display labels and
+    /// are not required to be unique.
+    fn find_tracks_by_name(&self, py: Python<'_>, name: &str) -> Vec<(usize, Py<PyTrack>)> {
+        self.inner
+            .find_tracks_by_name(name)
+            .into_iter()
+            .map(|(i, tr)| (i, Py::new(py, PyTrack { inner: tr.clone() }).unwrap()))
+            .collect()
+    }
     fn get_item(&self, py: Python<'_>, id: &str) -> Option<(usize, usize, Py<PyItem>)> {
         self.inner.get_item(id).map(|(ti, ii, _it)| {
             let item = self.inner.children[ti].items[ii].clone();

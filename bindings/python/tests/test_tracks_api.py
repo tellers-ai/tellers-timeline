@@ -64,3 +64,47 @@ def test_timeline_to_json_produces_valid_parseable_json():
     parsed = json.loads(out)
     assert isinstance(parsed, dict)
     assert "A" in out
+
+
+def _named_stack() -> Stack:
+    video = Track(kind="video", id="v")
+    video.set_name("Main")
+    audio = Track(kind="audio", id="a")
+    audio.set_name("music")
+    return Stack([video, audio])
+
+
+def test_get_track_by_name_returns_index_and_track():
+    stack = _named_stack()
+
+    found = stack.get_track_by_name("music")
+    assert found is not None
+    index, track = found
+    assert index == 1
+    assert track.get_id() == "a"
+
+
+def test_get_track_by_name_returns_none_for_unknown_and_wrong_case():
+    stack = _named_stack()
+
+    assert stack.get_track_by_name("missing") is None
+    assert stack.get_track_by_name("MUSIC") is None
+
+
+def test_get_track_by_name_returns_none_when_name_is_ambiguous():
+    first = Track(kind="video", id="v1")
+    first.set_name("overlay")
+    second = Track(kind="video", id="v2")
+    second.set_name("overlay")
+    stack = Stack([first, second])
+
+    assert stack.get_track_by_name("overlay") is None
+    assert [index for index, _ in stack.find_tracks_by_name("overlay")] == [0, 1]
+    assert [track.get_id() for _, track in stack.find_tracks_by_name("overlay")] == [
+        "v1",
+        "v2",
+    ]
+
+
+def test_find_tracks_by_name_returns_empty_list_when_nothing_matches():
+    assert _named_stack().find_tracks_by_name("nope") == []
