@@ -128,3 +128,17 @@ fn a_genuinely_unknown_reference_schema_is_still_rejected() {
         "only MissingReference is aliased; anything else should still fail loudly"
     );
 }
+
+#[test]
+fn image_sequence_reference_is_still_rejected() {
+    // OTIO registers four MediaReference subclasses — ExternalReference,
+    // GeneratorReference, MissingReference and ImageSequenceReference — and
+    // this enum models two of them. An OTIO file using an image sequence
+    // therefore still fails to load, the same way MissingReference did.
+    // Recorded so the gap is visible rather than discovered in the app.
+    let json = timeline_json("ImageSequenceReference.1", "");
+
+    let result: Result<Timeline, _> = serde_json::from_str(&json);
+
+    assert!(result.is_err());
+}
