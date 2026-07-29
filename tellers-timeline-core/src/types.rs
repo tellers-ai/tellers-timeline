@@ -1302,9 +1302,26 @@ fn clamp_crop_inset(value: f64) -> f64 {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 #[serde(tag = "OTIO_SCHEMA")]
 pub enum MediaReference {
-    #[serde(rename = "ExternalReference.1")]
+    /// OTIO's `MissingReference` is accepted as an alias and read as an
+    /// external reference with an empty `target_url`.
+    ///
+    /// Producers outside our control emit it: the OTIO AAF adapter answers
+    /// every SourceMob that records no locator URL with a `MissingReference`,
+    /// so importing an Avid sequence used to fail here — `unknown variant
+    /// MissingReference.1` — and take down the whole project load, even for
+    /// clips whose media we had resolved.
+    ///
+    /// It is an alias rather than a third variant because "no media yet" is
+    /// already what an empty `target_url` means throughout the pipeline
+    /// (`clear_target_urls` empties the field on every project we serve), and
+    /// because a distinct variant would force a meaning at each of the
+    /// matches on this enum for no behavioural gain. It re-serializes as
+    /// `ExternalReference.1`.
+    #[serde(rename = "ExternalReference.1", alias = "MissingReference.1")]
     ExternalReference {
-        #[serde(rename = "target_url")]
+        // Defaulted so a `MissingReference`, which carries no such field,
+        // lands as the empty target url that means "nothing to play yet".
+        #[serde(rename = "target_url", default)]
         target_url: String,
         #[serde(default)]
         available_range: Option<TimeRange>,
