@@ -12,9 +12,11 @@ mod stack_item_insert;
 mod stack_item_link;
 mod stack_item_move;
 mod stack_item_replace;
+mod stack_item_set;
 mod stack_item_split;
 mod stack_track;
 
+pub use stack_item_set::ClampPolicy;
 use stack_item_split::SyncSplitIdPolicy;
 
 const EPS: Seconds = 1e-9;
