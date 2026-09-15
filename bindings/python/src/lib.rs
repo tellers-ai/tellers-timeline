@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Effect, EffectMetadata, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline,
+    validate_timeline, Clip, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -1242,6 +1242,20 @@ fn sync_track_info_to_python(
         .collect()
 }
 
+fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<PyObject>> {
+    fonts
+        .into_iter()
+        .map(|font| {
+            let dict = PyDict::new(py);
+            dict.set_item("family", font.family)?;
+            dict.set_item("url", font.url)?;
+            dict.set_item("weight", font.weight)?;
+            dict.set_item("style", font.style)?;
+            Ok(dict.into_py(py))
+        })
+        .collect()
+}
+
 #[pyclass(name = "Timeline")]
 #[derive(Clone)]
 struct PyTimeline {
@@ -1349,6 +1363,35 @@ impl PyTimeline {
             InsertPolicy::InsertBeforeOrAfter,
             OverlapPolicy::Override,
         ))
+    }
+    /// The custom fonts declared for rich-text clips, as
+    /// `{"family", "url", "weight", "style"}` dicts. Fonts the player would
+    /// ignore are skipped.
+    fn get_fonts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        font_faces_to_python(py, self.inner.get_fonts())
+    }
+    /// Declare a custom font, replacing an entry with the same family
+    /// (case-insensitive), weight and style. Returns False, changing nothing,
+    /// when the family is empty or the URL is not http/https/data.
+    #[pyo3(signature = (family, url, weight=None, style=None))]
+    fn add_font(
+        &mut self,
+        family: String,
+        url: String,
+        weight: Option<String>,
+        style: Option<String>,
+    ) -> bool {
+        self.inner.add_font(FontFace {
+            family,
+            url,
+            weight,
+            style,
+        })
+    }
+    /// Remove every declared font with this family (case-insensitive),
+    /// returning whether one was present.
+    fn remove_font(&mut self, family: &str) -> bool {
+        self.inner.remove_font(family)
     }
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)
