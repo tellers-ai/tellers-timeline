@@ -4,33 +4,22 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 ROOT="$PWD"
-if [[ -x bindings/python/.venv/bin/python ]]; then
-  VENV="$ROOT/bindings/python/.venv"
-elif [[ -x .venv/bin/python ]]; then
-  VENV="$ROOT/.venv"
-elif [[ -x venv/bin/python ]]; then
-  VENV="$ROOT/venv"
-else
-  VENV=""
+VENV="$ROOT/bindings/python/.venv"
+
+# Keep the UI's tooling self-contained. F5 should work from a fresh checkout,
+# rather than depending on whichever virtual environment happens to exist.
+if [[ ! -x "$VENV/bin/python" ]]; then
+  python3 -m venv "$VENV"
 fi
-PYTHON="${VENV:+$VENV/bin/python}"
-PYTHON="${PYTHON:-python3}"
+PYTHON="$VENV/bin/python"
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
-  MATURIN=""
-  if [[ -n "$VENV" && -x "$VENV/bin/maturin" ]]; then
-    MATURIN="$VENV/bin/maturin"
-  elif command -v maturin >/dev/null 2>&1; then
-    MATURIN="$(command -v maturin)"
+  if ! "$PYTHON" -m maturin --version >/dev/null 2>&1; then
+    echo "Installing the one-time UI build dependency (maturin)..."
+    "$PYTHON" -m pip install -q maturin
   fi
-  if [[ -n "$MATURIN" ]]; then
-    echo "Building Python bindings into ${VENV:-current python} ($MATURIN develop)..."
-    (cd bindings/python && VIRTUAL_ENV="$VENV" "$MATURIN" develop -q) || {
-      echo "maturin develop failed; using the already-installed bindings" >&2
-    }
-  else
-    echo "maturin not found; using the already-installed bindings (pip install maturin to rebuild)" >&2
-  fi
+  echo "Building Python bindings into $VENV..."
+  (cd bindings/python && "$PYTHON" -m maturin develop -q)
 fi
 
 exec "$PYTHON" tools/timeline-ui/server.py "$@"

@@ -545,8 +545,16 @@ def main() -> None:
     if args.sample:
         STATE.load_sample()
 
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
-    url = f"http://{args.host}:{args.port}/"
+    try:
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
+    except OSError as exc:
+        if exc.errno != 48:  # Address already in use
+            raise
+        # F5 may be pressed while a prior UI terminal is still running. Use an
+        # available local port rather than failing to open the test UI.
+        server = ThreadingHTTPServer((args.host, 0), Handler)
+        print(f"Port {args.port} is already in use; using port {server.server_address[1]} instead.")
+    url = f"http://{args.host}:{server.server_address[1]}/"
     print(f"tellers-timeline test UI: {url}  (Ctrl+C to stop)")
     sys.stdout.flush()
     if not args.no_browser:
