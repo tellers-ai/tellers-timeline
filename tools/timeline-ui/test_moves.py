@@ -50,6 +50,25 @@ def long_form_fixture():
 
 
 class MoveRegressionTests(unittest.TestCase):
+    def test_replace_operation_accepts_optional_linked_audio(self):
+        state = fixture(grouped=False)
+        ok, _ = ui.op_replace_item(state, {
+            "id": "v1c",
+            "item": {"kind": "clip", "name": "Replacement", "duration": 3,
+                     "url": "file:///replacement.mov"},
+            "linked_audio": [{"kind": "clip", "name": "Replacement audio", "duration": 3,
+                              "url": "file:///replacement.wav"}],
+        })
+        self.assertTrue(ok)
+        view = state.view()
+        video = next(item for track in view["tracks"] if track["id"] == "v1"
+                     for item in track["items"] if item["kind"] == "clip")
+        self.assertEqual((video["id"], video["name"], video["duration"]),
+                         ("v1c", "Replacement", 3))
+        audio = next(item for track in view["tracks"] if track["id"] == "a1"
+                     for item in track["items"] if item["name"] == "Replacement audio")
+        self.assertEqual(audio["duration"], 3)
+
     def test_repeated_grouped_sync_moves(self):
         for selected in ["a1c", "v1c", "a2c", "v2c"]:
             for leave_gap in [True, False]:
