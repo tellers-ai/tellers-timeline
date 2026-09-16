@@ -221,8 +221,8 @@ fn delete_unsynced_item_without_gap_pulls_later_synced_assets() {
 
 #[test]
 fn delete_track_removes_synced_assets_left_behind() {
-    // "video on top" layout: the synced insert creates a fresh audio track below the
-    // video; deleting the video leaves that sync audio track behind as a gap.
+    // The synced insert reuses the existing empty audio track; deleting the
+    // video leaves that same audio track behind as a gap.
     let mut stack = Stack::default();
     let audio = Track::new(TrackKind::Audio, Some("a".to_string()));
     let video = Track::new(TrackKind::Video, Some("v".to_string()));
@@ -242,7 +242,7 @@ fn delete_track_removes_synced_assets_left_behind() {
     let removed = stack.delete_track("v").unwrap();
 
     assert_eq!(removed.get_id().as_deref(), Some("v"));
-    assert_eq!(stack.children.len(), 2);
+    assert_eq!(stack.children.len(), 1);
     assert!(stack
         .children
         .iter()
