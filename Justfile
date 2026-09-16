@@ -31,3 +31,7 @@ test-all:
   # JS wasm build (no runtime tests for now)
   rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
   cargo build -p tellers-timeline-wasm --target wasm32-unknown-unknown -q
+
+# Start the visual test UI (builds the Python bindings first)
+ui *ARGS:
+  tools/timeline-ui/run.sh {{ARGS}}

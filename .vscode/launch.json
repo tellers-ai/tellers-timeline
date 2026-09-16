@@ -4,6 +4,13 @@
     {
       "type": "node-terminal",
       "request": "launch",
+      "name": "Timeline test UI (browser)",
+      "command": "${workspaceFolder}/tools/timeline-ui/run.sh",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node-terminal",
+      "request": "launch",
       "name": "Run tests (current file)",
       "command": "${workspaceFolder}/.vscode/run-test.sh ${relativeFile}",
       "cwd": "${workspaceFolder}"
