@@ -318,7 +318,7 @@ fn replace_item_replaces_existing_synced_audio_input() {
 
     let replacement_audio = stack.get_item(&first_audio_id).unwrap().2;
     assert_eq!(active_target_url(replacement_audio), Some("file:///a2.wav"));
-    assert_eq!(stack.children.len(), 3);
+    assert_eq!(stack.children.len(), 2);
     assert_eq!(
         stack
             .children

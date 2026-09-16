@@ -75,11 +75,15 @@ fn track_id_of(stack: &Stack, item_id: &str) -> String {
 #[test]
 fn group_pulls_in_sync_partners() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
     stack
         .children
         .push(audio_track("t2", vec![clip_item(2.0, "A_audio")]));
-    stack.children.push(audio_track("t3", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t3", vec![clip_item(2.0, "B")]));
     stack
         .sync_item(&["A".to_string(), "A_audio".to_string()])
         .unwrap();
@@ -97,7 +101,9 @@ fn group_pulls_in_sync_partners() {
 #[test]
 fn group_returns_none_for_fewer_than_two_members() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
 
     assert_eq!(stack.group_item(&["A".to_string()]), None);
     assert_eq!(group_id(&stack, "A"), None);
@@ -106,9 +112,15 @@ fn group_returns_none_for_fewer_than_two_members() {
 #[test]
 fn group_reassigns_existing_membership() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
-    stack.children.push(audio_track("t2", vec![clip_item(2.0, "B")]));
-    stack.children.push(audio_track("t3", vec![clip_item(2.0, "C")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t2", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t3", vec![clip_item(2.0, "C")]));
 
     let g1 = stack
         .group_item(&["A".to_string(), "B".to_string()])
@@ -126,11 +138,15 @@ fn group_reassigns_existing_membership() {
 #[test]
 fn ungroup_clears_whole_group() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
     stack
         .children
         .push(audio_track("t2", vec![clip_item(2.0, "A_audio")]));
-    stack.children.push(audio_track("t3", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t3", vec![clip_item(2.0, "B")]));
     stack
         .sync_item(&["A".to_string(), "A_audio".to_string()])
         .unwrap();
@@ -149,10 +165,259 @@ fn ungroup_clears_whole_group() {
 // ----- group-aware move -----
 
 #[test]
+fn group_move_rejects_negative_member_time_atomically() {
+    let mut stack = spaced_group();
+    let before = stack.clone();
+    assert!(!stack.move_item_at_time(
+        "B",
+        "t1",
+        1.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+    assert_eq!(stack, before);
+}
+
+fn spaced_group() -> Stack {
+    let mut stack = Stack::default();
+    stack.children.push(audio_track(
+        "t1",
+        vec![
+            clip_item(2.0, "A"),
+            Item::Gap(Gap::make_gap(2.0)),
+            clip_item(2.0, "B"),
+        ],
+    ));
+    stack.children.push(audio_track("t2", vec![]));
+    stack.group_item(&["A".into(), "B".into()]).unwrap();
+    stack
+}
+
+#[test]
+fn ripple_group_move_preserves_spacing() {
+    for time in [1.0, 3.0, 7.0] {
+        let mut stack = spaced_group();
+        assert!(stack.move_item_at_time(
+            "A",
+            "t1",
+            time,
+            false,
+            InsertPolicy::SplitAndInsert,
+            OverlapPolicy::Override
+        ));
+        assert_eq!(start_of(&stack, "A"), time);
+        assert_eq!(start_of(&stack, "B"), time + 4.0);
+    }
+}
+
+#[test]
+fn index_move_honors_group() {
+    let mut stack = spaced_group();
+    stack.children[1].items.push(Item::Gap(Gap::make_gap(2.0)));
+    assert!(stack.move_item_at_index("A", "t2", 1, true, OverlapPolicy::Override));
+    assert_eq!(start_of(&stack, "A"), 2.0);
+    assert_eq!(start_of(&stack, "B"), 6.0);
+}
+
+#[test]
+fn horizontal_sync_moves_preserve_all_track_assignments() {
+    for selected in ["left", "right", "video"] {
+        let mut stack = Stack::default();
+        for (id, kind) in [
+            ("left", TrackKind::Audio),
+            ("right", TrackKind::Audio),
+            ("video", TrackKind::Video),
+        ] {
+            let mut track = Track::new(kind, Some(format!("{id}-track")));
+            track.items.push(clip_item(2.0, id));
+            stack.children.push(track);
+        }
+        stack
+            .sync_item(&["left".into(), "right".into(), "video".into()])
+            .unwrap();
+        for time in [3.0, 6.0, 1.0] {
+            assert!(stack.move_item_at_time(
+                selected,
+                &format!("{selected}-track"),
+                time,
+                true,
+                InsertPolicy::SplitAndInsert,
+                OverlapPolicy::Override
+            ));
+            assert_eq!(stack.children.len(), 3);
+            for id in ["left", "right", "video"] {
+                assert_eq!(track_id_of(&stack, id), format!("{id}-track"));
+                assert_eq!(start_of(&stack, id), time);
+            }
+        }
+    }
+}
+
+#[test]
+fn synced_insert_reuses_adjacent_empty_audio_tracks() {
+    let mut stack = Stack::default();
+    for (id, kind) in [
+        ("a1", TrackKind::Audio),
+        ("a2", TrackKind::Audio),
+        ("v1", TrackKind::Video),
+        ("v2", TrackKind::Video),
+    ] {
+        stack.children.push(Track::new(kind, Some(id.into())));
+    }
+    assert!(stack
+        .insert_item_at_time(
+            2,
+            0.0,
+            clip_item(2.0, "v"),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            Some(vec![clip_item(2.0, "a"), clip_item(2.0, "b")]),
+            None
+        )
+        .is_some());
+    assert_eq!(stack.children.len(), 4);
+    assert_eq!(track_id_of(&stack, "a"), "a2");
+    assert_eq!(track_id_of(&stack, "b"), "a1");
+}
+
+#[test]
+fn grouped_sync_columns_keep_tracks_through_repeated_moves() {
+    for selected in ["a1c", "v1c", "a2c", "v2c"] {
+        for leave_gap in [true, false] {
+            let mut stack = Stack::default();
+            for (id, kind, start, clip) in [
+                ("a1", TrackKind::Audio, 0.0, "a1c"),
+                ("v1", TrackKind::Video, 0.0, "v1c"),
+                ("a2", TrackKind::Audio, 4.0, "a2c"),
+                ("v2", TrackKind::Video, 4.0, "v2c"),
+            ] {
+                let mut track = Track::new(kind, Some(id.into()));
+                if start > 0.0 {
+                    track.items.push(Item::Gap(Gap::make_gap(start)));
+                }
+                track.items.push(clip_item(2.0, clip));
+                stack.children.push(track);
+            }
+            stack.sync_item(&["a1c".into(), "v1c".into()]).unwrap();
+            stack.sync_item(&["a2c".into(), "v2c".into()]).unwrap();
+            stack.group_item(&["v1c".into(), "v2c".into()]).unwrap();
+            let selected_track = track_id_of(&stack, selected);
+            for first_start in [2.0, 8.0, 1.0, 5.0] {
+                let selected_time = first_start + if selected.contains('2') { 4.0 } else { 0.0 };
+                assert!(stack.move_item_at_time(
+                    selected,
+                    &selected_track,
+                    selected_time,
+                    leave_gap,
+                    InsertPolicy::SplitAndInsert,
+                    OverlapPolicy::Override
+                ));
+                assert_eq!(stack.children.len(), 4);
+                for (clip, track, offset) in [
+                    ("a1c", "a1", 0.0),
+                    ("v1c", "v1", 0.0),
+                    ("a2c", "a2", 4.0),
+                    ("v2c", "v2", 4.0),
+                ] {
+                    assert_eq!(track_id_of(&stack, clip), track);
+                    assert_eq!(start_of(&stack, clip), first_start + offset);
+                    assert!(group_id(&stack, clip).is_some());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn moving_many_audio_partners_creates_only_missing_tracks() {
+    let mut stack = Stack::default();
+    for (id, kind) in [
+        ("dest-a", TrackKind::Audio),
+        ("dest-v", TrackKind::Video),
+        ("a1", TrackKind::Audio),
+        ("a2", TrackKind::Audio),
+        ("a3", TrackKind::Audio),
+        ("src-v", TrackKind::Video),
+    ] {
+        let mut track = Track::new(kind, Some(id.into()));
+        if !id.starts_with("dest") {
+            track.items.push(clip_item(2.0, &format!("{id}c")));
+        }
+        stack.children.push(track);
+    }
+    stack
+        .sync_item(&["a1c".into(), "a2c".into(), "a3c".into(), "src-vc".into()])
+        .unwrap();
+    assert!(stack.move_item_at_time(
+        "src-vc",
+        "dest-v",
+        3.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+    assert_eq!(stack.children.len(), 8);
+    let mut tracks = std::collections::HashSet::new();
+    for id in ["a1c", "a2c", "a3c"] {
+        let track = track_id_of(&stack, id);
+        assert!(!["a1", "a2", "a3"].contains(&track.as_str()));
+        assert!(tracks.insert(track));
+        assert_eq!(start_of(&stack, id), 3.0);
+    }
+}
+
+#[test]
+fn grouped_move_includes_offset_link_partners() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("video".into()));
+    video.items = vec![clip_item(5.0, "v1"), clip_item(3.0, "v2")];
+    let mut audio = audio_track(
+        "audio",
+        vec![Item::Gap(Gap::make_gap(2.0)), clip_item(5.0, "a1")],
+    );
+    // Model imported OTIO: only the video clips carry the Tellers group, while
+    // v1 and its offset audio partner share Resolve link metadata.
+    for item in &mut video.items {
+        if let Item::Clip(clip) = item {
+            clip.metadata["tellers.ai"]["Tellers Group ID"] = serde_json::json!(1);
+        }
+    }
+    for item in [&mut video.items[0], &mut audio.items[1]] {
+        if let Item::Clip(clip) = item {
+            clip.metadata["Resolve_OTIO"] = serde_json::json!({"Link Group ID": 1});
+        }
+    }
+    stack.children = vec![video, audio];
+    assert!(stack.move_item_at_time(
+        "v1",
+        "video",
+        10.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+    assert_eq!(start_of(&stack, "v1"), 10.0);
+    assert_eq!(start_of(&stack, "a1"), 12.0);
+    assert_eq!(start_of(&stack, "v2"), 15.0);
+    assert_eq!(stack.children.len(), 2);
+    for id in ["v1", "a1"] {
+        assert_eq!(
+            tellers_timeline_core::item_link_group_id(stack.get_item(id).unwrap().2),
+            Some(1)
+        );
+    }
+}
+
+#[test]
 fn move_group_shifts_all_members_by_same_delta() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
-    stack.children.push(audio_track("t2", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t2", vec![clip_item(2.0, "B")]));
     stack
         .group_item(&["A".to_string(), "B".to_string()])
         .unwrap();
@@ -176,9 +441,15 @@ fn move_group_shifts_all_members_by_same_delta() {
 #[test]
 fn move_group_changes_only_selected_track() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
-    stack.children.push(audio_track("t2", vec![clip_item(2.0, "B")]));
-    stack.children.push(audio_track("t3", vec![Item::Gap(Gap::make_gap(1.0))]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t2", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t3", vec![Item::Gap(Gap::make_gap(1.0))]));
 
     stack
         .group_item(&["A".to_string(), "B".to_string()])
@@ -305,8 +576,12 @@ fn move_group_orders_backward_moves_smallest_start_first() {
 #[test]
 fn move_ungrouped_clip_is_unaffected() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
-    stack.children.push(audio_track("t2", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t2", vec![clip_item(2.0, "B")]));
 
     assert!(stack.move_item_at_time(
         "A",
@@ -327,11 +602,15 @@ fn move_ungrouped_clip_is_unaffected() {
 #[test]
 fn delete_group_removes_all_members() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
     stack
         .children
         .push(audio_track("t2", vec![clip_item(2.0, "A_audio")]));
-    stack.children.push(audio_track("t3", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t3", vec![clip_item(2.0, "B")]));
     stack
         .sync_item(&["A".to_string(), "A_audio".to_string()])
         .unwrap();
@@ -349,8 +628,12 @@ fn delete_group_removes_all_members() {
 #[test]
 fn delete_group_collapse_removes_all_members() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(2.0, "A")]));
-    stack.children.push(audio_track("t2", vec![clip_item(2.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(2.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t2", vec![clip_item(2.0, "B")]));
     stack
         .group_item(&["A".to_string(), "B".to_string()])
         .unwrap();
@@ -366,8 +649,12 @@ fn delete_group_collapse_removes_all_members() {
 #[test]
 fn split_keeps_group_on_both_halves() {
     let mut stack = Stack::default();
-    stack.children.push(audio_track("t1", vec![clip_item(4.0, "A")]));
-    stack.children.push(audio_track("t2", vec![clip_item(4.0, "B")]));
+    stack
+        .children
+        .push(audio_track("t1", vec![clip_item(4.0, "A")]));
+    stack
+        .children
+        .push(audio_track("t2", vec![clip_item(4.0, "B")]));
     let g = stack
         .group_item(&["A".to_string(), "B".to_string()])
         .unwrap();
