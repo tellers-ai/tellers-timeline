@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>tellers-timeline test UI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #14161a; --bg2: #1b1e24; --bg3: #23272f; --line: #2f343d; --fg: #e6e8ec; --fg2: #9aa1ad;
+    --accent: #4f8cff; --danger: #ef5350; --ok: #46c281;
+    --video: #3d7bf0; --audio: #2fb36f; --other: #a25ee8; --text: #e8a23a; --gap: #3a3f48;
+    --hdr-w: 230px; --row-h: 64px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+  button, select, input { font: inherit; color: var(--fg); background: var(--bg3); border: 1px solid var(--line); border-radius: 5px; padding: 3px 8px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .4; cursor: default; }
+  input[type=number], input[type=text] { width: 80px; }
+  label.opt { display: inline-flex; align-items: center; gap: 4px; color: var(--fg2); white-space: nowrap; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+  /* toolbar */
+  #toolbar { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 10px; background: var(--bg2); border-bottom: 1px solid var(--line); }
+  #toolbar .group { display: flex; gap: 6px; align-items: center; padding-right: 10px; border-right: 1px solid var(--line); }
+  #toolbar .group:last-child { border-right: 0; }
+  #toolbar .title { font-weight: 600; color: var(--fg); }
+  #status { margin-left: auto; color: var(--fg2); }
+
+  /* timeline */
+  #scroller { flex: 1; overflow: auto; position: relative; }
+  #canvas { position: relative; min-width: 100%; }
+  .row { display: flex; height: var(--row-h); border-bottom: 1px solid var(--line); }
+  .row.ruler-row { height: 26px; position: sticky; top: 0; z-index: 30; background: var(--bg2); }
+  .hdr { position: sticky; left: 0; z-index: 20; width: var(--hdr-w); flex: 0 0 var(--hdr-w); background: var(--bg2); border-right: 1px solid var(--line); padding: 4px 8px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+  .hdr .line1 { display: flex; align-items: center; gap: 6px; }
+  .hdr .idx { color: var(--fg2); font-size: 11px; width: 18px; }
+  .hdr .kind { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; padding: 1px 5px; border-radius: 3px; color: #fff; }
+  .kind.video { background: var(--video); } .kind.audio { background: var(--audio); } .kind.other { background: var(--other); }
+  .hdr .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+  .hdr .name.empty { color: var(--fg2); font-style: italic; }
+  .hdr .line2 { display: flex; gap: 4px; }
+  .hdr .line2 button { padding: 1px 7px; font-size: 12px; }
+  .hdr .tid { color: var(--fg2); font-size: 10px; margin-left: auto; }
+  .lane { position: relative; flex: 1; min-width: 100px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); background-size: var(--sec) 100%; }
+  .lane.drop { background-color: rgba(79,140,255,.12); }
+  .lane.reject { background-color: rgba(239,83,80,.12); }
+  .lane.disabled { opacity: .5; }
+  #ruler { position: relative; flex: 1; cursor: pointer; }
+  #ruler .tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--line); padding-left: 3px; font-size: 10px; color: var(--fg2); pointer-events: none; }
+  #playhead { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--danger); z-index: 15; pointer-events: none; }
+  #playhead::before { content: ""; position: absolute; top: 0; left: -6px; border: 5px solid transparent; border-top: 7px solid var(--danger); }
+  #dropline { position: absolute; top: 0; bottom: 0; border-left: 2px dashed var(--accent); z-index: 16; pointer-events: none; display: none; }
+
+  /* items */
+  .item { position: absolute; top: 6px; bottom: 6px; border-radius: 5px; overflow: hidden; cursor: grab; border: 1px solid rgba(0,0,0,.35); box-shadow: inset 0 1px 0 rgba(255,255,255,.12); padding: 3px 6px; color: #fff; }
+  .item.clip.video { background: var(--video); } .item.clip.audio { background: var(--audio); } .item.clip.other { background: var(--other); } .item.clip.text { background: var(--text); }
+  .item.gap { background: repeating-linear-gradient(135deg, var(--gap) 0 6px, #2c3038 6px 12px); color: var(--fg2); cursor: grab; }
+  .item.disabled { opacity: .45; }
+  .item.disabled .nm { text-decoration: line-through; }
+  .item.selected { outline: 2px solid #fff; outline-offset: -2px; }
+  .item.dragging { opacity: .35; }
+  .item .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item .sub { font-size: 10px; opacity: .85; white-space: nowrap; overflow: hidden; display: flex; gap: 5px; }
+  .badge { background: rgba(0,0,0,.35); border-radius: 3px; padding: 0 4px; }
+  .badge.link { background: hsl(var(--h) 70% 35%); }
+  .badge.grp { background: hsl(var(--h) 60% 28%); outline: 1px dashed rgba(255,255,255,.6); }
+  .item .h { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2; }
+  .item .h.l { left: 0; } .item .h.r { right: 0; }
+  .item .h:hover { background: rgba(255,255,255,.35); }
+  #ghost { position: fixed; pointer-events: none; z-index: 100; opacity: .8; }
+  #ghost .item { position: static; height: calc(var(--row-h) - 12px); }
+  #droptip { position: fixed; z-index: 101; pointer-events: none; background: var(--bg3); border: 1px solid var(--accent); border-radius: 4px; padding: 2px 6px; font-size: 11px; display: none; }
+
+  /* panel */
+  #panel { height: 230px; border-top: 1px solid var(--line); background: var(--bg2); display: flex; flex-direction: column; }
+  #panel.collapsed { height: 30px; }
+  #panel.collapsed .body { display: none; }
+  #tabs { display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--line); }
+  #tabs button { border: 1px solid transparent; border-bottom: 0; background: transparent; color: var(--fg2); border-radius: 5px 5px 0 0; }
+  #tabs button.active { background: var(--bg3); color: var(--fg); border-color: var(--line); }
+  #tabs .spacer { flex: 1; }
+  #tabs .cnt { background: var(--danger); color: #fff; border-radius: 8px; padding: 0 5px; font-size: 10px; margin-left: 4px; }
+  #tabs .cnt.zero { background: var(--ok); }
+  .body { flex: 1; overflow: auto; padding: 6px 10px; }
+  .tab { display: none; } .tab.active { display: block; }
+  .call { color: #ffd479; }
+  .err { color: var(--danger); white-space: pre-wrap; }
+  .res { color: #9ad4ff; white-space: pre-wrap; }
+  .logline { border-bottom: 1px dashed var(--line); padding: 2px 0; }
+  .logline .r { color: var(--fg2); }
+  textarea { width: 100%; height: 150px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  #hint { color: var(--fg2); font-size: 11px; }
+
+  /* popover + menu */
+  .pop { position: fixed; z-index: 200; background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none; min-width: 240px; }
+  .pop.open { display: block; }
+  .pop .frow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0; }
+  .pop .frow label { color: var(--fg2); }
+  .pop .actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+  #menu { position: fixed; z-index: 210; background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 4px 0; box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none; min-width: 200px; }
+  #menu.open { display: block; }
+  #menu div { padding: 4px 12px; cursor: pointer; white-space: nowrap; }
+  #menu div:hover { background: var(--accent); color: #fff; }
+  #menu div.sep { height: 1px; padding: 0; margin: 4px 0; background: var(--line); cursor: default; }
+  #menu div.dis { color: var(--fg2); cursor: default; }
+  #menu div.dis:hover { background: transparent; color: var(--fg2); }
+  #menu div small { color: var(--fg2); float: right; margin-left: 16px; }
+  #menu div:hover small { color: #fff; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div class="group"><span class="title">tellers-timeline</span><span id="status">…</span></div>
+  <div class="group">
+    <button id="btnAddTrack" class="primary" title="Add a track (stack.add_track)">+ Track</button>
+    <button id="btnSample" title="Load a sample layout">Sample</button>
+    <button id="btnReset" title="Empty stack with one video track">Reset</button>
+    <button id="btnUndo" title="Undo last op (⌘Z)">Undo</button>
+    <button id="btnSanitize" title="stack.sanitize()">Sanitize</button>
+  </div>
+  <div class="group">
+    <label class="opt">Overlap <select id="overlap"><option>override</option><option>push</option></select></label>
+    <label class="opt">Insert <select id="insertPolicy"><option>split_and_insert</option><option>insert_before</option><option>insert_after</option><option>insert_before_or_after</option></select></label>
+    <label class="opt">Drop by <select id="mode"><option value="time">time (move_item_at_time)</option><option value="index">index (move_item_at_index)</option><option value="timeline">time (Timeline.move_item)</option></select></label>
+    <label class="opt"><input type="checkbox" id="gapOnMove" checked> leave gap on move/delete</label>
+    <label class="opt"><input type="checkbox" id="clamp"> clamp_to_media on resize</label>
+    <label class="opt">Snap <select id="snap"><option value="0">off</option><option value="0.1">0.1s</option><option value="0.25">0.25s</option><option value="0.5" selected>0.5s</option><option value="1">1s</option></select></label>
+  </div>
+  <div class="group">
+    <label class="opt">Zoom <input type="range" id="zoom" min="10" max="300" value="60" style="width:110px"></label>
+    <label class="opt"><input type="checkbox" id="reverse" checked> last track on top</label>
+    <label class="opt">Playhead <input type="number" id="playheadIn" step="0.1" min="0" value="0" style="width:70px"> s</label>
+  </div>
+  <div class="group" id="selGroup">
+    <span id="selInfo" style="color:var(--fg2)">no selection</span>
+    <button id="btnSplit" title="split_item_at_time at playhead (S)">Split @ playhead</button>
+    <button id="btnLink" title="link_item (L)">Link</button>
+    <button id="btnUnlink" title="unlink_item (U)">Unlink</button>
+    <button id="btnGroup" title="group_item (G)">Group</button>
+    <button id="btnUngroup" title="ungroup_item (⇧G)">Ungroup</button>
+    <button id="btnToggle" title="set enabled via replace_item (E)">Enable/Disable</button>
+    <button id="btnDelete" class="danger" title="delete_item (⌫)">Delete</button>
+  </div>
+</div>
+
+<div id="scroller">
+  <div id="canvas">
+    <div class="row ruler-row"><div class="hdr" style="justify-content:center;color:var(--fg2)">click ruler to set playhead</div><div id="ruler"></div></div>
+    <div id="tracks"></div>
+    <div id="playhead"></div>
+    <div id="dropline"></div>
+  </div>
+</div>
+
+<div id="panel">
+  <div id="tabs">
+    <button data-tab="result" class="active">Result</button>
+    <button data-tab="log">Log</button>
+    <button data-tab="validation">Validation <span class="cnt zero" id="valCnt">0</span></button>
+    <button data-tab="sync">Sync tracks</button>
+    <button data-tab="json">JSON</button>
+    <span class="spacer"></span>
+    <span id="hint">drag = move · edges = resize · dbl-click lane = insert · right-click = menu · ⌘Z undo</span>
+    <button id="btnPanel" title="collapse">▾</button>
+  </div>
+  <div class="body">
+    <div class="tab active mono" id="tab-result"><span style="color:var(--fg2)">Do something to see the library call and its result.</span></div>
+    <div class="tab mono" id="tab-log"></div>
+    <div class="tab mono" id="tab-validation"></div>
+    <div class="tab mono" id="tab-sync"></div>
+    <div class="tab" id="tab-json">
+      <div style="display:flex;gap:6px;margin-bottom:6px"><button id="btnLoadJson" class="primary">Load into stack</button><button id="btnCopyJson">Copy</button><button id="btnRefreshJson">Refresh from stack</button><span style="color:var(--fg2)">Timeline(stack).to_json() — edit and load to test parse_json</span></div>
+      <textarea id="jsonText" spellcheck="false"></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- popovers -->
+<div class="pop" id="popItem">
+  <div class="frow"><label>Type</label><select id="piType"><option value="clip">Clip</option><option value="gap">Gap</option><option value="text">Text clip (rich text)</option><option value="linked">Clip + linked audio</option><option value="linkedvideo">Audio clip + linked video</option></select></div>
+  <div class="frow"><label>Name</label><input type="text" id="piName" style="width:130px"></div>
+  <div class="frow"><label>Duration (s)</label><input type="number" id="piDur" step="0.5" min="0.1" value="2"></div>
+  <div class="frow" id="piMediaRow"><label>Media duration (s)</label><input type="number" id="piMedia" step="0.5" min="0" placeholder="unbounded"></div>
+  <div class="frow" id="piSourceRow"><label>Media start (s)</label><input type="number" id="piSource" step="0.5" min="0" placeholder="0"></div>
+  <div class="frow" id="piTimeRow"><label>At time (s)</label><input type="number" id="piTime" step="0.1" min="0" value="0"></div>
+  <div class="frow" id="piIndexRow"><label>At index</label><input type="number" id="piIndex" step="1" min="0" value="0"></div>
+  <div class="frow"><label>Mode</label><select id="piMode"><option value="time">insert_item_at_time</option><option value="index">insert_item_at_index</option></select></div>
+  <div class="actions"><button id="piCancel">Cancel</button><button id="piOk" class="primary">Insert</button></div>
+</div>
+
+<div class="pop" id="popTrack">
+  <div class="frow"><label>Kind</label><select id="ptKind"><option>video</option><option>audio</option><option>other</option></select></div>
+  <div class="frow"><label>Name</label><input type="text" id="ptName" style="width:130px" placeholder="optional"></div>
+  <div class="frow"><label>Insert at index</label><input type="number" id="ptIndex" step="1" min="0" value="0"></div>
+  <div class="actions"><button id="ptCancel">Cancel</button><button id="ptOk" class="primary">Add track</button></div>
+</div>
+
+<div id="menu"></div>
+<div id="ghost"></div>
+<div id="droptip"></div>
+
+<script>
+(() => {
+  // ------------------------------------------------------------- state
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  let S = null;                    // last server state
+  let selected = new Set();        // item ids
+  let playhead = 0;
+  let pps = 60;                    // pixels per second
+  let clipCounter = 1;
+  const cfg = JSON.parse(localStorage.getItem('ttl-ui') || '{}');
+
+  const el = {
+    tracks: $('#tracks'), ruler: $('#ruler'), canvas: $('#canvas'), scroller: $('#scroller'),
+    playhead: $('#playhead'), dropline: $('#dropline'), ghost: $('#ghost'), droptip: $('#droptip'),
+    status: $('#status'), menu: $('#menu'),
+  };
+  const opts = () => ({
+    overlap_policy: $('#overlap').value,
+    insert_policy: $('#insertPolicy').value,
+    mode: $('#mode').value,
+    replace_with_gap: $('#gapOnMove').checked,
+    clamp_to_media: $('#clamp').checked,
+  });
+  const snapT = t => { const s = parseFloat($('#snap').value); return s ? Math.round(t / s) * s : t; };
+  const fmt = t => (Math.round(t * 1000) / 1000).toString();
+  const clampT = t => Math.max(0, +t.toFixed(4));
+
+  // restore persisted UI prefs
+  for (const id of ['overlap', 'insertPolicy', 'mode', 'snap']) if (cfg[id] != null) $('#' + id).value = cfg[id];
+  for (const id of ['gapOnMove', 'clamp', 'reverse']) if (cfg[id] != null) $('#' + id).checked = cfg[id];
+  if (cfg.zoom) { pps = cfg.zoom; $('#zoom').value = pps; }
+  const persist = () => {
+    const o = {};
+    for (const id of ['overlap', 'insertPolicy', 'mode', 'snap']) o[id] = $('#' + id).value;
+    for (const id of ['gapOnMove', 'clamp', 'reverse']) o[id] = $('#' + id).checked;
+    o.zoom = pps;
+    localStorage.setItem('ttl-ui', JSON.stringify(o));
+  };
+  $$('#toolbar select, #toolbar input[type=checkbox]').forEach(i => i.addEventListener('change', () => { persist(); if (i.id === 'reverse') render(); }));
+
+  // ------------------------------------------------------------- api
+  async function api(op, params = {}) {
+    el.status.textContent = op + '…';
+    let res;
+    try {
+      res = await fetch('/api/' + op, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) });
+    } catch (e) {
+      el.status.textContent = 'server unreachable';
+      showResult({ error: 'server unreachable: ' + e });
+      return null;
+    }
+    const state = await res.json();
+    S = state;
+    el.status.textContent = state.error ? 'error' : 'ok';
+    // drop selections that no longer exist
+    const ids = new Set(allItems().map(i => i.id));
+    selected = new Set([...selected].filter(id => ids.has(id)));
+    render();
+    showResult(state);
+    return state;
+  }
+  const allItems = () => (S ? S.tracks.flatMap(t => t.items.map(i => ({ ...i, track: t }))) : []);
+  const findItem = id => allItems().find(i => i.id === id);
+  const trackById = id => S.tracks.find(t => t.id === id);
+
+  // ------------------------------------------------------------- rendering
+  function totalDuration() { return Math.max(10, ...S.tracks.map(t => t.duration)); }
+  function laneWidth() { return Math.ceil(totalDuration() * pps + 600); }
+
+  function render() {
+    if (!S) return;
+    const width = laneWidth();
+    el.canvas.style.width = (width + parseInt(getComputedStyle(document.documentElement).getPropertyValue('--hdr-w'))) + 'px';
+    document.documentElement.style.setProperty('--sec', pps + 'px');
+    renderRuler(width);
+    const order = [...S.tracks];
+    if ($('#reverse').checked) order.reverse();
+    el.tracks.innerHTML = '';
+    for (const t of order) el.tracks.appendChild(renderTrack(t, width));
+    if (!S.tracks.length) {
+      const d = document.createElement('div');
+      d.style.cssText = 'padding:30px;color:var(--fg2)';
+      d.textContent = 'No tracks. Use “+ Track”.';
+      el.tracks.appendChild(d);
+    }
+    positionPlayhead();
+    renderSelection();
+    renderPanels();
+  }
+
+  function renderRuler(width) {
+    el.ruler.innerHTML = '';
+    el.ruler.style.width = width + 'px';
+    const steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60];
+    const step = steps.find(s => s * pps >= 55) || 60;
+    for (let t = 0; t * pps < width; t += step) {
+      const d = document.createElement('div');
+      d.className = 'tick';
+      d.style.left = (t * pps) + 'px';
+      d.textContent = fmt(t) + 's';
+      el.ruler.appendChild(d);
+    }
+  }
+
+  function renderTrack(t, width) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.dataset.trackId = t.id;
+    const hdr = document.createElement('div');
+    hdr.className = 'hdr';
+    hdr.innerHTML = `
+      <div class="line1"><span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
+        <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span></div>
+      <div class="line2">
+        <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>
+        <button data-act="up" title="reorder_track: move toward end of list (top layer)">▲</button>
+        <button data-act="down" title="reorder_track: move toward start of list (bottom layer)">▼</button>
+        <button data-act="del" class="danger" title="delete_track">×</button>
+        <span class="tid" title="track id">${t.id || ''} · ${fmt(t.duration)}s</span>
+      </div>`;
+    $('.name', hdr).addEventListener('click', () => {
+      const name = prompt('Track name (empty = None):', t.name || '');
+      if (name !== null) api('rename_track', { id: t.id, name });
+    });
+    hdr.addEventListener('click', e => {
+      const act = e.target.dataset.act;
+      if (!act) return;
+      if (act === 'add') openItemPopover(e.target, t);
+      if (act === 'up') api('reorder_track', { id: t.id, index: t.index + 2 });
+      if (act === 'down') api('reorder_track', { id: t.id, index: Math.max(0, t.index - 1) });
+      if (act === 'del') api('delete_track', { id: t.id });
+    });
+    const lane = document.createElement('div');
+    lane.className = 'lane' + (t.enabled ? '' : ' disabled');
+    lane.style.width = width + 'px';
+    lane.dataset.trackId = t.id;
+    for (const it of t.items) lane.appendChild(renderItem(it, t));
+    lane.addEventListener('dblclick', e => {
+      if (e.target !== lane) return;
+      openItemPopover(null, t, clampT((e.clientX - lane.getBoundingClientRect().left) / pps), e);
+    });
+    lane.addEventListener('click', e => {
+      if (e.target !== lane) return;
+      setPlayhead((e.clientX - lane.getBoundingClientRect().left) / pps);
+      if (!e.shiftKey && !e.metaKey && !e.ctrlKey) { selected.clear(); renderSelection(); }
+    });
+    lane.addEventListener('contextmenu', e => {
+      if (e.target !== lane) return;
+      e.preventDefault();
+      const time = clampT((e.clientX - lane.getBoundingClientRect().left) / pps);
+      openMenu(e, [
+        { label: `Insert clip here (${fmt(snapT(time))}s)`, run: () => openItemPopover(null, t, snapT(time), e) },
+        { label: 'Insert gap here', run: () => insertQuick(t, 'gap', snapT(time)) },
+        { label: 'Set playhead here', run: () => setPlayhead(time) },
+      ]);
+    });
+    row.append(hdr, lane);
+    return row;
+  }
+
+  function renderItem(it, t) {
+    const d = document.createElement('div');
+    const isText = !!it.text;
+    d.className = `item ${it.kind} ${it.kind === 'clip' ? (isText ? 'text' : t.kind) : ''}${it.enabled ? '' : ' disabled'}`;
+    d.style.left = (it.start * pps) + 'px';
+    d.style.width = Math.max(4, it.duration * pps - 1) + 'px';
+    d.dataset.id = it.id;
+    d.title = `${it.kind} ${it.id}\nstart ${fmt(it.start)}s · dur ${fmt(it.duration)}s · index ${it.index}` +
+      (it.url ? `\n${it.url}` : '') + (it.media_duration != null ? `\nmedia ${fmt(it.media_start || 0)}s + ${fmt(it.media_duration)}s` : '') +
+      (it.source_start ? `\nsource_start ${fmt(it.source_start)}s` : '') +
+      (it.link_group_id != null ? `\nLink Group ID ${it.link_group_id}` : '') + (it.group_id != null ? `\nTellers Group ID ${it.group_id}` : '');
+    const badges = [];
+    if (it.link_group_id != null) badges.push(`<span class="badge link" style="--h:${(it.link_group_id * 67) % 360}">🔗${it.link_group_id}</span>`);
+    if (it.group_id != null) badges.push(`<span class="badge grp" style="--h:${(it.group_id * 97 + 40) % 360}">⧉${it.group_id}</span>`);
+    if (isText) badges.push('<span class="badge">T</span>');
+    if (it.media_duration != null) badges.push(`<span class="badge" title="media duration">m${fmt(it.media_duration)}</span>`);
+    d.innerHTML = `<div class="h l"></div><div class="h r"></div>
+      <div class="nm">${esc(it.name || (it.kind === 'gap' ? 'gap' : (it.id || '').slice(0, 6)))}</div>
+      <div class="sub"><span>${fmt(it.duration)}s</span><span style="opacity:.6">@${fmt(it.start)}</span>${badges.join('')}</div>`;
+    d.addEventListener('pointerdown', e => onPointerDown(e, it, t, d));
+    d.addEventListener('click', e => {
+      e.stopPropagation();
+      if (dragState && dragState.moved) return;
+      if (e.shiftKey || e.metaKey || e.ctrlKey) { selected.has(it.id) ? selected.delete(it.id) : selected.add(it.id); }
+      else { selected = new Set([it.id]); }
+      renderSelection();
+    });
+    d.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); if (!selected.has(it.id)) { selected = new Set([it.id]); renderSelection(); } openItemMenu(e, it, t); });
+    return d;
+  }
+
+  function renderSelection() {
+    $$('.item').forEach(d => d.classList.toggle('selected', selected.has(d.dataset.id)));
+    const n = selected.size;
+    $('#selInfo').textContent = n ? `${n} selected: ${[...selected].map(id => { const i = findItem(id); return i ? (i.name || i.kind) : id; }).join(', ')}` : 'no selection';
+    $('#btnLink').disabled = n < 2; $('#btnGroup').disabled = n < 2;
+    for (const id of ['btnUnlink', 'btnUngroup', 'btnToggle', 'btnDelete', 'btnSplit']) $('#' + id).disabled = n < 1;
+  }
+
+  function positionPlayhead() {
+    el.playhead.style.left = `calc(var(--hdr-w) + ${playhead * pps}px)`;
+    $('#playheadIn').value = fmt(playhead);
+  }
+  function setPlayhead(t) { playhead = clampT(t); positionPlayhead(); }
+  $('#playheadIn').addEventListener('change', e => setPlayhead(parseFloat(e.target.value) || 0));
+  el.ruler.addEventListener('click', e => setPlayhead((e.clientX - el.ruler.getBoundingClientRect().left) / pps));
+
+  function renderPanels() {
+    const v = S.validation || [];
+    const cnt = $('#valCnt'); cnt.textContent = v.length; cnt.classList.toggle('zero', !v.length);
+    $('#tab-validation').innerHTML = v.length ? v.map(x => `<div class="err">${esc(x)}</div>`).join('') : '<span style="color:var(--ok)">validate() → no errors</span>';
+    $('#tab-sync').innerHTML = '<div style="color:var(--fg2)">stack.sync_track_info()</div>' + (S.sync_track_info || []).map(g =>
+      `<div>tracks [${g.track_indices.join(', ')}] → ids [${(g.track_ids || []).map(x => x || 'None').join(', ')}]</div>`).join('');
+    $('#tab-log').innerHTML = [...(S.log || [])].reverse().map(l =>
+      `<div class="logline"><span class="call">${esc(l.call)}</span> <span class="r">→ ${esc(l.error ? l.error : JSON.stringify(l.result))}</span></div>`).join('');
+    $('#jsonText').value = JSON.stringify(S.timeline, null, 2);
+    $('#btnUndo').disabled = !S.can_undo;
+  }
+  function showResult(state) {
+    const box = $('#tab-result');
+    if (state.error) box.innerHTML = (state.call ? `<div class="call">${esc(state.call)}</div>` : '') + `<div class="err">${esc(state.error)}</div>`;
+    else if (state.call) box.innerHTML = `<div class="call">${esc(state.call)}</div><div class="res">→ ${esc(JSON.stringify(state.result, null, 1))}</div>`;
+  }
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  // ------------------------------------------------------------- drag / resize
+  let dragState = null;
+  function onPointerDown(e, it, t, d) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const rect = d.getBoundingClientRect();
+    const handle = e.target.classList.contains('h') ? (e.target.classList.contains('l') ? 'l' : 'r') : null;
+    dragState = { it, t, d, handle, startX: e.clientX, startY: e.clientY, grabX: e.clientX - rect.left, rect, moved: false, lane: null, time: null, index: null };
+    d.setPointerCapture(e.pointerId);
+    d.addEventListener('pointermove', onPointerMove);
+    d.addEventListener('pointerup', onPointerUp, { once: true });
+    d.addEventListener('lostpointercapture', cancelDrag, { once: true });
+  }
+  function onPointerMove(e) {
+    const s = dragState; if (!s) return;
+    if (!s.moved && Math.abs(e.clientX - s.startX) < 4 && Math.abs(e.clientY - s.startY) < 4) return;
+    s.moved = true;
+    if (s.handle) return onResizeMove(e);
+    if (!el.ghost.firstChild) {
+      const g = s.d.cloneNode(true); g.classList.remove('selected'); g.style.width = s.rect.width + 'px';
+      el.ghost.appendChild(g); s.d.classList.add('dragging');
+    }
+    el.ghost.style.left = (e.clientX - s.grabX) + 'px'; el.ghost.style.top = (e.clientY - 20) + 'px';
+    $$('.lane').forEach(l => l.classList.remove('drop', 'reject'));
+    const lane = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList && x.classList.contains('lane'));
+    s.lane = lane || null;
+    if (!lane) { el.dropline.style.display = 'none'; el.droptip.style.display = 'none'; return; }
+    const track = trackById(lane.dataset.trackId);
+    // Clips retain the media kind of their source track. Gaps and "other"
+    // tracks stay flexible so the UI can still test generic timeline edits.
+    const incompatible = s.it.kind === 'clip' && s.t.kind !== 'other' && track.kind !== 'other' && s.t.kind !== track.kind;
+    if (incompatible) {
+      lane.classList.add('reject');
+      s.lane = null;
+      el.dropline.style.display = 'none';
+      el.droptip.textContent = `${s.t.kind} clips cannot move to a ${track.kind} track`;
+      el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
+      return;
+    }
+    lane.classList.add('drop');
+    const lrect = lane.getBoundingClientRect();
+    const mode = $('#mode').value;
+    const x = e.clientX - lrect.left - s.grabX;
+    if (mode === 'index') {
+      const px = e.clientX - lrect.left;
+      s.index = track.items.filter(i => (i.start + i.duration / 2) * pps < px).length;
+      const before = track.items[s.index];
+      const linePx = before ? before.start * pps : track.duration * pps;
+      s.time = null;
+      el.dropline.style.left = `calc(var(--hdr-w) + ${linePx}px)`;
+      el.droptip.textContent = `→ track #${track.index} index ${s.index}`;
+    } else {
+      s.time = clampT(snapT(x / pps)); s.index = null;
+      el.dropline.style.left = `calc(var(--hdr-w) + ${s.time * pps}px)`;
+      el.droptip.textContent = `→ track #${track.index} @ ${fmt(s.time)}s`;
+    }
+    el.dropline.style.display = 'block';
+    el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
+  }
+  function onResizeMove(e) {
+    const s = dragState;
+    const dx = e.clientX - s.startX;
+    let start = s.it.start, dur = s.it.duration;
+    if (s.handle === 'r') dur = Math.max(0.05, snapT((s.rect.width + dx) / pps));
+    else { const ns = clampT(snapT(s.it.start + dx / pps)); dur = Math.max(0.05, s.it.start + s.it.duration - ns); start = ns; }
+    s.time = start; s.dur = dur;
+    s.d.style.left = (start * pps) + 'px'; s.d.style.width = Math.max(4, dur * pps - 1) + 'px';
+    el.droptip.textContent = `resize → start ${fmt(start)}s, dur ${fmt(dur)}s`;
+    el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
+  }
+  async function onPointerUp(e) {
+    const s = dragState; if (!s) return;
+    s.d.removeEventListener('pointermove', onPointerMove);
+    const moved = s.moved;
+    const { it, t, handle, lane, time, index, dur } = s;
+    cleanupDrag();
+    if (!moved) return;
+    setTimeout(() => { dragState = null; }, 0); // let click handler see "moved"
+    if (handle) {
+      if (time === it.start && dur === it.duration) return render();
+      await api('resize_item', { id: it.id, start: time, duration: dur, ...opts() });
+      return;
+    }
+    if (!lane) return render();
+    const dest = trackById(lane.dataset.trackId);
+    const o = opts();
+    if (o.mode === 'index') {
+      await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy });
+    } else {
+      if (dest.id === t.id && time === it.start) return render();
+      await api('move_item', { mode: o.mode, id: it.id, track_id: dest.id, time, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
+    }
+  }
+  function cancelDrag() { if (dragState && dragState.moved) { cleanupDrag(); render(); } dragState = null; }
+  function cleanupDrag() {
+    el.ghost.innerHTML = ''; el.dropline.style.display = 'none'; el.droptip.style.display = 'none';
+    $$('.lane').forEach(l => l.classList.remove('drop', 'reject')); $$('.item.dragging').forEach(d => d.classList.remove('dragging'));
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (dragState) { cleanupDrag(); dragState = null; render(); } closePops(); } });
+
+  // ------------------------------------------------------------- popovers
+  let popCtx = null;
+  function place(pop, anchor, ev) {
+    pop.classList.add('open');
+    let x = 100, y = 100;
+    if (anchor) { const r = anchor.getBoundingClientRect(); x = r.left; y = r.bottom + 4; }
+    else if (ev) { x = ev.clientX; y = ev.clientY; }
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = Math.min(x, innerWidth - w - 8) + 'px';
+    pop.style.top = Math.min(y, innerHeight - h - 8) + 'px';
+  }
+  function closePops() { $$('.pop').forEach(p => p.classList.remove('open')); el.menu.classList.remove('open'); }
+  document.addEventListener('pointerdown', e => { if (!e.target.closest('.pop, #menu, button')) closePops(); });
+
+  function openItemPopover(anchor, track, time, ev) {
+    popCtx = { track };
+    $('#piType').value = 'clip';
+    $('#piName').value = `Clip ${clipCounter}`;
+    $('#piTime').value = fmt(time != null ? time : playhead);
+    $('#piIndex').value = track.items.length;
+    $('#piMode').value = $('#mode').value === 'index' ? 'index' : 'time';
+    updateItemPopover();
+    place($('#popItem'), anchor, ev);
+    $('#piDur').focus();
+  }
+  function updateItemPopover() {
+    const type = $('#piType').value, mode = $('#piMode').value;
+    $('#piMediaRow').style.display = (type === 'gap' || type === 'text') ? 'none' : '';
+    $('#piSourceRow').style.display = (type === 'gap' || type === 'text') ? 'none' : '';
+    $('#piTimeRow').style.display = mode === 'time' ? '' : 'none';
+    $('#piIndexRow').style.display = mode === 'index' ? '' : 'none';
+    if (type === 'gap' && $('#piName').value.startsWith('Clip ')) $('#piName').value = '';
+    if (type !== 'gap' && !$('#piName').value) $('#piName').value = `Clip ${clipCounter}`;
+  }
+  $('#piType').addEventListener('change', updateItemPopover);
+  $('#piMode').addEventListener('change', updateItemPopover);
+  $('#piCancel').addEventListener('click', closePops);
+  $('#piOk').addEventListener('click', submitItemPopover);
+  $('#popItem').addEventListener('keydown', e => { if (e.key === 'Enter') submitItemPopover(); });
+  function itemSpec(kind, name, dur, extra = {}) { return { kind, name: name || null, duration: dur, ...extra }; }
+  async function submitItemPopover() {
+    const { track } = popCtx;
+    const type = $('#piType').value, name = $('#piName').value.trim(), dur = parseFloat($('#piDur').value) || 1;
+    const media = $('#piMedia').value, source = $('#piSource').value;
+    const n = clipCounter++;
+    const isAudioTrack = track.kind === 'audio';
+    const url = (suffix, k) => `file:///${(name || 'clip' + n).replace(/\s+/g, '_').toLowerCase()}${suffix}.${k}`;
+    const media_duration = media === '' ? null : parseFloat(media);
+    const media_start = source === '' ? null : parseFloat(source);
+    let item, linked_audio = null, linked_video = null;
+    if (type === 'gap') item = itemSpec('gap', name, dur);
+    else if (type === 'text') item = itemSpec('clip', name, dur, { text: true, text_html: `<p>${esc(name || 'Text')}</p>` });
+    else if (type === 'linked') { item = itemSpec('clip', name, dur, { url: url('', 'mov'), media_duration, media_start }); linked_audio = [itemSpec('clip', (name || 'clip') + ' audio', dur, { url: url('', 'wav') })]; }
+    else if (type === 'linkedvideo') { item = itemSpec('clip', name, dur, { url: url('', 'wav'), media_duration, media_start }); linked_video = itemSpec('clip', (name || 'clip') + ' video', dur, { url: url('', 'mov') }); }
+    else item = itemSpec('clip', name, dur, { url: url('', isAudioTrack ? 'wav' : 'mov'), media_duration, media_start });
+    const o = opts();
+    const params = { item, linked_audio, linked_video, overlap_policy: o.overlap_policy, insert_policy: o.insert_policy };
+    if ($('#piMode').value === 'index') Object.assign(params, { mode: 'index', track_id: track.id, index: parseInt($('#piIndex').value) || 0 });
+    else Object.assign(params, { mode: 'time', track_index: track.index, time: parseFloat($('#piTime').value) || 0 });
+    closePops();
+    await api('insert_item', params);
+  }
+  function insertQuick(track, kind, time) {
+    const o = opts();
+    api('insert_item', { mode: 'time', track_index: track.index, time, item: itemSpec(kind, kind === 'gap' ? null : `Clip ${clipCounter++}`, 2, kind === 'gap' ? {} : { url: `file:///clip${clipCounter}.mov` }), overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
+  }
+
+  $('#btnAddTrack').addEventListener('click', e => { $('#ptIndex').value = S ? S.tracks.length : 0; $('#ptName').value = ''; place($('#popTrack'), e.target); $('#ptName').focus(); });
+  $('#ptCancel').addEventListener('click', closePops);
+  const submitTrack = () => { closePops(); api('add_track', { kind: $('#ptKind').value, name: $('#ptName').value.trim(), index: parseInt($('#ptIndex').value) || 0 }); };
+  $('#ptOk').addEventListener('click', submitTrack);
+  $('#popTrack').addEventListener('keydown', e => { if (e.key === 'Enter') submitTrack(); });
+
+  // ------------------------------------------------------------- context menu
+  function openMenu(ev, entries) {
+    el.menu.innerHTML = '';
+    for (const en of entries) {
+      const d = document.createElement('div');
+      if (en.sep) { d.className = 'sep'; el.menu.appendChild(d); continue; }
+      d.innerHTML = esc(en.label) + (en.key ? `<small>${en.key}</small>` : '');
+      if (en.disabled) d.className = 'dis'; else d.addEventListener('click', () => { closePops(); en.run(); });
+      el.menu.appendChild(d);
+    }
+    el.menu.classList.add('open');
+    el.menu.style.left = Math.min(ev.clientX, innerWidth - el.menu.offsetWidth - 8) + 'px';
+    el.menu.style.top = Math.min(ev.clientY, innerHeight - el.menu.offsetHeight - 8) + 'px';
+  }
+  function openItemMenu(ev, it, t) {
+    const lane = ev.currentTarget.parentElement;
+    const clickT = clampT((ev.clientX - lane.getBoundingClientRect().left) / pps);
+    const ids = [...selected];
+    const inRange = playhead > it.start && playhead < it.start + it.duration;
+    openMenu(ev, [
+      { label: `Split at playhead (${fmt(playhead)}s)`, key: 'S', disabled: !inRange, run: () => api('split_item', { id: it.id, time: playhead }) },
+      { label: `Split here (${fmt(snapT(clickT))}s)`, run: () => api('split_item', { id: it.id, time: snapT(clickT) }) },
+      { sep: true },
+      { label: 'Delete → leave gap', key: '⌫', run: () => deleteSelected(true) },
+      { label: 'Delete → ripple (no gap)', key: '⇧⌫', run: () => deleteSelected(false) },
+      { label: 'Replace with new clip…', run: () => replaceItem(it) },
+      { label: it.enabled ? 'Disable (set_enabled False)' : 'Enable', key: 'E', run: () => toggleEnabled() },
+      { sep: true },
+      { label: `Link selected (${ids.length})`, key: 'L', disabled: ids.length < 2, run: () => api('link_items', { ids }) },
+      { label: 'Unlink', key: 'U', run: () => api('unlink_items', { ids }) },
+      { label: `Group selected (${ids.length})`, key: 'G', disabled: ids.length < 2, run: () => api('group_items', { ids }) },
+      { label: 'Ungroup', key: '⇧G', run: () => api('ungroup_items', { ids }) },
+      { sep: true },
+      { label: 'Show get_item() result', run: () => { api('get_item', { id: it.id }); activateTab('result'); } },
+      { label: 'Copy id', run: () => navigator.clipboard.writeText(it.id) },
+    ]);
+  }
+
+  // ------------------------------------------------------------- actions
+  async function deleteSelected(withGap) {
+    for (const id of [...selected]) await api('delete_item', { id, replace_with_gap: withGap });
+  }
+  async function toggleEnabled() {
+    for (const id of [...selected]) { const it = findItem(id); if (it) await api('set_item_enabled', { id, enabled: !it.enabled }); }
+  }
+  function replaceItem(it) {
+    const dur = prompt('New clip duration (s):', fmt(it.duration)); if (dur === null) return;
+    const name = prompt('New clip name:', (it.name || 'clip') + ' (replaced)'); if (name === null) return;
+    const withAudio = confirm('Also pass a linked audio clip (linked_audio_clips)?');
+    const n = clipCounter++;
+    api('replace_item', {
+      id: it.id,
+      item: itemSpec('clip', name, parseFloat(dur) || it.duration, { url: `file:///replaced${n}.mov` }),
+      linked_audio: withAudio ? [itemSpec('clip', name + ' audio', parseFloat(dur) || it.duration, { url: `file:///replaced${n}.wav` })] : null,
+    });
+  }
+  async function splitSelected() {
+    for (const id of [...selected]) { const it = findItem(id); if (it && playhead > it.start && playhead < it.start + it.duration) await api('split_item', { id, time: playhead }); }
+  }
+  $('#btnSplit').addEventListener('click', splitSelected);
+  $('#btnLink').addEventListener('click', () => api('link_items', { ids: [...selected] }));
+  $('#btnUnlink').addEventListener('click', () => api('unlink_items', { ids: [...selected] }));
+  $('#btnGroup').addEventListener('click', () => api('group_items', { ids: [...selected] }));
+  $('#btnUngroup').addEventListener('click', () => api('ungroup_items', { ids: [...selected] }));
+  $('#btnToggle').addEventListener('click', toggleEnabled);
+  $('#btnDelete').addEventListener('click', () => deleteSelected($('#gapOnMove').checked));
+  $('#btnSample').addEventListener('click', () => api('sample'));
+  $('#btnReset').addEventListener('click', () => { selected.clear(); api('reset'); });
+  $('#btnUndo').addEventListener('click', () => api('undo'));
+  $('#btnSanitize').addEventListener('click', () => api('sanitize'));
+  $('#btnLoadJson').addEventListener('click', () => {
+    let parsed; try { parsed = JSON.parse($('#jsonText').value); } catch (e) { return showResult({ error: 'invalid JSON: ' + e.message }); }
+    api('load_json', { json: parsed });
+  });
+  $('#btnCopyJson').addEventListener('click', () => navigator.clipboard.writeText($('#jsonText').value));
+  $('#btnRefreshJson').addEventListener('click', () => api('state'));
+
+  document.addEventListener('keydown', e => {
+    if (e.target.matches('input, textarea, select')) return;
+    const k = e.key.toLowerCase();
+    if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); return api('undo'); }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (k === 'backspace' || k === 'delete') { e.preventDefault(); return deleteSelected(e.shiftKey ? false : $('#gapOnMove').checked); }
+    if (!selected.size && !['a'].includes(k)) return;
+    if (k === 's') return splitSelected();
+    if (k === 'l') return api('link_items', { ids: [...selected] });
+    if (k === 'u') return api('unlink_items', { ids: [...selected] });
+    if (k === 'g') return e.shiftKey ? api('ungroup_items', { ids: [...selected] }) : api('group_items', { ids: [...selected] });
+    if (k === 'e') return toggleEnabled();
+  });
+
+  // zoom
+  $('#zoom').addEventListener('input', e => { pps = +e.target.value; persist(); render(); });
+  el.scroller.addEventListener('wheel', e => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    e.preventDefault();
+    pps = Math.min(300, Math.max(10, pps * (e.deltaY < 0 ? 1.1 : 0.9)));
+    $('#zoom').value = pps; persist(); render();
+  }, { passive: false });
+
+  // panel tabs
+  function activateTab(name) {
+    $$('#tabs button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    $$('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
+    $('#panel').classList.remove('collapsed');
+  }
+  $$('#tabs button[data-tab]').forEach(b => b.addEventListener('click', () => activateTab(b.dataset.tab)));
+  $('#btnPanel').addEventListener('click', () => { const p = $('#panel'); p.classList.toggle('collapsed'); $('#btnPanel').textContent = p.classList.contains('collapsed') ? '▴' : '▾'; });
+
+  // ------------------------------------------------------------- boot
+  api('state');
+})();
+</script>
+</body>
+</html>
