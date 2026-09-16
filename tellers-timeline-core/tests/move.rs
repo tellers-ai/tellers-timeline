@@ -105,3 +105,31 @@ fn stack_move_item_between_tracks_at_time() {
     let found = dest.items.iter().any(|it| it.get_id().as_deref() == Some(id_move));
     assert!(found);
 }
+
+#[test]
+fn moving_a_clip_preserves_an_adjacent_gap_id() {
+    let mut source = Track::new(TrackKind::Video, Some("source".to_string()));
+    source.items.push(make_clip_with_id(2.0, "moving"));
+    let mut trailing_gap = Item::Gap(Gap::make_gap(3.0));
+    trailing_gap.set_id(Some("trailing-gap".to_string()));
+    source.items.push(trailing_gap);
+    source.items.push(make_clip_with_id(1.0, "remaining"));
+
+    let destination = Track::new(TrackKind::Video, Some("destination".to_string()));
+    let mut stack = Stack::default();
+    stack.children = vec![source, destination];
+
+    assert!(stack.move_item_at_time(
+        "moving",
+        "destination",
+        0.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    let (gap_track, gap_index, _) = stack.get_item("trailing-gap").expect("gap ID is stable");
+    assert_eq!(gap_track, 0);
+    assert_eq!(stack.children[gap_track].items[gap_index].duration(), 5.0);
+    assert!(stack.get_item("moving").is_some());
+}
