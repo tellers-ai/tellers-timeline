@@ -48,6 +48,7 @@
   .hdr .tid { color: var(--fg2); font-size: 10px; margin-left: auto; }
   .lane { position: relative; flex: 1; min-width: 100px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); background-size: var(--sec) 100%; }
   .lane.drop { background-color: rgba(79,140,255,.12); }
+  .lane.reject { background-color: rgba(239,83,80,.12); }
   .lane.disabled { opacity: .5; }
   #ruler { position: relative; flex: 1; cursor: pointer; }
   #ruler .tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--line); padding-left: 3px; font-size: 10px; color: var(--fg2); pointer-events: none; }
@@ -453,12 +454,23 @@
       el.ghost.appendChild(g); s.d.classList.add('dragging');
     }
     el.ghost.style.left = (e.clientX - s.grabX) + 'px'; el.ghost.style.top = (e.clientY - 20) + 'px';
-    $$('.lane').forEach(l => l.classList.remove('drop'));
+    $$('.lane').forEach(l => l.classList.remove('drop', 'reject'));
     const lane = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.classList && x.classList.contains('lane'));
     s.lane = lane || null;
     if (!lane) { el.dropline.style.display = 'none'; el.droptip.style.display = 'none'; return; }
-    lane.classList.add('drop');
     const track = trackById(lane.dataset.trackId);
+    // Clips retain the media kind of their source track. Gaps and "other"
+    // tracks stay flexible so the UI can still test generic timeline edits.
+    const incompatible = s.it.kind === 'clip' && s.t.kind !== 'other' && track.kind !== 'other' && s.t.kind !== track.kind;
+    if (incompatible) {
+      lane.classList.add('reject');
+      s.lane = null;
+      el.dropline.style.display = 'none';
+      el.droptip.textContent = `${s.t.kind} clips cannot move to a ${track.kind} track`;
+      el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
+      return;
+    }
+    lane.classList.add('drop');
     const lrect = lane.getBoundingClientRect();
     const mode = $('#mode').value;
     const x = e.clientX - lrect.left - s.grabX;
@@ -515,7 +527,7 @@
   function cancelDrag() { if (dragState && dragState.moved) { cleanupDrag(); render(); } dragState = null; }
   function cleanupDrag() {
     el.ghost.innerHTML = ''; el.dropline.style.display = 'none'; el.droptip.style.display = 'none';
-    $$('.lane').forEach(l => l.classList.remove('drop')); $$('.item.dragging').forEach(d => d.classList.remove('dragging'));
+    $$('.lane').forEach(l => l.classList.remove('drop', 'reject')); $$('.item.dragging').forEach(d => d.classList.remove('dragging'));
   }
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (dragState) { cleanupDrag(); dragState = null; render(); } closePops(); } });
 
