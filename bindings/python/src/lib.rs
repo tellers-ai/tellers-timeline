@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline,
+    validate_timeline, Clip, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -1256,6 +1256,18 @@ fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<Py
         .collect()
 }
 
+fn text_styles_to_python(py: Python<'_>, styles: Vec<TextStyle>) -> PyResult<Vec<PyObject>> {
+    styles
+        .into_iter()
+        .map(|style| {
+            let dict = PyDict::new(py);
+            dict.set_item("name", style.name)?;
+            dict.set_item("declarations", style.declarations)?;
+            Ok(dict.into_py(py))
+        })
+        .collect()
+}
+
 #[pyclass(name = "Timeline")]
 #[derive(Clone)]
 struct PyTimeline {
@@ -1392,6 +1404,33 @@ impl PyTimeline {
     /// returning whether one was present.
     fn remove_font(&mut self, family: &str) -> bool {
         self.inner.remove_font(family)
+    }
+    /// The CSS classes declared for rich-text clips, as
+    /// `{"name", "declarations"}` dicts. Styles the player would ignore are
+    /// skipped.
+    fn get_text_styles(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        text_styles_to_python(py, self.inner.get_text_styles())
+    }
+    /// The declaration block of the class `name`, or None if not declared.
+    fn get_text_style(&self, name: &str) -> Option<String> {
+        self.inner.get_text_style(name)
+    }
+    /// Declare (or redefine) the CSS class `name` with `declarations`
+    /// (`"font-size:56px;color:#fff"`), for clips to use as
+    /// `class="name"` in their Title HTML. Returns False, changing nothing,
+    /// when the name is not a plain CSS identifier or the declarations are
+    /// empty or contain a brace.
+    fn set_text_style(&mut self, name: String, declarations: String) -> bool {
+        self.inner.set_text_style(name, declarations)
+    }
+    /// Remove the declared class `name`, returning whether it was present.
+    fn remove_text_style(&mut self, name: &str) -> bool {
+        self.inner.remove_text_style(name)
+    }
+    /// The stylesheet the player injects for this timeline's text clips: one
+    /// `.name { declarations }` rule per declared style.
+    fn text_styles_css(&self) -> String {
+        self.inner.text_styles_css()
     }
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)
