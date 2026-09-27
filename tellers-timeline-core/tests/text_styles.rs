@@ -6,8 +6,8 @@
 // the stored shape is part of the contract with video-player-js.
 
 use tellers_timeline_core::{
-    is_valid_text_style_name, remove_text_style, resolve_text_styles, set_text_style,
-    text_styles_css, TextStyle, Timeline,
+    is_valid_text_style_name, merge_text_styles, remove_text_style, resolve_text_styles,
+    set_text_style, text_styles_css, IdMetadataExt, TextStyle, Timeline, Track, TrackKind,
 };
 
 fn timeline() -> Timeline {
@@ -258,4 +258,139 @@ fn text_style_normalized_and_is_valid() {
     );
     assert!(!TextStyle::new("a b", "color:#fff").is_valid());
     assert!(!TextStyle::new("a", "").is_valid());
+}
+
+// --- Track-level styles, merged over the timeline's by class name ---------
+
+fn timeline_with_tracks() -> Timeline {
+    let mut tl = timeline();
+    tl.tracks
+        .add_track(Track::new(TrackKind::Video, Some("subs".to_string())));
+    tl.tracks
+        .add_track(Track::new(TrackKind::Video, Some("titles".to_string())));
+    tl
+}
+
+#[test]
+fn merge_text_styles_overrides_in_place_and_appends_new_classes() {
+    let base = vec![
+        TextStyle::new("subtitle", "font-size:56px;color:#fff"),
+        TextStyle::new("accent", "color:#ffd400"),
+    ];
+    let overrides = vec![
+        TextStyle::new("new", "font-weight:700"),
+        TextStyle::new("subtitle", "font-size:40px"),
+    ];
+
+    assert_eq!(
+        merge_text_styles(&base, &overrides),
+        vec![
+            TextStyle::new("subtitle", "font-size:40px"),
+            TextStyle::new("accent", "color:#ffd400"),
+            TextStyle::new("new", "font-weight:700"),
+        ]
+    );
+    assert_eq!(merge_text_styles(&base, &[]), base);
+    assert_eq!(merge_text_styles(&[], &overrides), overrides);
+}
+
+#[test]
+fn track_text_style_is_stored_on_the_track_metadata() {
+    let mut tl = timeline_with_tracks();
+    assert!(tl.set_track_text_style("subs", "subtitle", "font-size:40px"));
+
+    let (_, track) = tl.tracks.get_track_by_id("subs").unwrap();
+    assert_eq!(
+        track.metadata["tellers.ai"]["textStyles"],
+        serde_json::json!({ "subtitle": "font-size:40px" })
+    );
+    assert_eq!(
+        track.get_text_style("subtitle").as_deref(),
+        Some("font-size:40px")
+    );
+    assert!(tl.get_text_styles().is_empty(), "timeline styles untouched");
+    assert_eq!(
+        tl.tracks
+            .get_track_by_id("subs")
+            .unwrap()
+            .1
+            .get_id()
+            .as_deref(),
+        Some("subs"),
+        "track id kept"
+    );
+}
+
+#[test]
+fn get_track_text_styles_merges_track_over_timeline() {
+    let mut tl = timeline_with_tracks();
+    assert!(tl.set_text_style("subtitle", "font-size:56px;color:#fff"));
+    assert!(tl.set_text_style("accent", "color:#ffd400"));
+    assert!(tl.set_track_text_style("subs", "subtitle", "font-size:40px;color:#fff"));
+    assert!(tl.set_track_text_style("subs", "speaker", "font-style:italic"));
+
+    assert_eq!(
+        tl.get_track_text_styles("subs"),
+        // Metadata objects keep their keys sorted, so the timeline classes come
+        // first alphabetically, then the track-only ones.
+        Some(vec![
+            TextStyle::new("accent", "color:#ffd400"),
+            TextStyle::new("subtitle", "font-size:40px;color:#fff"),
+            TextStyle::new("speaker", "font-style:italic"),
+        ])
+    );
+    assert_eq!(
+        tl.get_track_text_styles("titles"),
+        Some(tl.get_text_styles()),
+        "a track without styles gets the timeline's"
+    );
+    assert_eq!(tl.get_track_text_styles("missing"), None);
+    assert_eq!(
+        tl.track_text_styles_css("subs").as_deref(),
+        Some(".accent { color:#ffd400 }\n.subtitle { font-size:40px;color:#fff }\n.speaker { font-style:italic }")
+    );
+}
+
+#[test]
+fn removing_a_track_override_restores_the_timeline_class() {
+    let mut tl = timeline_with_tracks();
+    assert!(tl.set_text_style("subtitle", "font-size:56px"));
+    assert!(tl.set_track_text_style("subs", "subtitle", "font-size:40px"));
+
+    assert!(tl.remove_track_text_style("subs", "subtitle"));
+    assert!(!tl.remove_track_text_style("subs", "subtitle"));
+    assert_eq!(
+        tl.get_track_text_styles("subs"),
+        Some(vec![TextStyle::new("subtitle", "font-size:56px")])
+    );
+    let (_, track) = tl.tracks.get_track_by_id("subs").unwrap();
+    assert!(track.metadata["tellers.ai"].get("textStyles").is_none());
+}
+
+#[test]
+fn track_text_style_writes_fail_for_unknown_tracks_or_bad_styles() {
+    let mut tl = timeline_with_tracks();
+    assert!(!tl.set_track_text_style("missing", "subtitle", "color:#fff"));
+    assert!(!tl.remove_track_text_style("missing", "subtitle"));
+    assert!(!tl.set_track_text_style("subs", "bad name", "color:#fff"));
+    assert!(!tl.set_track_text_style("subs", "subtitle", "color:#fff } x {"));
+    assert_eq!(tl.get_track_text_styles("subs"), Some(vec![]));
+}
+
+#[test]
+fn track_text_styles_survive_timeline_serialization() {
+    let mut tl = timeline_with_tracks();
+    assert!(tl.set_text_style("subtitle", "font-size:56px"));
+    assert!(tl.set_track_text_style("subs", "subtitle", "font-size:40px"));
+
+    let json = serde_json::to_string(&tl).expect("serialize");
+    let restored: Timeline = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(
+        restored.get_track_text_styles("subs"),
+        Some(vec![TextStyle::new("subtitle", "font-size:40px")])
+    );
+    assert_eq!(
+        restored.get_track_text_styles("titles"),
+        Some(vec![TextStyle::new("subtitle", "font-size:56px")])
+    );
 }

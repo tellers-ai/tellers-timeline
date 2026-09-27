@@ -742,6 +742,25 @@ impl PyTrack {
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
     }
+    /// The CSS classes declared on this track only (not merged with the
+    /// timeline's), as `{"name", "declarations"}` dicts.
+    fn get_text_styles(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        text_styles_to_python(py, self.inner.get_text_styles())
+    }
+    /// The declaration block of the class `name` declared on this track only.
+    fn get_text_style(&self, name: &str) -> Option<String> {
+        self.inner.get_text_style(name)
+    }
+    /// Declare (or redefine) the class `name` on this track object. Tracks
+    /// returned by a timeline are copies: use
+    /// `Timeline.set_track_text_style` to change a track already in one.
+    fn set_text_style(&mut self, name: String, declarations: String) -> bool {
+        self.inner.set_text_style(name, declarations)
+    }
+    /// Remove the class `name` from this track object.
+    fn remove_text_style(&mut self, name: &str) -> bool {
+        self.inner.remove_text_style(name)
+    }
     fn set_name(&mut self, name: Option<String>) {
         self.inner.name = name;
     }
@@ -1431,6 +1450,36 @@ impl PyTimeline {
     /// `.name { declarations }` rule per declared style.
     fn text_styles_css(&self) -> String {
         self.inner.text_styles_css()
+    }
+    /// The styles that apply to the clips of the track `track_id`: the
+    /// timeline's styles with the track's merged over them by class name.
+    /// None when no track has this id.
+    fn get_track_text_styles(
+        &self,
+        py: Python<'_>,
+        track_id: &str,
+    ) -> PyResult<Option<Vec<PyObject>>> {
+        self.inner
+            .get_track_text_styles(track_id)
+            .map(|styles| text_styles_to_python(py, styles))
+            .transpose()
+    }
+    /// Declare (or redefine) the class `name` on the track `track_id`,
+    /// overriding a timeline class of the same name for that track. Returns
+    /// False, changing nothing, when no track has this id or the style is
+    /// unusable.
+    fn set_track_text_style(&mut self, track_id: &str, name: String, declarations: String) -> bool {
+        self.inner.set_track_text_style(track_id, name, declarations)
+    }
+    /// Remove the class `name` from the track `track_id`, returning whether it
+    /// was present there. A timeline class of the same name applies again.
+    fn remove_track_text_style(&mut self, track_id: &str, name: &str) -> bool {
+        self.inner.remove_track_text_style(track_id, name)
+    }
+    /// The stylesheet the player injects for the clips of the track
+    /// `track_id` (merged timeline and track styles), or None.
+    fn track_text_styles_css(&self, track_id: &str) -> Option<String> {
+        self.inner.track_text_styles_css(track_id)
     }
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)

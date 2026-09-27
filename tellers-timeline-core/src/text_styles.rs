@@ -12,9 +12,19 @@
 //! the SVG it rasterizes the clip's HTML in, and embeds any custom font the
 //! declarations reference exactly as it does for inline `font-family`.
 //!
-//! They live in the timeline metadata at
-//! `metadata["tellers.ai"]["textStyles"]`, as an object mapping a class name
-//! to its CSS declaration block:
+//! They live at `metadata["tellers.ai"]["textStyles"]`, as an object mapping
+//! a class name to its CSS declaration block, at two levels:
+//!
+//! - on the timeline, for every text clip;
+//! - on a track, for that track's clips only. Track styles merge over the
+//!   timeline's by class name: a track entry replaces the timeline entry with
+//!   the same name, and timeline classes the track does not redefine still
+//!   apply. [`Timeline::get_track_text_styles`] returns that merged list.
+//!
+//! Fonts are not declared here: a class selects a family by name
+//! (`font-family:'Brand Sans'`) and the file itself stays in the timeline's
+//! `availableFonts` (see [`crate::fonts`]).
+//!
 //!
 //! ```json
 //! {
@@ -30,7 +40,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::Timeline;
+use crate::{Timeline, Track};
 
 /// Metadata key, under the `tellers.ai` namespace, holding the style object.
 pub const TEXT_STYLES_KEY: &str = "textStyles";
@@ -202,6 +212,107 @@ impl Timeline {
     /// `.name { declarations }` rule per declared style.
     pub fn text_styles_css(&self) -> String {
         text_styles_css(&self.get_text_styles())
+    }
+}
+
+/// `base` with `overrides` merged over it by class name: an override replaces
+/// the base entry in place, and override-only classes are appended in their
+/// own order. This is how a track's styles combine with the timeline's.
+pub fn merge_text_styles(base: &[TextStyle], overrides: &[TextStyle]) -> Vec<TextStyle> {
+    let mut merged: Vec<TextStyle> = base.to_vec();
+    for style in overrides {
+        match merged
+            .iter_mut()
+            .find(|existing| existing.name == style.name)
+        {
+            Some(existing) => existing.declarations = style.declarations.clone(),
+            None => merged.push(style.clone()),
+        }
+    }
+    merged
+}
+
+impl Track {
+    /// The CSS classes declared on this track only (not merged with the
+    /// timeline's). Styles the player would ignore are skipped.
+    pub fn get_text_styles(&self) -> Vec<TextStyle> {
+        resolve_text_styles(&self.metadata)
+    }
+
+    /// The declaration block of the class `name` declared on this track only.
+    pub fn get_text_style(&self, name: &str) -> Option<String> {
+        let wanted = name.trim();
+        self.get_text_styles()
+            .into_iter()
+            .find(|style| style.name == wanted)
+            .map(|style| style.declarations)
+    }
+
+    /// Declare (or redefine) the class `name` on this track, overriding a
+    /// timeline class of the same name for this track's clips. Returns
+    /// `false`, and changes nothing, when the style is unusable.
+    pub fn set_text_style(
+        &mut self,
+        name: impl Into<String>,
+        declarations: impl Into<String>,
+    ) -> bool {
+        set_text_style(&mut self.metadata, TextStyle::new(name, declarations))
+    }
+
+    /// Remove the class `name` from this track, returning whether it was
+    /// present. A timeline class of the same name applies again afterwards.
+    pub fn remove_text_style(&mut self, name: &str) -> bool {
+        remove_text_style(&mut self.metadata, name)
+    }
+}
+
+impl Timeline {
+    /// The styles that apply to the clips of the track `track_id`: the
+    /// timeline's styles with the track's merged over them by class name.
+    /// `None` when no track has this id.
+    pub fn get_track_text_styles(&self, track_id: &str) -> Option<Vec<TextStyle>> {
+        let (_, track) = self.tracks.get_track_by_id(track_id)?;
+        Some(merge_text_styles(
+            &self.get_text_styles(),
+            &track.get_text_styles(),
+        ))
+    }
+
+    /// The stylesheet the player injects for the clips of the track
+    /// `track_id` (merged timeline and track styles). `None` when no track has
+    /// this id.
+    pub fn track_text_styles_css(&self, track_id: &str) -> Option<String> {
+        self.get_track_text_styles(track_id)
+            .map(|styles| text_styles_css(&styles))
+    }
+
+    /// Declare (or redefine) the class `name` on the track `track_id`.
+    /// Returns `false`, changing nothing, when no track has this id or the
+    /// style is unusable.
+    pub fn set_track_text_style(
+        &mut self,
+        track_id: &str,
+        name: impl Into<String>,
+        declarations: impl Into<String>,
+    ) -> bool {
+        match self.track_mut_by_id(track_id) {
+            Some(track) => track.set_text_style(name, declarations),
+            None => false,
+        }
+    }
+
+    /// Remove the class `name` from the track `track_id`, returning whether it
+    /// was present there.
+    pub fn remove_track_text_style(&mut self, track_id: &str, name: &str) -> bool {
+        match self.track_mut_by_id(track_id) {
+            Some(track) => track.remove_text_style(name),
+            None => false,
+        }
+    }
+
+    fn track_mut_by_id(&mut self, track_id: &str) -> Option<&mut Track> {
+        let (index, _) = self.tracks.get_track_by_id(track_id)?;
+        self.tracks.children.get_mut(index)
     }
 }
 
