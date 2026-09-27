@@ -3514,6 +3514,11 @@ impl Stack {
         );
         let move_source_track_indices: Vec<usize> =
             items_to_move.iter().map(|item| item.track_index).collect();
+        let partner_ids: Vec<String> = items_to_move
+            .iter()
+            .filter(|item| !item.is_selected)
+            .filter_map(|item| item.item.get_id())
+            .collect();
 
         let Some(targets) = self.delete_item_targets(&item_id) else {
             return false;
@@ -3545,12 +3550,51 @@ impl Stack {
         {
             if !replace_with_gap {
                 self.remove_gaps_by_id(&placeholder_gap_ids);
+                self.realign_moved_partners(&item_id, &partner_ids);
             }
             self.sanitize();
             true
         } else {
             *self = backup;
             false
+        }
+    }
+
+    /// Ripple-closing the source holes shifts everything after them on the
+    /// source tracks, including partners that were just re-inserted there,
+    /// while a primary that landed on another track stays put. Pad (or trim
+    /// the gap before) each partner so the column stays aligned on the primary.
+    fn realign_moved_partners(&mut self, primary_id: &str, partner_ids: &[String]) {
+        let Some(primary_start) = self.stack_item_start_time(primary_id) else {
+            return;
+        };
+        let mut used_ids = self.collect_timeline_ids();
+        for partner_id in partner_ids {
+            let Some((track_index, item_index, _)) = self.get_item(partner_id) else {
+                continue;
+            };
+            let partner_start = self.children[track_index].start_time_of_item(item_index);
+            let delta = primary_start - partner_start;
+            if delta > EPS {
+                let mut gap = Item::Gap(Gap::make_gap(delta));
+                Self::ensure_unique_item_id(&mut gap, &mut used_ids);
+                self.children[track_index].items.insert(item_index, gap);
+            } else if delta < -EPS {
+                let Some(gap_index) = item_index.checked_sub(1) else {
+                    continue;
+                };
+                let Some(Item::Gap(gap)) = self.children[track_index].items.get_mut(gap_index)
+                else {
+                    continue;
+                };
+                let available = gap.source_range.duration.to_seconds();
+                let remaining = available - (-delta).min(available);
+                if remaining <= EPS {
+                    self.children[track_index].items.remove(gap_index);
+                } else {
+                    gap.source_range.duration.set_from_seconds(remaining);
+                }
+            }
         }
     }
 

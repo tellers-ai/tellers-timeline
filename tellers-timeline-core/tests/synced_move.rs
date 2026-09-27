@@ -966,3 +966,64 @@ fn move_synced_video_between_video_tracks_reuses_free_audio_tracks() {
     assert_eq!(stack.children[audio_track].kind, TrackKind::Audio);
     assert_sync_clips_track_aligned(&stack, "cross-track move reusing other free audio");
 }
+
+#[test]
+fn move_synced_video_across_tracks_with_ripple_keeps_partners_aligned() {
+    // Ripple (no gap left behind) closes the hole on the source tracks. The
+    // audio partner re-inserted on its source track must not drift with that
+    // ripple while the primary sits untouched on the destination track.
+    let mut stack = Stack::default();
+    for (id, kind) in [
+        ("A1", TrackKind::Audio),
+        ("V1", TrackKind::Video),
+        ("V2", TrackKind::Video),
+    ] {
+        stack.children.push(Track::new(kind, Some(id.to_string())));
+    }
+    let first = insert_with_audio(
+        &mut stack,
+        1,
+        0.0,
+        clip(4.0, Some("v1")),
+        vec![audio_clip(4.0, "file:///v1.wav", None)],
+    )
+    .unwrap();
+    let second = insert_with_audio(
+        &mut stack,
+        1,
+        4.0,
+        clip(4.0, Some("v2")),
+        vec![audio_clip(4.0, "file:///v2.wav", None)],
+    )
+    .unwrap();
+
+    assert!(stack.move_item_at_time(
+        "v1",
+        "V2",
+        10.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), 3);
+    for (id, track, start) in [
+        ("v1", "V2", 10.0),
+        (first.audio_clips[0].0.as_str(), "A1", 10.0),
+        ("v2", "V1", 0.0),
+        (second.audio_clips[0].0.as_str(), "A1", 0.0),
+    ] {
+        let (track_index, item_index, _) = stack.get_item(id).unwrap();
+        assert_eq!(
+            stack.children[track_index].get_id().as_deref(),
+            Some(track),
+            "{id}"
+        );
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            start,
+            "{id}"
+        );
+    }
+    assert_sync_clips_track_aligned(&stack, "ripple move across video tracks");
+}
