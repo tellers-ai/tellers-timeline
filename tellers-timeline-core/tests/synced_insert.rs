@@ -544,3 +544,109 @@ fn created_sync_tracks_use_numbered_names_without_colliding() {
     assert_eq!(track.get_id().as_deref(), Some("A3"));
     assert_eq!(track.name.as_deref(), Some("A3"));
 }
+
+#[test]
+fn synced_insert_reuses_non_adjacent_free_audio_track_before_creating() {
+    // App layout [A1, A2, V1, V2]: V2 has no adjacent audio track, and A2 is
+    // already V1's sync partner. The free A1 must take V2's audio.
+    let mut stack = Stack::default();
+    for (id, kind) in [
+        ("A1", TrackKind::Audio),
+        ("A2", TrackKind::Audio),
+        ("V1", TrackKind::Video),
+        ("V2", TrackKind::Video),
+    ] {
+        stack.children.push(Track::new(kind, Some(id.to_string())));
+    }
+    let v1_index = track_index_by_id(&stack, "V1");
+    let first = insert_with_audio(
+        &mut stack,
+        v1_index,
+        0.0,
+        clip(4.0, Some("v1")),
+        vec![audio_clip(4.0, "file:///v1.wav", None)],
+    )
+    .unwrap();
+    assert!(first.created_track_indices.is_empty());
+    assert_eq!(
+        stack.children[first.audio_clips[0].1].get_id().as_deref(),
+        Some("A2")
+    );
+
+    let v2_index = track_index_by_id(&stack, "V2");
+    let second = insert_with_audio(
+        &mut stack,
+        v2_index,
+        0.0,
+        clip(4.0, Some("v2")),
+        vec![audio_clip(4.0, "file:///v2.wav", None)],
+    )
+    .unwrap();
+    assert!(second.created_track_indices.is_empty());
+    assert_eq!(stack.children.len(), 4);
+    assert_eq!(
+        stack.children[second.audio_clips[0].1].get_id().as_deref(),
+        Some("A1")
+    );
+
+    // Later columns on V2 keep reusing its (now clustered) audio track.
+    let v2_again_index = track_index_by_id(&stack, "V2");
+    let third = insert_with_audio(
+        &mut stack,
+        v2_again_index,
+        10.0,
+        clip(4.0, Some("v3")),
+        vec![audio_clip(4.0, "file:///v3.wav", None)],
+    )
+    .unwrap();
+    assert!(third.created_track_indices.is_empty());
+    assert_eq!(stack.children.len(), 4);
+    assert_eq!(
+        stack.children[third.audio_clips[0].1].get_id().as_deref(),
+        Some("A1")
+    );
+    assert_sync_clips_track_aligned(&stack, "non-adjacent audio reuse");
+}
+
+#[test]
+fn synced_insert_reuses_audio_track_with_free_range_before_creating() {
+    // A1 carries unrelated music at 0..10 but is free at 20..24, so the sync
+    // audio lands there instead of on a brand-new track.
+    let mut music = Track::new(TrackKind::Audio, Some("A1".to_string()));
+    music
+        .items
+        .push(audio_clip(10.0, "file:///music.wav", None));
+    let mut stack = Stack::default();
+    stack.children.push(music);
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("V1".to_string())));
+
+    let result = insert_with_audio(
+        &mut stack,
+        1,
+        20.0,
+        clip(4.0, Some("v1")),
+        vec![audio_clip(4.0, "file:///v1.wav", None)],
+    )
+    .unwrap();
+    assert!(result.created_track_indices.is_empty());
+    assert_eq!(stack.children.len(), 2);
+    assert_eq!(result.audio_clips[0].1, 0);
+    let (_, audio_index, _) = stack.get_item(&result.audio_clips[0].0).unwrap();
+    assert_eq!(stack.children[0].start_time_of_item(audio_index), 20.0);
+    assert_eq!(stack.children[0].items[0].duration(), 10.0);
+
+    // Over the music the range is not free: only then is a track created.
+    let over_music = insert_with_audio(
+        &mut stack,
+        1,
+        5.0,
+        clip(4.0, Some("v2")),
+        vec![audio_clip(4.0, "file:///v2.wav", None)],
+    )
+    .unwrap();
+    assert_eq!(over_music.created_track_indices.len(), 1);
+    assert_eq!(stack.children.len(), 3);
+    assert_sync_clips_track_aligned(&stack, "free-range audio reuse");
+}

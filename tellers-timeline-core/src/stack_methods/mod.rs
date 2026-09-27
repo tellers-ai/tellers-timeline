@@ -298,6 +298,58 @@ impl Stack {
         }
     }
 
+    /// Audio tracks other than `dest_track_index` whose `[start, end]` range is
+    /// free (empty, or gap-backed), nearest to the destination first (ties go to
+    /// the lower index, the track "below" the video in Resolve layout). Sync
+    /// partners land on one of these before a brand-new track is allocated, so a
+    /// free track is never duplicated just because it is not adjacent to the
+    /// destination or carries unrelated clips elsewhere.
+    fn nearest_free_audio_tracks(
+        &self,
+        dest_track_index: usize,
+        start: Seconds,
+        end: Seconds,
+        exclude: &[usize],
+    ) -> Vec<usize> {
+        self.nearest_free_tracks_of_kind(TrackKind::Audio, dest_track_index, start, end, exclude)
+    }
+
+    /// Video counterpart of [`Self::nearest_free_audio_tracks`].
+    fn nearest_free_video_tracks(
+        &self,
+        dest_track_index: usize,
+        start: Seconds,
+        end: Seconds,
+        exclude: &[usize],
+    ) -> Vec<usize> {
+        self.nearest_free_tracks_of_kind(TrackKind::Video, dest_track_index, start, end, exclude)
+    }
+
+    fn nearest_free_tracks_of_kind(
+        &self,
+        kind: TrackKind,
+        dest_track_index: usize,
+        start: Seconds,
+        end: Seconds,
+        exclude: &[usize],
+    ) -> Vec<usize> {
+        let mut candidates: Vec<usize> = self
+            .children
+            .iter()
+            .enumerate()
+            .filter(|(track_index, track)| {
+                *track_index != dest_track_index
+                    && track.kind == kind
+                    && !exclude.contains(track_index)
+                    && (track_is_empty_boundary(track) || range_is_gap_backed(track, start, end))
+            })
+            .map(|(track_index, _)| track_index)
+            .collect();
+        candidates
+            .sort_by_key(|track_index| (track_index.abs_diff(dest_track_index), *track_index));
+        candidates
+    }
+
     fn find_or_create_move_audio_track(
         &mut self,
         primary_track_index: usize,
@@ -366,6 +418,20 @@ impl Stack {
                     below_index += 1;
                 }
 
+                // Any other audio track that is free over the column beats a new one.
+                if let Some(track_index) = self
+                    .nearest_free_audio_tracks(
+                        primary_track_index,
+                        dest_time,
+                        end_time,
+                        used_audio_indices,
+                    )
+                    .into_iter()
+                    .next()
+                {
+                    return Some(track_index);
+                }
+
                 let insert_at = if audio_start < primary_track_index {
                     audio_start
                 } else {
@@ -403,6 +469,18 @@ impl Stack {
                     (track_index.abs_diff(primary_track_index), *track_index)
                 });
                 if let Some(track_index) = candidates.into_iter().next() {
+                    return Some(track_index);
+                }
+                if let Some(track_index) = self
+                    .nearest_free_audio_tracks(
+                        primary_track_index,
+                        dest_time,
+                        end_time,
+                        used_audio_indices,
+                    )
+                    .into_iter()
+                    .next()
+                {
                     return Some(track_index);
                 }
 
@@ -499,6 +577,16 @@ impl Stack {
             ) {
                 return Some(track_index);
             }
+        }
+
+        // No cluster video can take the partner; any other video track that is
+        // free over the column is still better than a brand-new one.
+        if let Some(track_index) = self
+            .nearest_free_video_tracks(audio_track_index, dest_time, end_time, &[])
+            .into_iter()
+            .next()
+        {
+            return Some(track_index);
         }
 
         let mut audio_end = audio_track_index + 1;
@@ -1163,6 +1251,21 @@ impl Stack {
                         || self.track_matches_primary_sync_boundary(dest_track_index, track_index)
                 })
             })
+            .or_else(|| {
+                // Nothing adjacent to the destination is usable: fall back to the
+                // nearest audio track anywhere in the stack that is free over the
+                // column before allocating a new track. Source tracks stay
+                // excluded so a move away from a cluster never leaves partners
+                // behind on it.
+                self.nearest_free_audio_tracks(
+                    dest_track_index,
+                    dest_time,
+                    end_time,
+                    used_audio_indices,
+                )
+                .into_iter()
+                .find(|track_index| !exclude_track_indices.contains(track_index))
+            })
     }
 
     fn has_non_source_destination_audio_tracks(
@@ -1356,6 +1459,65 @@ impl Stack {
                 *index += 1;
             }
         }
+    }
+
+    /// Sync ids of the clips on `track_index` overlapping `[start, end]`.
+    fn sync_clips_ids_in_range(
+        &self,
+        track_index: usize,
+        start: Seconds,
+        end: Seconds,
+    ) -> HashSet<i64> {
+        let mut ids = HashSet::new();
+        let Some(track) = self.children.get(track_index) else {
+            return ids;
+        };
+        let mut pos: Seconds = 0.0;
+        for item in &track.items {
+            let item_start = pos;
+            let item_end = pos + item.duration().max(0.0);
+            pos = item_end;
+            if item_end <= start + EPS || item_start >= end - EPS {
+                continue;
+            }
+            if let Item::Clip(clip) = item {
+                if let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) {
+                    ids.insert(sync_clips_id);
+                }
+            }
+        }
+        ids
+    }
+
+    /// True when every clip on `track_index` overlapping `[start, end]` belongs
+    /// to one of `sync_clips_ids` (gaps never block).
+    fn range_only_holds_sync_clips(
+        &self,
+        track_index: usize,
+        start: Seconds,
+        end: Seconds,
+        sync_clips_ids: &HashSet<i64>,
+    ) -> bool {
+        let Some(track) = self.children.get(track_index) else {
+            return false;
+        };
+        let mut pos: Seconds = 0.0;
+        for item in &track.items {
+            let item_start = pos;
+            let item_end = pos + item.duration().max(0.0);
+            pos = item_end;
+            if item_end <= start + EPS || item_start >= end - EPS {
+                continue;
+            }
+            if let Item::Clip(clip) = item {
+                if !resolve_sync_clips_id(&clip.metadata)
+                    .is_some_and(|sync_clips_id| sync_clips_ids.contains(&sync_clips_id))
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     pub(super) fn track_sync_clips_ids(&self, track_index: usize) -> HashSet<i64> {
@@ -1750,11 +1912,48 @@ impl Stack {
                 &exclude_track_indices,
             )?
         } else {
+            // Override replaces whatever sits under the column on the destination
+            // track together with the partners of those clips. A cluster audio
+            // track holding anything else there (unrelated music, another video
+            // track's audio) must not lose it, so it is not a slot for this column.
+            let column_end = start + column_span;
+            let overridden_sync_ids: HashSet<i64> = if overlap_policy == OverlapPolicy::Override {
+                self.sync_clips_ids_in_range(dest_track_index, start, column_end)
+            } else {
+                HashSet::new()
+            };
             let mut slots: Vec<usize> = cluster
                 .iter()
                 .copied()
-                .filter(|&i| i != dest_track_index && self.children[i].kind == TrackKind::Audio)
+                .filter(|&i| {
+                    i != dest_track_index
+                        && self.children[i].kind == TrackKind::Audio
+                        && (overlap_policy != OverlapPolicy::Override
+                            || self.range_only_holds_sync_clips(
+                                i,
+                                start,
+                                column_end,
+                                &overridden_sync_ids,
+                            ))
+                })
                 .collect();
+            // The cluster does not have enough audio tracks: reuse the nearest
+            // audio tracks that are free over the column (even non-adjacent ones,
+            // or ones carrying unrelated clips elsewhere) before creating any.
+            if slots.len() < needed {
+                for track_index in
+                    self.nearest_free_audio_tracks(dest_track_index, start, column_end, &slots)
+                {
+                    if slots.len() >= needed {
+                        break;
+                    }
+                    slots.push(track_index);
+                    if !cluster.contains(&track_index) {
+                        cluster.push(track_index);
+                    }
+                }
+                cluster.sort_unstable();
+            }
             while slots.len() < needed {
                 let insert_at = dest_track_index;
                 let track = self.new_numbered_track(TrackKind::Audio);
