@@ -21,7 +21,7 @@
       "default": {
         "OTIO_SCHEMA": "Stack.1",
         "children": [],
-        "metadata": null,
+        "metadata": {},
         "name": null
       },
       "allOf": [
@@ -32,27 +32,187 @@
     }
   },
   "definitions": {
+    "Clip": {
+      "type": "object",
+      "required": [
+        "source_range"
+      ],
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "Clip.2",
+          "type": "string"
+        },
+        "active_media_reference_key": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effects": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Effect"
+          }
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "media_references": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/MediaReference"
+          }
+        },
+        "metadata": {
+          "default": null
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_range": {
+          "$ref": "#/definitions/TimeRange"
+        }
+      }
+    },
+    "Effect": {
+      "type": "object",
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "Effect.1",
+          "type": "string"
+        },
+        "effect_name": {
+          "default": "",
+          "type": "string"
+        },
+        "metadata": {
+          "default": {},
+          "allOf": [
+            {
+              "$ref": "#/definitions/EffectMetadata"
+            }
+          ]
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        }
+      }
+    },
+    "EffectMetadata": {
+      "description": "Effect metadata structure - metadata is a map where \"Resolve_OTIO\" is typed",
+      "type": "object",
+      "properties": {
+        "Resolve_OTIO": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ResolveOTIOEffect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "Gap": {
+      "type": "object",
+      "required": [
+        "source_range"
+      ],
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "Gap.1",
+          "type": "string"
+        },
+        "effects": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Effect"
+          }
+        },
+        "metadata": {
+          "default": null
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_range": {
+          "$ref": "#/definitions/TimeRange"
+        }
+      }
+    },
+    "GeneratorParameters": {
+      "description": "Generator parameters structure for GeneratorReference",
+      "type": "object",
+      "properties": {
+        "Resolve_OTIO": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/ResolveOTIOEffect"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
     "Item": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/Clip"
+        },
+        {
+          "$ref": "#/definitions/Gap"
+        },
+        {
+          "$ref": "#/definitions/Transition"
+        }
+      ]
+    },
+    "MediaReference": {
       "oneOf": [
         {
+          "description": "OTIO's `MissingReference` is accepted as an alias and read as an external reference with an empty `target_url`.\n\nProducers outside our control emit it: the OTIO AAF adapter answers every SourceMob that records no locator URL with a `MissingReference`, so importing an Avid sequence used to fail here — `unknown variant MissingReference.1` — and take down the whole project load, even for clips whose media we had resolved.\n\nIt is an alias rather than a third variant because \"no media yet\" is already what an empty `target_url` means throughout the pipeline (`clear_target_urls` empties the field on every project we serve), and because a distinct variant would force a meaning at each of the matches on this enum for no behavioural gain. It re-serializes as `ExternalReference.1`.",
           "type": "object",
           "required": [
-            "duration",
-            "source",
-            "type"
+            "OTIO_SCHEMA"
           ],
           "properties": {
             "OTIO_SCHEMA": {
-              "default": "Clip.2",
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "ExternalReference.1"
+              ]
             },
-            "duration": {
-              "type": "number",
-              "format": "double"
+            "available_image_bounds": {
+              "default": null
             },
-            "enabled": {
-              "default": true,
-              "type": "boolean"
+            "available_range": {
+              "default": null,
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TimeRange"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "metadata": {
               "default": null
@@ -64,31 +224,41 @@
                 "null"
               ]
             },
-            "source": {
-              "$ref": "#/definitions/MediaSource"
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "clip"
-              ]
+            "target_url": {
+              "default": "",
+              "type": "string"
             }
           }
         },
         {
           "type": "object",
           "required": [
-            "duration",
-            "type"
+            "OTIO_SCHEMA",
+            "generator_kind"
           ],
           "properties": {
             "OTIO_SCHEMA": {
-              "default": "Gap.1",
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "GeneratorReference.1"
+              ]
             },
-            "duration": {
-              "type": "number",
-              "format": "double"
+            "available_image_bounds": {
+              "default": null
+            },
+            "available_range": {
+              "default": null,
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/TimeRange"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "generator_kind": {
+              "type": "string"
             },
             "metadata": {
               "default": null
@@ -100,46 +270,410 @@
                 "null"
               ]
             },
-            "type": {
-              "type": "string",
-              "enum": [
-                "gap"
+            "parameters": {
+              "default": {},
+              "allOf": [
+                {
+                  "$ref": "#/definitions/GeneratorParameters"
+                }
               ]
             }
           }
         }
       ]
     },
-    "MediaSource": {
+    "RationalTime": {
       "type": "object",
       "required": [
-        "url"
+        "rate",
+        "value"
       ],
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "ExternalReference.1",
+          "default": "RationalTime.1",
           "type": "string"
         },
-        "media_duration": {
-          "description": "Optional media duration if known",
-          "default": null,
+        "rate": {
+          "type": "number",
+          "format": "double"
+        },
+        "value": {
+          "type": "number",
+          "format": "double"
+        }
+      }
+    },
+    "ResolveOTIOEffect": {
+      "description": "Resolve_OTIO effect structure (used in media reference parameters array)",
+      "type": "object",
+      "required": [
+        "Effect Name"
+      ],
+      "properties": {
+        "Effect Name": {
+          "type": "string"
+        },
+        "Enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "Name": {
+          "default": "",
+          "type": "string"
+        },
+        "Parameters": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ResolveOTIOParameter"
+          }
+        },
+        "Type": {
+          "default": 0,
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ResolveOTIOParameter": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "Int"
+          ],
+          "properties": {
+            "Int": {
+              "$ref": "#/definitions/ResolveOTIOParameterNumber_for_int64"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "UInt"
+          ],
+          "properties": {
+            "UInt": {
+              "$ref": "#/definitions/ResolveOTIOParameterNumber_for_uint64"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Double"
+          ],
+          "properties": {
+            "Double": {
+              "$ref": "#/definitions/ResolveOTIOParameterNumber_for_double"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Bool"
+          ],
+          "properties": {
+            "Bool": {
+              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_Boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "String"
+          ],
+          "properties": {
+            "String": {
+              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_String"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "PointF"
+          ],
+          "properties": {
+            "PointF": {
+              "$ref": "#/definitions/ResolveOTIOParameterPointF"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Color"
+          ],
+          "properties": {
+            "Color": {
+              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_String"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Unknown"
+          ],
+          "properties": {
+            "Unknown": {
+              "$ref": "#/definitions/ResolveOTIOParameterUnknown"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ResolveOTIOParameterNumber_for_double": {
+      "type": "object",
+      "required": [
+        "Variant Type"
+      ],
+      "properties": {
+        "Default Parameter Value": {
           "type": [
             "number",
             "null"
           ],
           "format": "double"
         },
-        "media_start": {
-          "description": "Offset into the media in seconds",
-          "default": 0.0,
+        "Parameter ID": {
+          "default": "",
+          "type": "string"
+        },
+        "Parameter Value": {
           "type": "number",
           "format": "double"
         },
-        "metadata": {
+        "Variant Type": {
+          "type": "string"
+        },
+        "maxValue": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "minValue": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      }
+    },
+    "ResolveOTIOParameterNumber_for_int64": {
+      "type": "object",
+      "required": [
+        "Variant Type"
+      ],
+      "properties": {
+        "Default Parameter Value": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "Parameter ID": {
+          "default": "",
+          "type": "string"
+        },
+        "Parameter Value": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "Variant Type": {
+          "type": "string"
+        },
+        "maxValue": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        },
+        "minValue": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64"
+        }
+      }
+    },
+    "ResolveOTIOParameterNumber_for_uint64": {
+      "type": "object",
+      "required": [
+        "Variant Type"
+      ],
+      "properties": {
+        "Default Parameter Value": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "Parameter ID": {
+          "default": "",
+          "type": "string"
+        },
+        "Parameter Value": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "Variant Type": {
+          "type": "string"
+        },
+        "maxValue": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "minValue": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0.0
+        }
+      }
+    },
+    "ResolveOTIOParameterPointF": {
+      "type": "object",
+      "required": [
+        "Variant Type"
+      ],
+      "properties": {
+        "Default Parameter Value": {
+          "default": null,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "Key Frames": {
           "default": null
         },
-        "url": {
+        "Parameter ID": {
+          "default": "",
           "type": "string"
+        },
+        "Parameter Value": {
+          "default": null,
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "double"
+          },
+          "maxItems": 2,
+          "minItems": 2
+        },
+        "Variant Type": {
+          "type": "string"
+        }
+      }
+    },
+    "ResolveOTIOParameterSimple_for_Boolean": {
+      "type": "object",
+      "required": [
+        "Variant Type"
+      ],
+      "properties": {
+        "Default Parameter Value": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "Parameter ID": {
+          "default": "",
+          "type": "string"
+        },
+        "Parameter Value": {
+          "type": "boolean"
+        },
+        "Variant Type": {
+          "type": "string"
+        }
+      }
+    },
+    "ResolveOTIOParameterSimple_for_String": {
+      "type": "object",
+      "required": [
+        "Variant Type"
+      ],
+      "properties": {
+        "Default Parameter Value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "Parameter ID": {
+          "default": "",
+          "type": "string"
+        },
+        "Parameter Value": {
+          "type": "string"
+        },
+        "Variant Type": {
+          "type": "string"
+        }
+      }
+    },
+    "ResolveOTIOParameterUnknown": {
+      "type": "object",
+      "properties": {
+        "Default Parameter Value": {
+          "default": null
+        },
+        "Key Frames": {
+          "default": null
+        },
+        "Parameter ID": {
+          "default": "",
+          "type": "string"
+        },
+        "Parameter Value": {
+          "default": null
+        },
+        "Title HTML": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -166,6 +700,25 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "TimeRange": {
+      "type": "object",
+      "required": [
+        "duration",
+        "start_time"
+      ],
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "TimeRange.1",
+          "type": "string"
+        },
+        "duration": {
+          "$ref": "#/definitions/RationalTime"
+        },
+        "start_time": {
+          "$ref": "#/definitions/RationalTime"
         }
       }
     },
@@ -212,6 +765,54 @@
         "audio",
         "other"
       ]
+    },
+    "Transition": {
+      "description": "An OTIO `Transition.1` sitting between two neighbouring track items.\n\nA transition takes no track time: `in_offset` says how far it reaches back into the item before it and `out_offset` how far it reaches into the item after it. The neighbours' `source_range`s do not include that overlap, so a renderer has to read extra media handles past each cut. `transition_type` is `SMPTE_Dissolve` for a standard dissolve; NLE-specific effects (e.g. DaVinci Resolve Fusion transitions) export as `Custom_Transition` with the details under `metadata`.",
+      "type": "object",
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "Transition.1",
+          "type": "string"
+        },
+        "in_offset": {
+          "default": {
+            "OTIO_SCHEMA": "RationalTime.1",
+            "rate": 1.0,
+            "value": 0.0
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/RationalTime"
+            }
+          ]
+        },
+        "metadata": {
+          "default": null
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "out_offset": {
+          "default": {
+            "OTIO_SCHEMA": "RationalTime.1",
+            "rate": 1.0,
+            "value": 0.0
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/RationalTime"
+            }
+          ]
+        },
+        "transition_type": {
+          "default": "SMPTE_Dissolve",
+          "type": "string"
+        }
+      }
     }
   }
 }
