@@ -15,7 +15,8 @@ impl Stack {
         else {
             return false;
         };
-        if matches!(selected_item, Item::Gap(_)) {
+        // Gaps have nothing to split; transitions take no time of their own.
+        if matches!(selected_item, Item::Gap(_) | Item::Transition(_)) {
             return false;
         }
         let selected_start =

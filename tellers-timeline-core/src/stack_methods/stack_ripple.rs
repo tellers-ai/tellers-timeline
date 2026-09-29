@@ -137,7 +137,9 @@ impl Stack {
         for (track_index, track) in self.children.iter().enumerate() {
             let mut pos = 0.0;
             for item in &track.items {
-                let id = item.get_id().filter(|_| !matches!(item, Item::Gap(_)));
+                let id = item
+                    .get_id()
+                    .filter(|_| !matches!(item, Item::Gap(_) | Item::Transition(_)));
                 if let Some(id) = id {
                     let shifted = before.get(&id).is_some_and(|&(old_track, old_start)| {
                         old_track == track_index && (pos - old_start - duration).abs() <= EPS
@@ -195,7 +197,7 @@ impl Stack {
     /// `time`, or the end of the clip straddling it.
     fn boundary_at_or_after(track: &crate::Track, time: Seconds) -> Seconds {
         match track.get_item_at_time(time) {
-            Some(index) if !matches!(track.items[index], Item::Gap(_)) => {
+            Some(index) if !matches!(track.items[index], Item::Gap(_) | Item::Transition(_)) => {
                 let start = track.start_time_of_item(index);
                 if time - start <= EPS {
                     start
@@ -325,6 +327,10 @@ impl Stack {
                 Item::Clip(clip) if clip.sync_clips_id().is_some() => return None,
                 Item::Clip(_) | Item::Composite(_) => {
                     pos += item_duration;
+                    index += 1;
+                }
+                // Takes no time: nothing to free, step over it.
+                Item::Transition(_) => {
                     index += 1;
                 }
             }
