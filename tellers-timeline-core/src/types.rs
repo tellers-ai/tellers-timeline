@@ -25,7 +25,7 @@ fn default_time_range_schema() -> String {
 fn default_rational_time_schema() -> String {
     "RationalTime.1".to_string()
 }
-fn default_effect_schema() -> String {
+pub(crate) fn default_effect_schema() -> String {
     "Effect.1".to_string()
 }
 fn default_enabled() -> bool {

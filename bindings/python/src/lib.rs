@@ -4,9 +4,14 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline,
+    validate_timeline, Clip, CompositeMode, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline,
     Track, TrackKind,
 };
+
+fn parse_composite_mode(mode: &str) -> PyResult<CompositeMode> {
+    mode.parse::<CompositeMode>()
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+}
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
 #[pyclass(name = "MediaReference")]
@@ -469,6 +474,17 @@ impl PyClip {
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
     }
+    /// The clip's composite mode name (see COMPOSITE_MODES), read from its
+    /// Resolve "Composite" effect; "normal" when absent.
+    fn get_composite_mode(&self) -> &'static str {
+        self.inner.get_composite_mode().as_str()
+    }
+    /// Set the composite mode by name (any casing, `-`/`_`/space separators).
+    /// Raises ValueError for an unknown name.
+    fn set_composite_mode(&mut self, mode: &str) -> PyResult<()> {
+        self.inner.set_composite_mode(parse_composite_mode(mode)?);
+        Ok(())
+    }
     #[staticmethod]
     fn parse_json(s: &str) -> PyResult<Self> {
         let clip: Clip = serde_json::from_str(s)
@@ -683,6 +699,16 @@ impl PyItem {
     }
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
+    }
+    /// The composite mode name of a clip; "normal" for gaps.
+    fn get_composite_mode(&self) -> &'static str {
+        self.inner.get_composite_mode().as_str()
+    }
+    /// Set a clip's composite mode by name; no-op for gaps. Raises ValueError
+    /// for an unknown name.
+    fn set_composite_mode(&mut self, mode: &str) -> PyResult<()> {
+        self.inner.set_composite_mode(parse_composite_mode(mode)?);
+        Ok(())
     }
 }
 
@@ -1504,8 +1530,24 @@ impl PyTimeline {
     }
 }
 
+/// The composite mode name for a Resolve `"composite mode"` code, or None when unknown.
+#[pyfunction]
+fn composite_mode_from_resolve_code(code: u64) -> Option<&'static str> {
+    CompositeMode::from_resolve_code(code).map(|mode| mode.as_str())
+}
+
+/// The Resolve `"composite mode"` code of a mode name. Raises ValueError for an unknown name.
+#[pyfunction]
+fn composite_mode_resolve_code(mode: &str) -> PyResult<u64> {
+    Ok(parse_composite_mode(mode)?.resolve_code())
+}
+
 #[pymodule]
 fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
+    m.add("COMPOSITE_MODES", CompositeMode::ALL.iter().map(|mode| mode.as_str()).collect::<Vec<_>>())?;
+    m.add("MASK_COMPOSITE_MODES", CompositeMode::ALL.iter().filter(|mode| mode.is_mask()).map(|mode| mode.as_str()).collect::<Vec<_>>())?;
+    m.add_function(wrap_pyfunction!(composite_mode_from_resolve_code, m)?)?;
+    m.add_function(wrap_pyfunction!(composite_mode_resolve_code, m)?)?;
     m.add_class::<PyMediaReference>()?;
     m.add_class::<PyMediaReferencePosition>()?;
     m.add_class::<PyMediaReferenceCrop>()?;
