@@ -95,8 +95,12 @@ fn move_synced_audio_creates_video_track_below_audio_group_in_resolve_layout() {
     aud.set_id(Some("moving-aud".to_string()));
     a15.items.push(aud);
 
+    // V1 is busy over the destination range (40..60), so no existing video
+    // track can take the partner and a new one must be created.
     let mut v1 = Track::new(TrackKind::Video, Some("V1".to_string()));
-    v1.items.push(Item::Gap(Gap::make_gap(100.0)));
+    v1.items.push(Item::Gap(Gap::make_gap(40.0)));
+    v1.items.push(Item::Clip(clip(20.0, Some("v1-blocker"))));
+    v1.items.push(Item::Gap(Gap::make_gap(40.0)));
     v1.items
         .push(Item::Clip(clip(DUR, Some("moving-vid"))));
 
@@ -823,4 +827,203 @@ fn move_sync_set_to_different_track_matrix() {
             }
         }
     }
+}
+
+#[test]
+fn move_synced_audio_reuses_free_video_track_instead_of_creating_one() {
+    // Same layout as the creation test above, but V1 is free over the
+    // destination range: the video partner lands there and no track is added.
+    let mut stack = Stack::default();
+    const DUR: f64 = 5.0;
+
+    let mut a15 = Track::new(TrackKind::Audio, Some("A15".to_string()));
+    a15.items.push(Item::Gap(Gap::make_gap(100.0)));
+    let mut aud = audio_clip(DUR, "file:///moving-aud.wav", None);
+    aud.set_id(Some("moving-aud".to_string()));
+    a15.items.push(aud);
+
+    let mut v1 = Track::new(TrackKind::Video, Some("V1".to_string()));
+    v1.items.push(Item::Gap(Gap::make_gap(100.0)));
+    v1.items.push(Item::Clip(clip(DUR, Some("moving-vid"))));
+
+    stack.children.push(a15);
+    stack.children.push(v1);
+    stack
+        .sync_item(&["moving-vid".to_string(), "moving-aud".to_string()])
+        .unwrap();
+
+    let mut separator = Track::new(TrackKind::Video, Some("separator-v".to_string()));
+    separator
+        .items
+        .push(Item::Clip(clip(100.0, Some("separator-vid"))));
+    stack.children.push(separator);
+
+    let mut dest_a = Track::new(TrackKind::Audio, Some("dest-a".to_string()));
+    dest_a.items.push(Item::Gap(Gap::make_gap(100.0)));
+    stack.children.push(dest_a);
+
+    let track_count_before = stack.children.len();
+    assert!(stack.move_item_at_time(
+        "moving-aud",
+        "dest-a",
+        50.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), track_count_before);
+    let (video_track, video_index, _) = stack.get_item("moving-vid").unwrap();
+    assert_eq!(stack.children[video_track].get_id().as_deref(), Some("V1"));
+    assert_eq!(
+        stack.children[video_track].start_time_of_item(video_index),
+        50.0
+    );
+    let (audio_track, audio_index, _) = stack.get_item("moving-aud").unwrap();
+    assert_eq!(
+        stack.children[audio_track].get_id().as_deref(),
+        Some("dest-a")
+    );
+    assert_eq!(
+        stack.children[audio_track].start_time_of_item(audio_index),
+        50.0
+    );
+    assert_sync_clips_track_aligned(&stack, "audio move reusing free video track");
+}
+
+#[test]
+fn move_synced_video_between_video_tracks_reuses_free_audio_tracks() {
+    // App layout: every audio track sits below every video track, so the
+    // destination video has no adjacent audio track. Partners must still land
+    // on existing free audio tracks (source first, then any other free one)
+    // rather than on freshly created ones.
+    let mut stack = Stack::default();
+    for (id, kind) in [
+        ("A1", TrackKind::Audio),
+        ("A2", TrackKind::Audio),
+        ("V1", TrackKind::Video),
+        ("V2", TrackKind::Video),
+    ] {
+        stack.children.push(Track::new(kind, Some(id.to_string())));
+    }
+    let v1_index = track_index_by_id(&stack, "V1");
+    let first = insert_with_audio(
+        &mut stack,
+        v1_index,
+        0.0,
+        clip(4.0, Some("v1")),
+        vec![audio_clip(4.0, "file:///v1.wav", None)],
+    )
+    .unwrap();
+    let second = insert_with_audio(
+        &mut stack,
+        v1_index,
+        10.0,
+        clip(4.0, Some("v2")),
+        vec![audio_clip(4.0, "file:///v2.wav", None)],
+    )
+    .unwrap();
+    assert_eq!(stack.children.len(), 4);
+    let v1_audio_track = stack.children[first.audio_clips[0].1].get_id().unwrap();
+    assert_eq!(
+        v1_audio_track,
+        stack.children[second.audio_clips[0].1].get_id().unwrap()
+    );
+
+    // Source audio track is free at 20: partner goes back there.
+    assert!(stack.move_item_at_time(
+        "v1",
+        "V2",
+        20.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+    assert_eq!(stack.children.len(), 4);
+    let (audio_track, _, _) = stack.get_item(&first.audio_clips[0].0).unwrap();
+    assert_eq!(
+        stack.children[audio_track].get_id().unwrap(),
+        v1_audio_track
+    );
+    assert_sync_clips_track_aligned(&stack, "cross-track move reusing source audio");
+
+    // Source audio track is busy at 10 (v2's audio): the other free audio
+    // track is reused instead of creating a new one.
+    assert!(stack.move_item_at_time(
+        "v1",
+        "V2",
+        10.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+    assert_eq!(stack.children.len(), 4);
+    let (audio_track, _, _) = stack.get_item(&first.audio_clips[0].0).unwrap();
+    assert_ne!(
+        stack.children[audio_track].get_id().unwrap(),
+        v1_audio_track
+    );
+    assert_eq!(stack.children[audio_track].kind, TrackKind::Audio);
+    assert_sync_clips_track_aligned(&stack, "cross-track move reusing other free audio");
+}
+
+#[test]
+fn move_synced_video_across_tracks_with_ripple_keeps_partners_aligned() {
+    // Ripple (no gap left behind) closes the hole on the source tracks. The
+    // audio partner re-inserted on its source track must not drift with that
+    // ripple while the primary sits untouched on the destination track.
+    let mut stack = Stack::default();
+    for (id, kind) in [
+        ("A1", TrackKind::Audio),
+        ("V1", TrackKind::Video),
+        ("V2", TrackKind::Video),
+    ] {
+        stack.children.push(Track::new(kind, Some(id.to_string())));
+    }
+    let first = insert_with_audio(
+        &mut stack,
+        1,
+        0.0,
+        clip(4.0, Some("v1")),
+        vec![audio_clip(4.0, "file:///v1.wav", None)],
+    )
+    .unwrap();
+    let second = insert_with_audio(
+        &mut stack,
+        1,
+        4.0,
+        clip(4.0, Some("v2")),
+        vec![audio_clip(4.0, "file:///v2.wav", None)],
+    )
+    .unwrap();
+
+    assert!(stack.move_item_at_time(
+        "v1",
+        "V2",
+        10.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+
+    assert_eq!(stack.children.len(), 3);
+    for (id, track, start) in [
+        ("v1", "V2", 10.0),
+        (first.audio_clips[0].0.as_str(), "A1", 10.0),
+        ("v2", "V1", 0.0),
+        (second.audio_clips[0].0.as_str(), "A1", 0.0),
+    ] {
+        let (track_index, item_index, _) = stack.get_item(id).unwrap();
+        assert_eq!(
+            stack.children[track_index].get_id().as_deref(),
+            Some(track),
+            "{id}"
+        );
+        assert_eq!(
+            stack.children[track_index].start_time_of_item(item_index),
+            start,
+            "{id}"
+        );
+    }
+    assert_sync_clips_track_aligned(&stack, "ripple move across video tracks");
 }
