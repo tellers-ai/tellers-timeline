@@ -19,6 +19,12 @@ fn default_clip_schema() -> String {
 fn default_gap_schema() -> String {
     "Gap.1".to_string()
 }
+fn default_transition_schema() -> String {
+    "Transition.1".to_string()
+}
+fn default_transition_type() -> String {
+    "SMPTE_Dissolve".to_string()
+}
 fn default_time_range_schema() -> String {
     "TimeRange.1".to_string()
 }
@@ -212,11 +218,12 @@ where
 pub enum Item {
     Clip(Clip),
     Gap(Gap),
+    Transition(Transition),
 }
 
 impl<'de> Deserialize<'de> for Item {
     /// Dispatch on `OTIO_SCHEMA`: a `Gap.*` schema deserializes as [`Gap`],
-    /// everything else as [`Clip`].
+    /// a `Transition.*` schema as [`Transition`], everything else as [`Clip`].
     ///
     /// A plain `#[serde(untagged)]` deserialize would always match [`Clip`]
     /// first — every `Clip` field but `source_range` is `#[serde(default)]`, so
@@ -227,14 +234,19 @@ impl<'de> Deserialize<'de> for Item {
         D: Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        let is_gap = value
+        let schema = value
             .get("OTIO_SCHEMA")
             .and_then(|schema| schema.as_str())
-            .is_some_and(|schema| {
-                schema.eq_ignore_ascii_case("Gap.1") || schema.eq_ignore_ascii_case("Gap")
-            });
+            .unwrap_or_default();
+        let is_gap = schema.eq_ignore_ascii_case("Gap.1") || schema.eq_ignore_ascii_case("Gap");
+        let is_transition = schema.eq_ignore_ascii_case("Transition.1")
+            || schema.eq_ignore_ascii_case("Transition");
         if is_gap {
             Gap::deserialize(value).map(Item::Gap).map_err(D::Error::custom)
+        } else if is_transition {
+            Transition::deserialize(value)
+                .map(Item::Transition)
+                .map_err(D::Error::custom)
         } else {
             Clip::deserialize(value)
                 .map(Item::Clip)
@@ -256,22 +268,30 @@ impl Item {
             c.clamp_to_active_available_range();
         }
     }
+    /// Track-time duration of the item. Transitions take no track time (they
+    /// overlap their neighbours instead), so they always report `0.0`.
     pub fn duration(&self) -> Seconds {
         match self {
             Item::Clip(c) => c.source_range.duration.to_seconds(),
             Item::Gap(g) => g.source_range.duration.to_seconds(),
+            Item::Transition(_) => 0.0,
         }
     }
     pub fn set_duration(&mut self, dur: Seconds) {
         match self {
             Item::Clip(c) => c.source_range.duration.set_from_seconds(dur),
             Item::Gap(g) => g.source_range.duration.set_from_seconds(dur),
+            Item::Transition(_) => {}
         }
+    }
+    pub fn is_transition(&self) -> bool {
+        matches!(self, Item::Transition(_))
     }
     pub fn get_enabled(&self) -> bool {
         match self {
             Item::Clip(c) => c.enabled,
             Item::Gap(_g) => true,
+            Item::Transition(_) => true,
         }
     }
     pub fn set_enabled(&mut self, enabled: bool) {
@@ -279,22 +299,27 @@ impl Item {
             c.enabled = enabled;
         }
     }
+    /// The item's source range. Transitions have none in OTIO; they report an
+    /// empty range so callers that only need a duration keep working.
     pub fn get_source_range(&self) -> TimeRange {
         match self {
             Item::Clip(c) => c.source_range.clone(),
             Item::Gap(g) => g.source_range.clone(),
+            Item::Transition(_) => TimeRange::new(0.0, 0.0),
         }
     }
     pub fn set_source_range(&mut self, source_range: TimeRange) {
         match self {
             Item::Clip(c) => c.source_range = source_range,
             Item::Gap(g) => g.source_range = source_range,
+            Item::Transition(_) => {}
         }
     }
     pub fn get_active_media_reference_key(&self) -> Option<String> {
         match self {
             Item::Clip(c) => c.active_media_reference_key.clone(),
             Item::Gap(_g) => None,
+            Item::Transition(_) => None,
         }
     }
     pub fn set_active_media_reference_key(&mut self, key: Option<String>) {
@@ -306,6 +331,7 @@ impl Item {
         match self {
             Item::Clip(c) => c.media_references.clone(),
             Item::Gap(_g) => HashMap::new(),
+            Item::Transition(_) => HashMap::new(),
         }
     }
     pub fn set_media_references(&mut self, references: HashMap<String, MediaReference>) {
@@ -327,18 +353,20 @@ impl Item {
         match self {
             Item::Clip(c) => c.effects.clone(),
             Item::Gap(g) => g.effects.clone(),
+            Item::Transition(_) => Vec::new(),
         }
     }
     pub fn set_effects(&mut self, effects: Vec<Effect>) {
         match self {
             Item::Clip(c) => c.effects = effects,
             Item::Gap(g) => g.effects = effects,
+            Item::Transition(_) => {}
         }
     }
     pub fn get_position(&self) -> MediaReferencePosition {
         match self {
             Item::Clip(c) => c.get_position(),
-            Item::Gap(_g) => MediaReferencePosition {
+            Item::Gap(_) | Item::Transition(_) => MediaReferencePosition {
                 x: 0.0,
                 y: 0.0,
                 rotation: 0.0,
@@ -355,7 +383,7 @@ impl Item {
     pub fn get_volume(&self) -> f64 {
         match self {
             Item::Clip(c) => c.get_volume(),
-            Item::Gap(_g) => 1.0,
+            Item::Gap(_) | Item::Transition(_) => 1.0,
         }
     }
     /// The Rich Text Title HTML of this item's active media reference, if any.
@@ -363,7 +391,7 @@ impl Item {
     pub fn get_rich_text(&self) -> Option<String> {
         match self {
             Item::Clip(c) => c.get_rich_text(),
-            Item::Gap(_g) => None,
+            Item::Gap(_) | Item::Transition(_) => None,
         }
     }
     pub fn set_volume(&mut self, volume: f64) {
@@ -374,7 +402,7 @@ impl Item {
     pub fn get_crop(&self) -> MediaReferenceCrop {
         match self {
             Item::Clip(c) => c.get_crop(),
-            Item::Gap(_g) => MediaReferenceCrop::default(),
+            Item::Gap(_) | Item::Transition(_) => MediaReferenceCrop::default(),
         }
     }
     pub fn set_crop(&mut self, crop: MediaReferenceCrop) {
@@ -1018,6 +1046,63 @@ impl Gap {
     }
 }
 
+/// An OTIO `Transition.1` sitting between two neighbouring track items.
+///
+/// A transition takes no track time: `in_offset` says how far it reaches back
+/// into the item before it and `out_offset` how far it reaches into the item
+/// after it. The neighbours' `source_range`s do not include that overlap, so a
+/// renderer has to read extra media handles past each cut. `transition_type`
+/// is `SMPTE_Dissolve` for a standard dissolve; NLE-specific effects (e.g.
+/// DaVinci Resolve Fusion transitions) export as `Custom_Transition` with the
+/// details under `metadata`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct Transition {
+    #[serde(rename = "OTIO_SCHEMA", default = "default_transition_schema")]
+    pub otio_schema: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default = "default_transition_type")]
+    pub transition_type: String,
+    #[serde(default)]
+    pub in_offset: RationalTime,
+    #[serde(default)]
+    pub out_offset: RationalTime,
+    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    pub metadata: serde_json::Value,
+}
+
+impl Transition {
+    pub fn new(
+        in_offset: Seconds,
+        out_offset: Seconds,
+        transition_type: Option<String>,
+        id: Option<String>,
+    ) -> Self {
+        let mut t = Transition {
+            otio_schema: default_transition_schema(),
+            name: None,
+            transition_type: transition_type.unwrap_or_else(default_transition_type),
+            in_offset: RationalTime::from_seconds(in_offset),
+            out_offset: RationalTime::from_seconds(out_offset),
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
+        };
+        crate::metadata::IdMetadataExt::set_id(&mut t, Some(id.unwrap_or_else(gen_hex_id_12)));
+        t
+    }
+    /// Seconds the transition reaches back into the preceding item.
+    pub fn in_offset_seconds(&self) -> Seconds {
+        self.in_offset.to_seconds()
+    }
+    /// Seconds the transition reaches into the following item.
+    pub fn out_offset_seconds(&self) -> Seconds {
+        self.out_offset.to_seconds()
+    }
+    /// Total overlap covered by the transition (`in_offset + out_offset`).
+    pub fn overlap_seconds(&self) -> Seconds {
+        self.in_offset_seconds().max(0.0) + self.out_offset_seconds().max(0.0)
+    }
+}
+
 /// Variant type for Resolve_OTIO parameters
 /// Variant type for Resolve_OTIO parameters.
 /// Uses serde derive for Serialize with custom Deserialize for case-insensitive parsing.
@@ -1588,6 +1673,14 @@ impl Default for RationalTime {
 }
 
 impl RationalTime {
+    pub fn from_seconds(seconds: Seconds) -> Self {
+        Self {
+            otio_schema: default_rational_time_schema(),
+            rate: 1.0,
+            value: seconds,
+        }
+    }
+
     pub fn to_seconds(&self) -> Seconds {
         if self.rate.abs() > f64::EPSILON {
             self.value / self.rate

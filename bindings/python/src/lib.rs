@@ -5,7 +5,7 @@ use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
     validate_timeline, Clip, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline,
-    Track, TrackKind,
+    Track, Transition, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
@@ -540,6 +540,83 @@ impl PyGap {
     }
 }
 
+#[pyclass(name = "Transition")]
+#[derive(Clone)]
+struct PyTransition {
+    inner: Transition,
+}
+
+#[pymethods]
+impl PyTransition {
+    /// An OTIO transition between two neighbouring items. Offsets are in seconds:
+    /// `in_offset` reaches back into the previous item, `out_offset` into the next.
+    #[new]
+    #[pyo3(signature = (in_offset, out_offset, transition_type=None, id=None))]
+    fn new(in_offset: f64, out_offset: f64, transition_type: Option<String>, id: Option<String>) -> Self {
+        Self {
+            inner: Transition::new(in_offset, out_offset, transition_type, id),
+        }
+    }
+    #[staticmethod]
+    fn parse_json(json_str: &str) -> PyResult<Self> {
+        let inner: Transition = serde_json::from_str(json_str)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        Ok(Self { inner })
+    }
+    fn to_json(&self) -> PyResult<String> {
+        to_json_with_precision(&self.inner, None, false)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn get_name(&self) -> Option<String> {
+        self.inner.name.clone()
+    }
+    fn set_name(&mut self, name: Option<String>) {
+        self.inner.name = name;
+    }
+    fn get_transition_type(&self) -> String {
+        self.inner.transition_type.clone()
+    }
+    fn set_transition_type(&mut self, transition_type: String) {
+        self.inner.transition_type = transition_type;
+    }
+    fn get_in_offset(&self) -> f64 {
+        self.inner.in_offset_seconds()
+    }
+    fn set_in_offset(&mut self, seconds: f64) {
+        self.inner.in_offset.set_from_seconds(seconds);
+    }
+    fn get_out_offset(&self) -> f64 {
+        self.inner.out_offset_seconds()
+    }
+    fn set_out_offset(&mut self, seconds: f64) {
+        self.inner.out_offset.set_from_seconds(seconds);
+    }
+    fn get_id(&self) -> Option<String> {
+        self.inner.get_id()
+    }
+    fn set_id(&mut self, id: Option<&str>) {
+        self.inner.set_id(id.map(|s| s.to_string()));
+    }
+    fn get_metadata_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner.metadata)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    fn set_metadata_json(&mut self, metadata_json: &str) -> PyResult<()> {
+        let v: serde_json::Value = serde_json::from_str(metadata_json)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+        let coerced = if v.as_object().is_none() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            v
+        };
+        self.inner.metadata = coerced;
+        Ok(())
+    }
+    fn __str__(&self) -> PyResult<String> {
+        self.to_json()
+    }
+}
+
 #[pyclass(name = "Item")]
 #[derive(Clone)]
 struct PyItem {
@@ -593,11 +670,27 @@ impl PyItem {
             inner: Item::Gap(g.inner),
         }
     }
+    #[staticmethod]
+    fn from_transition(t: PyTransition) -> Self {
+        Self {
+            inner: Item::Transition(t.inner),
+        }
+    }
     fn is_clip(&self) -> bool {
         matches!(self.inner, Item::Clip(_))
     }
     fn is_gap(&self) -> bool {
         matches!(self.inner, Item::Gap(_))
+    }
+    fn is_transition(&self) -> bool {
+        self.inner.is_transition()
+    }
+    /// The transition payload when this item is one, else `None`.
+    fn as_transition(&self) -> Option<PyTransition> {
+        match &self.inner {
+            Item::Transition(t) => Some(PyTransition { inner: t.clone() }),
+            _ => None,
+        }
     }
     fn duration(&self) -> f64 {
         self.inner.duration()
@@ -1222,6 +1315,9 @@ fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
     if let Ok(py_gap) = item.extract::<PyRef<PyGap>>() {
         return Some(Item::Gap(py_gap.inner.clone()));
     }
+    if let Ok(py_transition) = item.extract::<PyRef<PyTransition>>() {
+        return Some(Item::Transition(py_transition.inner.clone()));
+    }
     None
 }
 
@@ -1512,6 +1608,7 @@ fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyEffect>()?;
     m.add_class::<PyClip>()?;
     m.add_class::<PyGap>()?;
+    m.add_class::<PyTransition>()?;
     m.add_class::<PyItem>()?;
     m.add_class::<PyTrack>()?;
     m.add_class::<PyStack>()?;
