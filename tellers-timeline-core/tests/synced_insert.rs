@@ -28,35 +28,29 @@ fn synced_insert_adds_primary_and_audio_tracks_without_touching_clips() {
 
     assert_eq!(result.primary_clip_id, "primary-id");
     assert_eq!(result.audio_clips.len(), 3);
-    // Fresh insert: the video is not yet in a sync group, so three new audio tracks are
-    // created directly below it (at indices [0, 1, 2]), pushing the video up to the top of
-    // its group (index 3). The pre-existing empty audio track is unrelated and untouched,
-    // ending up at the bottom (index 4). Nearest-first: the first audio clip sits directly
-    // below the video (index 2), the last at index 0.
+    // Reuse the adjacent empty audio track and create only two missing channels.
+    // Audio slots retain the fresh-insert descending-index channel order.
     assert_eq!(
         result
             .audio_clips
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![2, 1, 0]
+        vec![3, 1, 0]
     );
-    assert_eq!(result.created_track_indices, vec![0, 1, 2]);
-    assert_eq!(stack.children.len(), 5);
+    assert_eq!(result.created_track_indices, vec![0, 1]);
+    assert_eq!(stack.children.len(), 4);
     assert_eq!(stack.children[0].kind, TrackKind::Audio);
     assert_eq!(stack.children[1].kind, TrackKind::Audio);
-    assert_eq!(stack.children[2].kind, TrackKind::Audio);
-    assert_eq!(stack.children[3].kind, TrackKind::Video);
-    assert_eq!(stack.children[4].kind, TrackKind::Audio);
-    assert_eq!(stack.children[3].get_id().as_deref(), Some("video-track"));
-    assert_eq!(stack.get_item("primary-id").unwrap().0, 3);
-    assert_eq!(stack.children[4].get_id().as_deref(), Some("audio-track"));
+    assert_eq!(stack.children[2].kind, TrackKind::Video);
+    assert_eq!(stack.children[3].kind, TrackKind::Audio);
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("video-track"));
+    assert_eq!(stack.get_item("primary-id").unwrap().0, 2);
+    assert_eq!(stack.children[3].get_id().as_deref(), Some("audio-track"));
     assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
     assert_eq!(stack.children[0].name.as_deref(), Some("A1"));
     assert_eq!(stack.children[1].get_id().as_deref(), Some("A2"));
     assert_eq!(stack.children[1].name.as_deref(), Some("A2"));
-    assert_eq!(stack.children[2].get_id().as_deref(), Some("A3"));
-    assert_eq!(stack.children[2].name.as_deref(), Some("A3"));
 
     let primary = stack.get_item("primary-id").unwrap().2;
     assert_eq!(primary.duration(), 4.0);
@@ -172,10 +166,8 @@ fn synced_insert_places_audio_below_video_when_audio_track_exists_above() {
 }
 
 #[test]
-fn synced_insert_creates_audio_track_below_video_when_cluster_has_no_audio() {
-    // Standard "video on top" layout: audio sits below the video at a lower index, but
-    // unless it is already in the destination sync cluster the insert creates a fresh
-    // audio track directly below the video instead of scanning for a free boundary track.
+fn synced_insert_reuses_empty_audio_below_video_without_existing_cluster() {
+    // Empty neighboring audio is reusable even before a sync cluster exists.
     let mut audio = Track::new(TrackKind::Audio, Some("audio-track".to_string()));
     audio.items.push(Item::Gap(Gap::make_gap(10.0)));
     let mut video = Track::new(TrackKind::Video, Some("video-track".to_string()));
@@ -194,20 +186,19 @@ fn synced_insert_creates_audio_track_below_video_when_cluster_has_no_audio() {
     )
     .expect("linked insert should succeed");
 
-    assert_eq!(result.created_track_indices, vec![1]);
-    assert_eq!(stack.children.len(), 3);
+    assert!(result.created_track_indices.is_empty());
+    assert_eq!(stack.children.len(), 2);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("audio-track"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("A1"));
-    assert_eq!(stack.children[2].get_id().as_deref(), Some("video-track"));
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("video-track"));
     assert_eq!(result.audio_clips.len(), 1);
-    assert_eq!(result.audio_clips[0].1, 1);
+    assert_eq!(result.audio_clips[0].1, 0);
 
     // Primary and sync track stay aligned and share a link group.
     let (primary_track_index, primary_item_index, _) = stack.get_item("primary").unwrap();
     let primary_start = stack.children[primary_track_index].start_time_of_item(primary_item_index);
     let (audio_id, _) = &result.audio_clips[0];
     let (audio_track_index, audio_item_index, audio_item) = stack.get_item(audio_id).unwrap();
-    assert_eq!(audio_track_index, 1);
+    assert_eq!(audio_track_index, 0);
     assert_eq!(
         stack.children[audio_track_index].start_time_of_item(audio_item_index),
         primary_start
@@ -216,9 +207,8 @@ fn synced_insert_creates_audio_track_below_video_when_cluster_has_no_audio() {
 }
 
 #[test]
-fn synced_insert_creates_audio_tracks_for_each_synced_audio_clip() {
-    // Two synced audio clips each get a freshly created track directly below the video
-    // when they are not already present in the destination sync cluster.
+fn synced_insert_reuses_empty_audio_tracks_for_each_synced_audio_clip() {
+    // Reuse each empty adjacent audio track once, without allocating new tracks.
     let mut far_audio = Track::new(TrackKind::Audio, Some("far-audio".to_string()));
     far_audio.items.push(Item::Gap(Gap::make_gap(10.0)));
     let mut empty_audio = Track::new(TrackKind::Audio, Some("empty-audio".to_string()));
@@ -249,13 +239,13 @@ fn synced_insert_creates_audio_tracks_for_each_synced_audio_clip() {
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![3, 2]
+        vec![1, 0]
     );
-    assert_eq!(result.created_track_indices, vec![2, 3]);
-    assert_eq!(stack.children.len(), 5);
+    assert!(result.created_track_indices.is_empty());
+    assert_eq!(stack.children.len(), 3);
     assert_eq!(stack.children[0].get_id().as_deref(), Some("far-audio"));
     assert_eq!(stack.children[1].get_id().as_deref(), Some("empty-audio"));
-    assert_eq!(stack.get_item("primary").unwrap().0, 4);
+    assert_eq!(stack.get_item("primary").unwrap().0, 2);
 }
 
 #[test]

@@ -201,6 +201,13 @@
   <div class="actions"><button id="ptCancel">Cancel</button><button id="ptOk" class="primary">Add track</button></div>
 </div>
 
+<div class="pop" id="popReplace">
+  <div class="frow"><label>Name</label><input type="text" id="prName" style="width:130px"></div>
+  <div class="frow"><label>Duration (s)</label><input type="number" id="prDur" step="0.5" min="0.1" value="2"></div>
+  <div class="frow"><label>Linked audio</label><input type="checkbox" id="prAudio"></div>
+  <div class="actions"><button id="prCancel">Cancel</button><button id="prOk" class="primary">Replace clip</button></div>
+</div>
+
 <div id="menu"></div>
 <div id="ghost"></div>
 <div id="droptip"></div>
@@ -604,6 +611,31 @@
   $('#ptOk').addEventListener('click', submitTrack);
   $('#popTrack').addEventListener('keydown', e => { if (e.key === 'Enter') submitTrack(); });
 
+  function openReplacePopover(it, ev) {
+    popCtx = { item: it };
+    $('#prName').value = (it.name || 'clip') + ' (replaced)';
+    $('#prDur').value = fmt(it.duration);
+    $('#prAudio').checked = false;
+    place($('#popReplace'), null, ev);
+    $('#prName').focus();
+  }
+  $('#prCancel').addEventListener('click', closePops);
+  $('#prOk').addEventListener('click', submitReplacePopover);
+  $('#popReplace').addEventListener('keydown', e => { if (e.key === 'Enter') submitReplacePopover(); });
+  async function submitReplacePopover() {
+    const { item: it } = popCtx;
+    const name = $('#prName').value.trim() || 'clip';
+    const dur = parseFloat($('#prDur').value) || it.duration;
+    const withAudio = $('#prAudio').checked;
+    const n = clipCounter++;
+    closePops();
+    await api('replace_item', {
+      id: it.id,
+      item: itemSpec('clip', name, dur, { url: `file:///replaced${n}.mov` }),
+      linked_audio: withAudio ? [itemSpec('clip', name + ' audio', dur, { url: `file:///replaced${n}.wav` })] : null,
+    });
+  }
+
   // ------------------------------------------------------------- context menu
   function openMenu(ev, entries) {
     el.menu.innerHTML = '';
@@ -629,7 +661,7 @@
       { sep: true },
       { label: 'Delete → leave gap', key: '⌫', run: () => deleteSelected(true) },
       { label: 'Delete → ripple (no gap)', key: '⇧⌫', run: () => deleteSelected(false) },
-      { label: 'Replace with new clip…', run: () => replaceItem(it) },
+      { label: 'Replace with new clip…', run: () => openReplacePopover(it, ev) },
       { label: it.enabled ? 'Disable (set_enabled False)' : 'Enable', key: 'E', run: () => toggleEnabled() },
       { sep: true },
       { label: `Link selected (${ids.length})`, key: 'L', disabled: ids.length < 2, run: () => api('link_items', { ids }) },
@@ -648,17 +680,6 @@
   }
   async function toggleEnabled() {
     for (const id of [...selected]) { const it = findItem(id); if (it) await api('set_item_enabled', { id, enabled: !it.enabled }); }
-  }
-  function replaceItem(it) {
-    const dur = prompt('New clip duration (s):', fmt(it.duration)); if (dur === null) return;
-    const name = prompt('New clip name:', (it.name || 'clip') + ' (replaced)'); if (name === null) return;
-    const withAudio = confirm('Also pass a linked audio clip (linked_audio_clips)?');
-    const n = clipCounter++;
-    api('replace_item', {
-      id: it.id,
-      item: itemSpec('clip', name, parseFloat(dur) || it.duration, { url: `file:///replaced${n}.mov` }),
-      linked_audio: withAudio ? [itemSpec('clip', name + ' audio', parseFloat(dur) || it.duration, { url: `file:///replaced${n}.wav` })] : null,
-    });
   }
   async function splitSelected() {
     for (const id of [...selected]) { const it = findItem(id); if (it && playhead > it.start && playhead < it.start + it.duration) await api('split_item', { id, time: playhead }); }

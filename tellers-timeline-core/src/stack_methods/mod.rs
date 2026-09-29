@@ -751,20 +751,17 @@ impl Stack {
         targets
     }
 
-    /// Build the ordered list of moves for a grouped move of `item_id` to
+    /// Build the list of moves for a grouped move of `item_id` to
     /// `dest_track_id` / `dest_time`. Returns `None` when the selected clip is
     /// not part of a Tellers group.
     ///
     /// Each entry is `(representative_item_id, dest_track_id, dest_time)`. A
-    /// sub-unit is one sync column (shared Link Group ID) or a single unsynced
-    /// clip; only one representative per sub-unit is emitted since
-    /// `move_item_at_time_single` moves a whole sync column at once. The selected
+    /// sub-unit is one aligned sync column or a single clip, including offset
+    /// linked partners. Only one representative per aligned column is emitted. The selected
     /// clip's sub-unit moves to the requested destination track; every other
     /// sub-unit shifts by the same delta on its own track.
     ///
-    /// Entries are ordered by their current start time so members never collide
-    /// while shifting: backward moves (delta < 0) go smallest-start first,
-    /// forward moves (delta >= 0) go biggest-start first.
+    /// The transaction lifts all sources before ordering destination insertions.
     fn tellers_group_move_plan(
         &self,
         item_id: &str,
@@ -772,30 +769,26 @@ impl Stack {
         dest_time: Seconds,
     ) -> Option<Vec<(String, String, Seconds)>> {
         let (selected_track_index, selected_item_index, selected_item) = self.get_item(item_id)?;
-        let group_id = item_tellers_group_id(selected_item)?;
-        let Item::Clip(selected_clip) = selected_item else {
-            return None;
-        };
+        item_tellers_group_id(selected_item)?;
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
         let delta = dest_time - selected_start;
 
-        let selected_key = match resolve_sync_clips_id(&selected_clip.metadata) {
-            Some(sync_id) => SubUnitKey::Sync(sync_id),
-            None => SubUnitKey::Clip(item_id.to_string()),
+        let column_ids = |id: &str| -> Vec<String> {
+            self.synced_move_items(id)
+                .map(|items| items.into_iter().filter_map(|m| m.item.get_id()).collect())
+                .unwrap_or_else(|| vec![id.to_string()])
         };
 
-        // (rep_id, dest_track_id, dest_time, old_start). The selected sub-unit
+        // (rep_id, dest_track_id, dest_time). The selected sub-unit
         // goes to the requested destination track; the rest stay on their own.
-        let mut moves: Vec<(String, String, Seconds, Seconds)> = vec![(
+        let mut moves = vec![(
             item_id.to_string(),
             dest_track_id.to_string(),
             dest_time,
-            selected_start,
         )];
-        let mut seen_keys = HashSet::new();
-        seen_keys.insert(selected_key);
-        for (track_index, item_index) in self.tellers_group_targets(group_id) {
+        let mut seen_ids: HashSet<String> = column_ids(item_id).into_iter().collect();
+        for (track_index, item_index) in self.delete_item_group_targets(item_id)? {
             let Some(Item::Clip(clip)) = self
                 .children
                 .get(track_index)
@@ -806,34 +799,18 @@ impl Stack {
             let Some(rep_id) = clip.get_id() else {
                 continue;
             };
-            let key = match resolve_sync_clips_id(&clip.metadata) {
-                Some(sync_id) => SubUnitKey::Sync(sync_id),
-                None => SubUnitKey::Clip(rep_id.clone()),
-            };
-            if !seen_keys.insert(key) {
+            if seen_ids.contains(&rep_id) {
                 continue;
             }
+            seen_ids.extend(column_ids(&rep_id));
             let Some(track_id) = self.children[track_index].get_id() else {
                 continue;
             };
             let rep_start = self.children[track_index].start_time_of_item(item_index);
-            moves.push((rep_id, track_id, rep_start + delta, rep_start));
+            moves.push((rep_id, track_id, rep_start + delta));
         }
 
-        moves.sort_by(|a, b| {
-            if delta < 0.0 {
-                a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal)
-            } else {
-                b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal)
-            }
-        });
-
-        Some(
-            moves
-                .into_iter()
-                .map(|(rep_id, track_id, dest, _old_start)| (rep_id, track_id, dest))
-                .collect(),
-        )
+        Some(moves)
     }
 
     fn sync_column_targets_at(
@@ -1215,6 +1192,15 @@ impl Stack {
         };
         if track.kind != TrackKind::Audio || used_audio_indices.contains(&candidate_index) {
             return false;
+        }
+        // A horizontal move keeps its original channel mapping even after
+        // lifting the column has erased the last sync metadata on these tracks.
+        if exclude_track_indices.contains(&dest_track_index)
+            && exclude_track_indices.contains(&candidate_index)
+            && (track_is_empty_boundary(track)
+                || range_is_gap_backed(track, dest_time, dest_time + duration))
+        {
+            return true;
         }
         let end_time = dest_time + duration;
         let dest_cluster: HashSet<usize> = self
@@ -1708,7 +1694,7 @@ impl Stack {
         // Moves pass source audio track indices so partners land back on their original
         // tracks. Empty preferred tracks (no clips, or gaps only) are part of the
         // destination working cluster so insert propagation applies there too.
-        if let Some(preferred_indices) = preferred_audio_track_indices {
+        if has_synced_clips {
             for track_index in self.destination_move_audio_candidates(dest_track_index, &[]) {
                 let Some(track) = self.children.get(track_index) else {
                     continue;
@@ -1720,7 +1706,7 @@ impl Stack {
                     cluster.push(track_index);
                 }
             }
-            for &track_index in preferred_indices {
+            for &track_index in preferred_audio_track_indices.unwrap_or(&[]) {
                 if track_index == dest_track_index {
                     continue;
                 }
@@ -1895,7 +1881,9 @@ impl Stack {
         // Assign the first synced audio to the audio track immediately below the
         // destination (largest index still less than `dest_track_index` in Resolve
         // layout), then the next-nearest, and so on.
-        audio_slots.sort_by(|a, b| b.cmp(a));
+        if preferred_audio_track_indices.is_none() {
+            audio_slots.sort_by(|a, b| b.cmp(a));
+        }
 
         // Audio clips onto the nearest cluster audio tracks.
         let mut audio_clips = Vec::new();
@@ -3284,6 +3272,13 @@ impl Stack {
         };
         let primary_item = selected.item.clone();
 
+        // Deleting the last column erases the sync-cluster evidence. Keep the
+        // original video identity for a horizontal audio move before deleting it.
+        let preferred_video_track_id = (selected.track_index == dest_track_index)
+            .then(|| items_to_move.iter().find(|item| item.track_kind == TrackKind::Video))
+            .flatten()
+            .and_then(|item| self.children[item.track_index].get_id());
+
         let mut synced_audio = Vec::new();
         let mut preferred_audio_track_indices = Vec::new();
         let mut synced_video = None;
@@ -3291,7 +3286,7 @@ impl Stack {
             .iter()
             .filter(|item| !item.is_selected && item.track_kind == TrackKind::Audio)
             .collect();
-        audio_partners.sort_by_key(|item| item.track_index);
+        audio_partners.sort_by_key(|item| std::cmp::Reverse(item.track_index));
         for item in &items_to_move {
             if item.is_selected {
                 continue;
@@ -3341,7 +3336,7 @@ impl Stack {
                 insert_policy,
                 synced_audio_clips,
                 synced_video,
-                None,
+                preferred_video_track_id.as_deref(),
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 Some(move_source_track_indices.as_slice()),
@@ -3828,14 +3823,6 @@ fn insertion_start_or_end_for_policy(
 
 fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
     Clip::resolve_otio_i64(metadata, "Link Group ID")
-}
-
-/// Identifies a movable sub-unit within a Tellers group: either a whole sync
-/// column (shared Link Group ID) or a single unsynced clip (by timeline id).
-#[derive(PartialEq, Eq, Hash, Clone)]
-enum SubUnitKey {
-    Sync(i64),
-    Clip(String),
 }
 
 pub(super) fn set_resolve_sync_clips_id(metadata: &mut serde_json::Value, sync_clips_id: i64) {
