@@ -499,3 +499,70 @@ fn replace_item_rejects_synced_audio_with_different_duration() {
     ));
     assert_eq!(stack.children, original.children);
 }
+
+/// Resolve import: the first video/audio pair has no link group, but the
+/// tracks are bound by the linked pairs after it.
+fn bound_tracks_with_unlinked_first_pair() -> Stack {
+    let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
+    video.items.push(Item::Clip(clip(3.0, Some("v-unlinked"))));
+    video.items.push(synced_clip_item(2.0, "v-linked", 7));
+    video.items.push(synced_clip_item(2.0, "v-linked-2", 8));
+    let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
+    audio.items.push(Item::Clip(clip(3.0, Some("a-unlinked"))));
+    audio.items.push(synced_clip_item(2.0, "a-linked", 7));
+    audio.items.push(synced_clip_item(2.0, "a-linked-2", 8));
+
+    let mut stack = Stack::default();
+    stack.children.push(audio);
+    stack.children.push(video);
+    stack
+}
+
+fn track_ids(stack: &Stack) -> Vec<Vec<String>> {
+    stack
+        .children
+        .iter()
+        .map(|track| track.items.iter().filter_map(|item| item.get_id()).collect())
+        .collect()
+}
+
+#[test]
+fn replace_unlinked_item_on_bound_track_leaves_partner_track_untouched() {
+    for selected in ["v-unlinked", "a-unlinked"] {
+        let mut stack = bound_tracks_with_unlinked_first_pair();
+        let before = track_ids(&stack);
+
+        assert!(stack.replace_item(
+            selected,
+            Item::Clip(clip(3.0, Some("replacement"))),
+            None,
+        ));
+
+        assert_eq!(track_ids(&stack), before, "replacing {selected}");
+        assert!(stack.children.iter().all(|track| track
+            .items
+            .iter()
+            .all(|item| matches!(item, Item::Clip(_)))));
+        assert!(stack.get_item("replacement").is_none());
+    }
+}
+
+#[test]
+fn replace_unlinked_video_with_audio_on_bound_track_keeps_later_clips() {
+    let mut stack = bound_tracks_with_unlinked_first_pair();
+
+    assert!(stack.replace_item(
+        "v-unlinked",
+        Item::Clip(clip(3.0, Some("replacement"))),
+        Some(vec![audio_clip(3.0, "file:///new.wav", None)]),
+    ));
+
+    let (video_track, video_index, _) = stack.get_item("v-unlinked").unwrap();
+    assert_eq!(stack.children[video_track].start_time_of_item(video_index), 0.0);
+    for id in ["v-linked", "v-linked-2", "a-linked", "a-linked-2"] {
+        let (track, index, item) = stack.get_item(id).unwrap();
+        assert!(matches!(item, Item::Clip(_)), "{id}");
+        let expected = if id.ends_with("-2") { 5.0 } else { 3.0 };
+        assert_eq!(stack.children[track].start_time_of_item(index), expected, "{id}");
+    }
+}
