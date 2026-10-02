@@ -98,6 +98,13 @@ impl Track {
                 self.items.insert(item_index + 1, crate::Item::Gap(gap));
                 None
             }
+            // `get_item_at_time` never lands on a zero-duration transition, so
+            // this arm is unreachable in practice; restore the item to be safe.
+            crate::Item::Transition(transition) => {
+                self.items
+                    .insert(item_index, crate::Item::Transition(transition));
+                None
+            }
         }
     }
 }

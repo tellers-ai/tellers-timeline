@@ -56,7 +56,7 @@ fn group_id(stack: &Stack, item_id: &str) -> Option<i64> {
             .get("tellers.ai")
             .and_then(|v| v.get("Tellers Group ID"))
             .and_then(|v| v.as_i64()),
-        Item::Gap(_) => None,
+        Item::Gap(_) | Item::Transition(_) => None,
     }
 }
 
@@ -672,7 +672,7 @@ fn split_keeps_group_on_both_halves() {
             .get("tellers.ai")
             .and_then(|v| v.get("Tellers Group ID"))
             .and_then(|v| v.as_i64()),
-        Item::Gap(_) => None,
+        Item::Gap(_) | Item::Transition(_) => None,
     };
     assert_eq!(right_group, Some(g));
 }

@@ -69,7 +69,7 @@ impl Stack {
             .iter()
             .filter_map(|item| match item {
                 Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata),
-                Item::Gap(_) => None,
+                Item::Gap(_) | Item::Transition(_) => None,
             })
             .collect();
         let removed = self.children.remove(i);

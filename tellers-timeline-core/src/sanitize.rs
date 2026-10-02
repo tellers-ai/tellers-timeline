@@ -12,6 +12,7 @@ impl Track {
         self.clamp_clips_to_available_ranges();
         self.clamp_negative_durations();
         self.remove_zero_length_items();
+        self.remove_invalid_transitions();
         self.merge_adjacent_gaps();
         self.remove_trailing_gap();
     }
@@ -20,6 +21,7 @@ impl Track {
         self.clamp_clips_to_available_ranges();
         self.clamp_negative_durations();
         self.remove_zero_length_items();
+        self.remove_invalid_transitions();
         self.merge_adjacent_gaps();
         if !self.items.iter().all(|item| matches!(item, Item::Gap(_))) {
             self.remove_trailing_gap();
@@ -40,8 +42,29 @@ impl Track {
         }
     }
 
+    /// Drop clips and gaps with no duration. Transitions are zero-length by
+    /// design and are kept; [`Track::remove_invalid_transitions`] handles them.
     pub(crate) fn remove_zero_length_items(&mut self) {
-        self.items.retain(|it| it.duration() > 0.0);
+        self.items
+            .retain(|it| it.is_transition() || it.duration() > 0.0);
+    }
+
+    /// Drop transitions that no longer sit between two regular items: OTIO
+    /// forbids two adjacent transitions, and a transition needs a neighbour on
+    /// at least one side to have anything to dissolve.
+    pub(crate) fn remove_invalid_transitions(&mut self) {
+        let mut keep = Vec::with_capacity(self.items.len());
+        for (i, item) in self.items.iter().enumerate() {
+            if !item.is_transition() {
+                keep.push(true);
+                continue;
+            }
+            let prev_is_transition = i > 0 && self.items[i - 1].is_transition();
+            let alone = self.items.len() == 1;
+            keep.push(!prev_is_transition && !alone);
+        }
+        let mut keep = keep.into_iter();
+        self.items.retain(|_| keep.next().unwrap_or(true));
     }
 
     pub(crate) fn merge_adjacent_gaps(&mut self) {

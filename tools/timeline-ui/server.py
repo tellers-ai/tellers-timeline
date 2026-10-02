@@ -145,7 +145,7 @@ class State:
                 entry: dict[str, Any] = {
                     "id": item.get_id(),
                     "index": item_index,
-                    "kind": "clip" if item.is_clip() else "gap",
+                    "kind": "clip" if item.is_clip() else ("transition" if item.is_transition() else "gap"),
                     "start": start,
                     "duration": duration,
                     "enabled": item.get_enabled(),

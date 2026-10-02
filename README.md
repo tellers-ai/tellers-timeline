@@ -8,7 +8,7 @@ Open-source, cross-language library for reading, writing, validating, and editin
 - Regenerate schema: `just regen-schema` (writes to `spec/otio.schema.json`)
 
 #### Subset implemented
-- Timeline, Tracks, Clips, Gaps, MediaReference, Metadata
+- Timeline, Tracks, Clips, Gaps, Transitions, MediaReference, Metadata
 - Time values are seconds (`f64`)
 - IDs are optional UUIDs (may be omitted/null for portability)
 

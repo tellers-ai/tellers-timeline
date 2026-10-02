@@ -96,7 +96,7 @@ fn sync_clips_id(item: &Item) -> Option<i64> {
             .get("Resolve_OTIO")
             .and_then(|v| v.get("Link Group ID"))
             .and_then(|v| v.as_i64()),
-        Item::Gap(_) => None,
+        Item::Gap(_) | Item::Transition(_) => None,
     }
 }
 

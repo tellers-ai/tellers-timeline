@@ -1,4 +1,4 @@
-use crate::{Clip, Gap, Item, MediaReference, Stack, Timeline, Track};
+use crate::{Clip, Gap, Item, MediaReference, Stack, Timeline, Track, Transition};
 
 pub trait IdMetadataExt {
     fn get_id(&self) -> Option<String>;
@@ -69,17 +69,28 @@ impl IdMetadataExt for Gap {
     }
 }
 
+impl IdMetadataExt for Transition {
+    fn get_id(&self) -> Option<String> {
+        read_id_from_metadata(&self.metadata)
+    }
+    fn set_id(&mut self, id: Option<String>) {
+        write_id_to_metadata(&mut self.metadata, id)
+    }
+}
+
 impl IdMetadataExt for Item {
     fn get_id(&self) -> Option<String> {
         match self {
             Item::Clip(c) => c.get_id(),
             Item::Gap(g) => g.get_id(),
+            Item::Transition(t) => t.get_id(),
         }
     }
     fn set_id(&mut self, id: Option<String>) {
         match self {
             Item::Clip(c) => c.set_id(id),
             Item::Gap(g) => g.set_id(id),
+            Item::Transition(t) => t.set_id(id),
         }
     }
 }
@@ -191,12 +202,14 @@ impl MetadataExt for Item {
         match self {
             Item::Clip(c) => &c.metadata,
             Item::Gap(g) => &g.metadata,
+            Item::Transition(t) => &t.metadata,
         }
     }
     fn get_metadata_mut(&mut self) -> &mut serde_json::Value {
         match self {
             Item::Clip(c) => &mut c.metadata,
             Item::Gap(g) => &mut g.metadata,
+            Item::Transition(t) => &mut t.metadata,
         }
     }
     fn set_metadata(&mut self, metadata: serde_json::Value) {
@@ -207,6 +220,7 @@ impl MetadataExt for Item {
         match self {
             Item::Clip(c) => c.metadata = v,
             Item::Gap(g) => g.metadata = v,
+            Item::Transition(t) => t.metadata = v,
         }
     }
 }
@@ -228,7 +242,7 @@ impl MetadataExt for Item {
 pub fn item_link_group_id(item: &Item) -> Option<i64> {
     match item {
         Item::Clip(clip) => clip.sync_clips_id(),
-        Item::Gap(_) => None,
+        Item::Gap(_) | Item::Transition(_) => None,
     }
 }
 
@@ -236,7 +250,7 @@ pub fn item_link_group_id(item: &Item) -> Option<i64> {
 pub fn item_tellers_group_id(item: &Item) -> Option<i64> {
     match item {
         Item::Clip(clip) => resolve_tellers_group_id(&clip.metadata),
-        Item::Gap(_) => None,
+        Item::Gap(_) | Item::Transition(_) => None,
     }
 }
 
