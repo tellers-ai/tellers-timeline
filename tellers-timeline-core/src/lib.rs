@@ -1,3 +1,4 @@
+pub mod color_grading;
 pub mod fonts;
 pub mod metadata;
 pub mod sanitize;
@@ -8,6 +9,7 @@ pub mod track_methods;
 pub mod types;
 pub mod validate;
 
+pub use color_grading::*;
 pub use fonts::*;
 pub use metadata::*;
 pub use serialize::*;
