@@ -71,7 +71,7 @@ fn item_edge(target: &SnapTarget) -> (Option<&str>, SnapEdge) {
 
 #[test]
 fn snaps_start_to_nearest_clip_end() {
-    let found = stack().find_snap(4.2, 1.0, 0.3, &[], &[]).unwrap();
+    let found = stack().find_snap(4.2, 1.0, 0.3, &[], &[], &[]).unwrap();
     assert_eq!(item_edge(&found.target), (Some("a"), SnapEdge::End));
     assert_eq!(found.moving_edge, SnapEdge::Start);
     assert!((found.target_time - 4.0).abs() < 1e-9);
@@ -81,7 +81,7 @@ fn snaps_start_to_nearest_clip_end() {
 #[test]
 fn snaps_end_to_clip_start_on_another_track() {
     // Range 1.1..2.9: its end is 0.1 from c's start (3), its start is far from 0.
-    let found = stack().find_snap(1.1, 1.8, 0.3, &[], &[]).unwrap();
+    let found = stack().find_snap(1.1, 1.8, 0.3, &[], &[], &[]).unwrap();
     assert_eq!(item_edge(&found.target), (Some("c"), SnapEdge::Start));
     assert_eq!(found.moving_edge, SnapEdge::End);
     match found.target {
@@ -101,32 +101,32 @@ fn snaps_end_to_clip_start_on_another_track() {
 #[test]
 fn picks_the_closest_edge() {
     // Start 5.85: c's end (5) is 0.85 away, b's start (6) is 0.15 away.
-    let found = stack().find_snap(5.85, 0.5, 1.0, &[], &[]).unwrap();
+    let found = stack().find_snap(5.85, 0.5, 1.0, &[], &[], &[]).unwrap();
     assert_eq!(item_edge(&found.target), (Some("b"), SnapEdge::Start));
 }
 
 #[test]
 fn nothing_outside_tolerance() {
-    assert!(stack().find_snap(5.5, 0.1, 0.2, &[], &[]).is_none());
+    assert!(stack().find_snap(5.5, 0.1, 0.2, &[], &[], &[]).is_none());
 }
 
 #[test]
 fn disabled_without_positive_tolerance() {
-    assert!(stack().find_snap(4.0, 1.0, 0.0, &[], &[]).is_none());
-    assert!(stack().find_snap(4.0, 1.0, -1.0, &[], &[]).is_none());
+    assert!(stack().find_snap(4.0, 1.0, 0.0, &[], &[], &[]).is_none());
+    assert!(stack().find_snap(4.0, 1.0, -1.0, &[], &[], &[]).is_none());
 }
 
 #[test]
 fn gaps_are_not_targets() {
     // The gap on v2 ends at 3 where c starts: only c is reported.
-    let found = stack().find_snap(3.1, 0.5, 0.2, &[], &[]).unwrap();
+    let found = stack().find_snap(3.1, 0.5, 0.2, &[], &[], &[]).unwrap();
     assert_eq!(item_edge(&found.target), (Some("c"), SnapEdge::Start));
 }
 
 #[test]
 fn moving_clip_is_not_a_target_of_itself() {
     // Dragging b from 6 to 6.1: without exclusion it would snap to its own old start.
-    let found = stack().find_snap(6.1, 4.0, 0.3, &["b".to_string()], &[]);
+    let found = stack().find_snap(6.1, 4.0, 0.3, &["b".to_string()], &[], &[]);
     assert!(found.is_none(), "{found:?}");
 }
 
@@ -146,19 +146,19 @@ fn sync_partners_and_group_members_are_excluded() {
 
     // a's and a-audio's end (4) would be the hit without exclusion.
     assert!(stack
-        .find_snap(4.1, 0.5, 0.2, &["a".to_string()], &[])
+        .find_snap(4.1, 0.5, 0.2, &["a".to_string()], &[], &[])
         .is_none());
-    assert!(stack.find_snap(4.1, 0.5, 0.2, &[], &[]).is_some());
+    assert!(stack.find_snap(4.1, 0.5, 0.2, &[], &[], &[]).is_some());
     // c (grouped with b) ends at 5: excluded while dragging b.
     assert!(stack
-        .find_snap(5.1, 0.5, 0.2, &["b".to_string()], &[])
+        .find_snap(5.1, 0.5, 0.2, &["b".to_string()], &[], &[])
         .is_none());
-    assert!(stack.find_snap(5.1, 0.5, 0.2, &[], &[]).is_some());
+    assert!(stack.find_snap(5.1, 0.5, 0.2, &[], &[], &[]).is_some());
 }
 
 #[test]
 fn single_edge_for_resize() {
-    let found = stack().find_snap(9.9, 0.0, 0.2, &[], &[]).unwrap();
+    let found = stack().find_snap(9.9, 0.0, 0.2, &[], &[], &[]).unwrap();
     assert_eq!(item_edge(&found.target), (Some("b"), SnapEdge::End));
     assert_eq!(found.moving_edge, SnapEdge::Start);
 }
@@ -166,7 +166,9 @@ fn single_edge_for_resize() {
 #[test]
 fn extra_points_snap_too() {
     // Playhead at 7.5, closer than any clip edge.
-    let found = stack().find_snap(7.4, 1.0, 0.3, &[], &[20.0, 7.5]).unwrap();
+    let found = stack()
+        .find_snap(7.4, 1.0, 0.3, &[], &[20.0, 7.5], &[])
+        .unwrap();
     assert_eq!(found.target, SnapTarget::Point { index: 1 });
     assert!((found.target_time - 7.5).abs() < 1e-9);
 }
@@ -174,5 +176,15 @@ fn extra_points_snap_too() {
 #[test]
 fn never_snaps_before_zero() {
     // End 0.1 is near a's start (0), but snapping it would start the range at -0.9.
-    assert!(stack().find_snap(-0.9, 1.0, 0.2, &[], &[]).is_none());
+    assert!(stack().find_snap(-0.9, 1.0, 0.2, &[], &[], &[]).is_none());
+}
+
+#[test]
+fn ignored_times_let_the_next_target_win() {
+    // Range 3.9..4.9: a's end (4) is closest, then c's end (5).
+    let found = stack().find_snap(3.9, 1.0, 0.2, &[], &[], &[4.0]).unwrap();
+    assert_eq!(item_edge(&found.target), (Some("c"), SnapEdge::End));
+    assert!(stack()
+        .find_snap(3.9, 1.0, 0.2, &[], &[], &[4.0, 5.0])
+        .is_none());
 }

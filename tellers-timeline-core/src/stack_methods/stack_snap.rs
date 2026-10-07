@@ -37,6 +37,9 @@ pub struct SnapMatch {
     pub delta: Seconds,
 }
 
+/// Target times this close are the same snap line.
+const SNAP_TIME_EPS: Seconds = 1e-6;
+
 impl Stack {
     /// Find the clip edge (or extra point) closest to either edge of the moving
     /// range `[moving_start, moving_start + moving_duration]`, within
@@ -49,8 +52,10 @@ impl Stack {
     ///
     /// Clips in `exclude_item_ids` never act as targets, and neither do their
     /// sync partners or Tellers group members, which travel with them. Gaps
-    /// are never targets. A snap that would move the range before 0 is
-    /// skipped.
+    /// are never targets. Targets at any of `ignored_times` are skipped too,
+    /// so an editor can let a line it has already been pulled off pass by
+    /// while still snapping to the next one. A snap that would move the range
+    /// before 0 is skipped.
     pub fn find_snap(
         &self,
         moving_start: Seconds,
@@ -58,6 +63,7 @@ impl Stack {
         tolerance: Seconds,
         exclude_item_ids: &[String],
         extra_points: &[Seconds],
+        ignored_times: &[Seconds],
     ) -> Option<SnapMatch> {
         if tolerance.is_nan()
             || tolerance <= 0.0
@@ -72,6 +78,12 @@ impl Stack {
 
         let mut best: Option<SnapMatch> = None;
         let mut consider = |target: SnapTarget, target_time: Seconds| {
+            if ignored_times
+                .iter()
+                .any(|ignored| (ignored - target_time).abs() <= SNAP_TIME_EPS)
+            {
+                return;
+            }
             let mut edges = vec![(SnapEdge::Start, moving_start)];
             if moving_duration > 0.0 {
                 edges.push((SnapEdge::End, moving_end));
