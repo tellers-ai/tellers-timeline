@@ -166,3 +166,14 @@ def test_clip_url_setters():
     assert clip.get_color_luts() == [lut("a", url="https://cdn/a.cube"), lut("b")]
     assert clip.clear_color_lut_urls() == 1
     assert clip.get_color_luts() == [lut("a"), lut("b")]
+
+
+def test_unknown_asset_ids_are_ignored_without_error():
+    tl = Timeline()
+    assert tl.set_color_lut_url("missing", "https://cdn/a.cube") == 0
+    assert tl.set_color_lut_urls({"missing": "https://cdn/a.cube"}) == 0
+    assert tl.set_color_lut_urls({}) == 0
+
+    tl.push_color_lut("a1")
+    assert tl.set_color_lut_url("b2", "https://cdn/b.cube") == 0
+    assert tl.get_color_luts() == [lut("a1")]

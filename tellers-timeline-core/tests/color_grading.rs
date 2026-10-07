@@ -297,3 +297,14 @@ fn item_delegates_to_its_clip_and_ignores_gaps() {
     assert!(gap.get_color_luts().is_empty());
     assert_eq!(gap.remove_color_lut_at(0), None);
 }
+
+#[test]
+fn unknown_asset_ids_are_ignored() {
+    let mut tl = Timeline::default();
+    assert_eq!(tl.set_color_lut_url("missing", "https://cdn/a.cube"), 0);
+    assert_eq!(tl.set_color_lut_urls(&HashMap::new()), 0);
+
+    tl.push_color_lut(lut("a1"));
+    assert_eq!(tl.set_color_lut_url("b2", "https://cdn/b.cube"), 0);
+    assert_eq!(tl.get_color_luts(), vec![lut("a1")]);
+}
