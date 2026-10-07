@@ -1,4 +1,4 @@
-"""Tests for the `.cube` LUT list methods on the timeline and its clips.
+"""Tests for the `.cube` LUT list methods on the timeline, its tracks and clips.
 
 LUTs are stored by asset id; the `.cube` URL the player reads is resolved
 from the asset id with `set_color_lut_url(s)` and stripped with
@@ -242,3 +242,53 @@ def test_url_resolution_skips_ungraded_clips():
     assert tl.set_color_lut_url("audio-lut", "https://cdn/a.cube") == 0
     assert tl.get_item_color_luts("video") == [lut("video-lut", url="https://cdn/v.cube")]
     assert tl.get_item_color_luts("text") == [lut("text-lut")]
+
+
+def test_track_luts_on_a_track_object():
+    track = Track(kind="video", id="t")
+    assert track.is_color_gradable()
+    assert track.push_color_lut("warm", name="warm.cube")
+    assert track.insert_color_lut_at(0, "film")
+    assert track.get_color_luts() == [lut("film"), lut("warm", name="warm.cube")]
+    assert json.loads(track.get_metadata_json())["tellers.ai"]["color_grading"] == [
+        {"asset_id": "film"},
+        {"asset_id": "warm", "name": "warm.cube"},
+    ]
+    assert track.set_color_lut_urls({"film": "https://cdn/f.cube"}) == 1
+    assert track.clear_color_lut_urls() == 1
+    assert track.remove_color_lut_at(0) == lut("film")
+    assert track.clear_color_luts()
+    assert not Track(kind="audio").is_color_gradable()
+
+
+def test_timeline_edits_tracks_by_id():
+    tl = make_mixed_timeline()
+    assert tl.is_track_color_gradable("v")
+    assert not tl.is_track_color_gradable("a")
+    assert not tl.is_track_color_gradable("missing")
+
+    assert tl.push_track_color_lut("v", "warm")
+    assert tl.insert_track_color_lut_at("v", 0, "film")
+    assert tl.replace_track_color_lut_at("v", 1, "cool") == lut("warm")
+    assert tl.get_track_color_luts("v") == [lut("film"), lut("cool")]
+    assert tl.remove_track_color_lut_at("v", 0) == lut("film")
+    assert tl.set_track_color_luts("v", [{"asset_id": "video-track"}])
+    # The track list is separate from its clips' lists.
+    assert tl.get_item_color_luts("video") == [lut("video-lut")]
+
+    assert not tl.push_track_color_lut("a", "x")
+    assert not tl.insert_track_color_lut_at("a", 0, "x")
+    assert tl.replace_track_color_lut_at("a", 0, "x") is None
+    assert not tl.set_track_color_luts("a", [{"asset_id": "x"}])
+    assert tl.get_track_color_luts("a") == []
+    assert tl.get_track_color_luts("missing") is None
+
+    tl.push_color_lut("look")
+    assert tl.color_lut_asset_ids() == ["look", "video-lut", "video-track"]
+    assert tl.set_color_lut_urls(
+        {"video-track": "https://cdn/vt.cube", "video-lut": "https://cdn/v.cube"}
+    ) == 2
+    assert tl.get_track_color_luts("v") == [lut("video-track", url="https://cdn/vt.cube")]
+    assert tl.clear_color_lut_urls() == 2
+    assert tl.clear_track_color_luts("v")
+    assert not tl.clear_track_color_luts("missing")

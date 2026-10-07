@@ -880,6 +880,72 @@ impl PyTrack {
     fn remove_text_style(&mut self, name: &str) -> bool {
         self.inner.remove_text_style(name)
     }
+    /// Whether the player grades this track's LUTs: it is a video track.
+    fn is_color_gradable(&self) -> bool {
+        self.inner.is_color_gradable()
+    }
+    /// The `.cube` LUTs graded on every video and image clip of this track,
+    /// after each clip's own, in order, as `{"asset_id", "name", "url"}` dicts.
+    fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        color_luts_to_python(py, self.inner.get_color_luts())
+    }
+    /// Replace every LUT of this track object with `luts` (`{"asset_id",
+    /// "name"?, "url"?}` dicts); an empty list removes them all. Returns
+    /// False, changing nothing, when an asset id is empty. Tracks returned by
+    /// a timeline are copies: use `Timeline.set_track_color_luts` to change a
+    /// track already in one.
+    fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
+    }
+    /// Append a LUT to this track object (graded last). Returns False,
+    /// changing nothing, when the asset id is empty.
+    #[pyo3(signature = (asset_id, name=None, url=None))]
+    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.push_color_lut(ColorLut { asset_id, name, url })
+    }
+    /// Insert a LUT into this track object at `index` (0 grades first, the
+    /// list length appends). Returns False, changing nothing, when `index` is
+    /// past the end or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
+    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
+    }
+    /// Replace the LUT at `index`, returning the previous one, or None
+    /// (changing nothing) when there is none or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
+    fn replace_color_lut_at(
+        &mut self,
+        py: Python<'_>,
+        index: usize,
+        asset_id: String,
+        name: Option<String>,
+        url: Option<String>,
+    ) -> PyResult<Option<PyObject>> {
+        self.inner
+            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
+            .map(|lut| color_lut_to_python(py, lut))
+            .transpose()
+    }
+    /// Remove and return the LUT at `index`, or None when there is none.
+    fn remove_color_lut_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+        self.inner
+            .remove_color_lut_at(index)
+            .map(|lut| color_lut_to_python(py, lut))
+            .transpose()
+    }
+    /// Remove every LUT of this track object, returning whether any was present.
+    fn clear_color_luts(&mut self) -> bool {
+        self.inner.clear_color_luts()
+    }
+    /// Set the resolved `.cube` URL of this track's LUTs whose asset id is a
+    /// key of `urls` (asset id -> URL). Returns how many were updated.
+    fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
+        self.inner.set_color_lut_urls(&urls)
+    }
+    /// Strip the resolved URL from this track's LUTs, keeping the asset ids.
+    fn clear_color_lut_urls(&mut self) -> usize {
+        self.inner.clear_color_lut_urls()
+    }
     fn set_name(&mut self, name: Option<String>) {
         self.inner.name = name;
     }
@@ -1703,24 +1769,24 @@ impl PyTimeline {
         self.inner.is_item_color_gradable(item_id)
     }
     /// Every distinct LUT asset id the player grades with: the timeline's,
-    /// then each graded clip's in track order. These are the ids to resolve into
-    /// URLs for `set_color_lut_urls`.
+    /// then, for each video track in order, its graded clips' and the track's
+    /// own. These are the ids to resolve into URLs for `set_color_lut_urls`.
     fn color_lut_asset_ids(&self) -> Vec<String> {
         self.inner.color_lut_asset_ids()
     }
-    /// Set the resolved `.cube` URL of every LUT (timeline and graded clips)
-    /// whose asset id is `asset_id`. Returns how many entries were updated; 0 when
+    /// Set the resolved `.cube` URL of every LUT (timeline, video tracks and
+    /// graded clips) whose asset id is `asset_id`. Returns how many entries were updated; 0 when
     /// the URL is empty.
     fn set_color_lut_url(&mut self, asset_id: &str, url: &str) -> usize {
         self.inner.set_color_lut_url(asset_id, url)
     }
-    /// Set the resolved `.cube` URL of every LUT (timeline and graded clips)
-    /// whose asset id is a key of `urls` (asset id -> URL). Unknown ids are
+    /// Set the resolved `.cube` URL of every LUT (timeline, video tracks and
+    /// graded clips) whose asset id is a key of `urls` (asset id -> URL). Unknown ids are
     /// ignored. Returns how many entries were updated.
     fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
         self.inner.set_color_lut_urls(&urls)
     }
-    /// Strip the resolved URL from every LUT (timeline and clips), keeping
+    /// Strip the resolved URL from every LUT (timeline, tracks and clips), keeping
     /// the asset ids. Returns how many entries had one.
     fn clear_color_lut_urls(&mut self) -> usize {
         self.inner.clear_color_lut_urls()
@@ -1790,6 +1856,79 @@ impl PyTimeline {
     /// this id.
     fn clear_item_color_luts(&mut self, item_id: &str) -> bool {
         self.inner.clear_item_color_luts(item_id)
+    }
+    /// Whether the player grades the LUTs of the track `track_id`: it is a
+    /// video track. False for audio or other tracks and unknown ids. The
+    /// by-id track LUT writers refuse other tracks, and URL resolution skips
+    /// them.
+    fn is_track_color_gradable(&self, track_id: &str) -> bool {
+        self.inner.is_track_color_gradable(track_id)
+    }
+    /// The LUTs of the track `track_id`, or None when no track has this id.
+    fn get_track_color_luts(&self, py: Python<'_>, track_id: &str) -> PyResult<Option<Vec<PyObject>>> {
+        self.inner
+            .get_track_color_luts(track_id)
+            .map(|luts| color_luts_to_python(py, luts))
+            .transpose()
+    }
+    /// `Track.set_color_luts` on the track `track_id`; False when it is not a
+    /// video track.
+    fn set_track_color_luts(&mut self, track_id: &str, luts: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.set_track_color_luts(track_id, color_luts_from_python(luts)?))
+    }
+    /// `Track.push_color_lut` on the track `track_id`; False when it is not a
+    /// video track.
+    #[pyo3(signature = (track_id, asset_id, name=None, url=None))]
+    fn push_track_color_lut(&mut self, track_id: &str, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.push_track_color_lut(track_id, ColorLut { asset_id, name, url })
+    }
+    /// `Track.insert_color_lut_at` on the track `track_id`; False when it is
+    /// not a video track.
+    #[pyo3(signature = (track_id, index, asset_id, name=None, url=None))]
+    fn insert_track_color_lut_at(
+        &mut self,
+        track_id: &str,
+        index: usize,
+        asset_id: String,
+        name: Option<String>,
+        url: Option<String>,
+    ) -> bool {
+        self.inner.insert_track_color_lut_at(track_id, index, ColorLut { asset_id, name, url })
+    }
+    /// `Track.replace_color_lut_at` on the track `track_id`; None when it is
+    /// not a video track.
+    #[pyo3(signature = (track_id, index, asset_id, name=None, url=None))]
+    fn replace_track_color_lut_at(
+        &mut self,
+        py: Python<'_>,
+        track_id: &str,
+        index: usize,
+        asset_id: String,
+        name: Option<String>,
+        url: Option<String>,
+    ) -> PyResult<Option<PyObject>> {
+        self.inner
+            .replace_track_color_lut_at(track_id, index, ColorLut { asset_id, name, url })
+            .map(|lut| color_lut_to_python(py, lut))
+            .transpose()
+    }
+    /// `Track.remove_color_lut_at` on the track `track_id`, graded or not;
+    /// None when no track has this id.
+    fn remove_track_color_lut_at(
+        &mut self,
+        py: Python<'_>,
+        track_id: &str,
+        index: usize,
+    ) -> PyResult<Option<PyObject>> {
+        self.inner
+            .remove_track_color_lut_at(track_id, index)
+            .map(|lut| color_lut_to_python(py, lut))
+            .transpose()
+    }
+    /// `Track.clear_color_luts` on the track `track_id`, graded or not; False
+    /// when no track has this id.
+    fn clear_track_color_luts(&mut self, track_id: &str) -> bool {
+        self.inner.clear_track_color_luts(track_id)
     }
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)
