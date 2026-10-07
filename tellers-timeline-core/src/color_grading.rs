@@ -1,4 +1,5 @@
-//! `.cube` LUT colour grading attached to a timeline and its clips.
+//! `.cube` LUT colour grading attached to a timeline, its tracks and its
+//! clips.
 //!
 //! LUTs live at `metadata["tellers.ai"]["color_grading"]`, an ordered list of
 //!
@@ -19,19 +20,24 @@
 //!   not persisted. The player skips an entry without one.
 //! - `name` is an optional display label.
 //!
-//! The list has the same shape at both stages:
+//! The list has the same shape at all three stages, graded in this order:
 //!
-//! - on a **clip**, graded on that clip only, in list order (typically a
-//!   technical transform such as camera log → Rec.709, then a look);
-//! - on the **timeline**, graded over the whole composited image, text
-//!   included, after every clip's own LUTs.
+//! 1. on a **clip**, graded on that clip only, in list order (typically a
+//!    technical transform such as camera log → Rec.709, then a look);
+//! 2. on a **video track**, graded on every video and image clip of that
+//!    track, after each clip's own LUTs. A track's clips never overlap, so
+//!    this is the same as grading the track image; text clips on the track
+//!    are not graded;
+//! 3. on the **timeline**, graded over the whole composited image, text
+//!    included, after every clip's and track's LUTs.
 //!
-//! Tracks are not a grading stage. The player grades a clip's LUTs only for
-//! video and image clips on **video** tracks: clips on audio or other tracks
-//! and text (or other generator) clips are not graded, so the timeline's
-//! by-id writers refuse them and its URL resolution skips them (see
-//! [`Timeline::is_item_color_gradable`]). The `Clip` and `Item` methods do
-//! not know their track and stay unrestricted.
+//! The player grades a clip's LUTs only for video and image clips on
+//! **video** tracks: clips on audio or other tracks and text (or other
+//! generator) clips are not graded, so the timeline's by-id writers refuse
+//! them and its URL resolution skips them (see
+//! [`Timeline::is_item_color_gradable`]). Likewise only video tracks are
+//! graded (see [`Timeline::is_track_color_gradable`]). The `Clip`, `Item` and
+//! `Track` methods do not know their context and stay unrestricted.
 //!
 //! An entry is usable when its `asset_id` is a non-empty string; reads skip
 //! the others. Indices passed to the list methods count usable entries only,
@@ -42,7 +48,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Clip, Item, MediaReference, Timeline, TrackKind};
+use crate::{Clip, Item, MediaReference, Timeline, Track, TrackKind};
 
 /// Metadata key, under the `tellers.ai` namespace, holding the LUT list.
 pub const COLOR_GRADING_KEY: &str = "color_grading";
@@ -236,7 +242,7 @@ pub fn clear_color_lut_urls(metadata: &mut serde_json::Value) -> usize {
 }
 
 /// Generates the LUT list accessors for a type holding its metadata in
-/// `self.metadata`, so the timeline and clip stages stay identical.
+/// `self.metadata`, so the timeline, track and clip stages stay identical.
 macro_rules! impl_color_luts {
     ($ty:ty, $stage:literal) => {
         impl $ty {
@@ -279,7 +285,30 @@ macro_rules! impl_color_luts {
 }
 
 impl_color_luts!(Timeline, "over the whole composited image");
+impl_color_luts!(
+    Track,
+    "on every video and image clip of this track, after each clip's own"
+);
 impl_color_luts!(Clip, "on this clip");
+
+impl Track {
+    /// Whether the player grades this track's LUTs: it is a video track.
+    pub fn is_color_gradable(&self) -> bool {
+        self.kind == TrackKind::Video
+    }
+
+    /// Set the resolved URL of this track's LUTs from `urls` (asset id →
+    /// URL); see [`set_color_lut_urls`].
+    pub fn set_color_lut_urls(&mut self, urls: &HashMap<String, String>) -> usize {
+        set_color_lut_urls(&mut self.metadata, urls)
+    }
+
+    /// Strip the resolved URL from this track's LUTs; see
+    /// [`clear_color_lut_urls`].
+    pub fn clear_color_lut_urls(&mut self) -> usize {
+        clear_color_lut_urls(&mut self.metadata)
+    }
+}
 
 impl Clip {
     /// Set the resolved URL of this clip's LUTs from `urls` (asset id → URL);
@@ -313,13 +342,17 @@ impl Clip {
 
 impl Timeline {
     /// Every distinct LUT asset id the player grades with: the timeline's,
-    /// then each graded clip's (see [`Timeline::is_item_color_gradable`]) in
-    /// track order. These are the ids to resolve into URLs for
-    /// [`Timeline::set_color_lut_urls`].
+    /// then, for each video track in order, its graded clips' (see
+    /// [`Timeline::is_item_color_gradable`]) and the track's own. These are
+    /// the ids to resolve into URLs for [`Timeline::set_color_lut_urls`].
     pub fn color_lut_asset_ids(&self) -> Vec<String> {
-        let clip_luts = self.graded_clips().flat_map(Clip::get_color_luts);
+        let track_luts = self.graded_tracks().flat_map(|track| {
+            graded_clips_of(track)
+                .flat_map(Clip::get_color_luts)
+                .chain(track.get_color_luts())
+        });
         let mut ids: Vec<String> = Vec::new();
-        for lut in self.get_color_luts().into_iter().chain(clip_luts) {
+        for lut in self.get_color_luts().into_iter().chain(track_luts) {
             if !ids.contains(&lut.asset_id) {
                 ids.push(lut.asset_id);
             }
@@ -327,39 +360,119 @@ impl Timeline {
         ids
     }
 
-    /// Set the resolved URL of every LUT, on the timeline and on every graded
-    /// clip, whose asset id is `asset_id`. Returns how many entries were
-    /// updated; 0 when the URL is empty or no LUT uses this id.
+    /// Set the resolved URL of every LUT, on the timeline, every video track
+    /// and every graded clip, whose asset id is `asset_id`. Returns how many
+    /// entries were updated; 0 when the URL is empty or no LUT uses this id.
     pub fn set_color_lut_url(&mut self, asset_id: &str, url: &str) -> usize {
         let urls = HashMap::from([(asset_id.trim().to_string(), url.to_string())]);
         self.set_color_lut_urls(&urls)
     }
 
-    /// Set the resolved URL of every LUT, on the timeline and on every graded
-    /// clip, whose asset id is in `urls` (asset id → URL). Unknown ids are
-    /// ignored. Returns how many entries were updated.
+    /// Set the resolved URL of every LUT, on the timeline, every video track
+    /// and every graded clip, whose asset id is in `urls` (asset id → URL).
+    /// Unknown ids are ignored. Returns how many entries were updated.
     pub fn set_color_lut_urls(&mut self, urls: &HashMap<String, String>) -> usize {
-        set_color_lut_urls(&mut self.metadata, urls)
-            + self
-                .graded_clips_mut()
+        let mut updated = set_color_lut_urls(&mut self.metadata, urls);
+        for track in self
+            .tracks
+            .children
+            .iter_mut()
+            .filter(|track| track.is_color_gradable())
+        {
+            updated += track.set_color_lut_urls(urls);
+            updated += track
+                .items
+                .iter_mut()
+                .filter_map(Item::clip_mut)
+                .filter(|clip| clip.is_color_gradable())
                 .map(|clip| clip.set_color_lut_urls(urls))
-                .sum::<usize>()
+                .sum::<usize>();
+        }
+        updated
     }
 
-    /// Strip the resolved URL from every LUT on the timeline and on every
-    /// clip (graded or not), keeping the asset ids, like
+    /// Strip the resolved URL from every LUT on the timeline, every track and
+    /// every clip (graded or not), keeping the asset ids, like
     /// [`Timeline::clear_target_urls`] does for media. Returns how many
     /// entries had one.
     pub fn clear_color_lut_urls(&mut self) -> usize {
-        clear_color_lut_urls(&mut self.metadata)
-            + self
-                .tracks
-                .children
+        let mut cleared = clear_color_lut_urls(&mut self.metadata);
+        for track in self.tracks.children.iter_mut() {
+            cleared += track.clear_color_lut_urls();
+            cleared += track
+                .items
                 .iter_mut()
-                .flat_map(|track| track.items.iter_mut())
                 .filter_map(Item::clip_mut)
                 .map(Clip::clear_color_lut_urls)
-                .sum::<usize>()
+                .sum::<usize>();
+        }
+        cleared
+    }
+
+    /// Whether the player grades the LUTs of the track `track_id`: it is a
+    /// video track. `false` for audio or other tracks and unknown ids.
+    pub fn is_track_color_gradable(&self, track_id: &str) -> bool {
+        self.tracks
+            .get_track_by_id(track_id)
+            .is_some_and(|(_, track)| track.is_color_gradable())
+    }
+
+    /// The LUTs stored on the track `track_id`, graded or not. `None` when no
+    /// track has this id.
+    pub fn get_track_color_luts(&self, track_id: &str) -> Option<Vec<ColorLut>> {
+        Some(self.tracks.get_track_by_id(track_id)?.1.get_color_luts())
+    }
+
+    /// [`Track::set_color_luts`] on the track `track_id`; `false` when it is
+    /// not a video track (see [`Timeline::is_track_color_gradable`]).
+    pub fn set_track_color_luts(&mut self, track_id: &str, luts: Vec<ColorLut>) -> bool {
+        self.graded_track_mut(track_id)
+            .is_some_and(|track| track.set_color_luts(luts))
+    }
+
+    /// [`Track::push_color_lut`] on the track `track_id`; `false` when it is
+    /// not a video track.
+    pub fn push_track_color_lut(&mut self, track_id: &str, lut: ColorLut) -> bool {
+        self.graded_track_mut(track_id)
+            .is_some_and(|track| track.push_color_lut(lut))
+    }
+
+    /// [`Track::insert_color_lut_at`] on the track `track_id`; `false` when
+    /// it is not a video track.
+    pub fn insert_track_color_lut_at(
+        &mut self,
+        track_id: &str,
+        index: usize,
+        lut: ColorLut,
+    ) -> bool {
+        self.graded_track_mut(track_id)
+            .is_some_and(|track| track.insert_color_lut_at(index, lut))
+    }
+
+    /// [`Track::replace_color_lut_at`] on the track `track_id`; `None` when
+    /// it is not a video track.
+    pub fn replace_track_color_lut_at(
+        &mut self,
+        track_id: &str,
+        index: usize,
+        lut: ColorLut,
+    ) -> Option<ColorLut> {
+        self.graded_track_mut(track_id)?
+            .replace_color_lut_at(index, lut)
+    }
+
+    /// [`Track::remove_color_lut_at`] on the track `track_id`, graded or not,
+    /// so stale LUTs can always be cleaned up; `None` when no track has this
+    /// id.
+    pub fn remove_track_color_lut_at(&mut self, track_id: &str, index: usize) -> Option<ColorLut> {
+        self.find_track_mut(track_id)?.remove_color_lut_at(index)
+    }
+
+    /// [`Track::clear_color_luts`] on the track `track_id`, graded or not;
+    /// `false` when no track has this id.
+    pub fn clear_track_color_luts(&mut self, track_id: &str) -> bool {
+        self.find_track_mut(track_id)
+            .is_some_and(|track| track.clear_color_luts())
     }
 
     /// Whether the player grades the LUTs of the item `item_id`: a clip on a
@@ -423,28 +536,23 @@ impl Timeline {
             .is_some_and(|(_, clip)| clip.clear_color_luts())
     }
 
-    /// Clips whose LUTs the player grades: on video tracks, with video or
-    /// image media.
-    fn graded_clips(&self) -> impl Iterator<Item = &Clip> {
+    /// Tracks whose LUTs, and whose clips' LUTs, the player grades: video
+    /// tracks.
+    fn graded_tracks(&self) -> impl Iterator<Item = &Track> {
         self.tracks
             .children
             .iter()
-            .filter(|track| track.kind == TrackKind::Video)
-            .flat_map(|track| track.items.iter())
-            .filter_map(|item| match item {
-                Item::Clip(clip) if clip.is_color_gradable() => Some(clip),
-                _ => None,
-            })
+            .filter(|track| track.is_color_gradable())
     }
 
-    fn graded_clips_mut(&mut self) -> impl Iterator<Item = &mut Clip> {
-        self.tracks
-            .children
-            .iter_mut()
-            .filter(|track| track.kind == TrackKind::Video)
-            .flat_map(|track| track.items.iter_mut())
-            .filter_map(Item::clip_mut)
-            .filter(|clip| clip.is_color_gradable())
+    fn graded_track_mut(&mut self, track_id: &str) -> Option<&mut Track> {
+        self.find_track_mut(track_id)
+            .filter(|track| track.is_color_gradable())
+    }
+
+    fn find_track_mut(&mut self, track_id: &str) -> Option<&mut Track> {
+        let (index, _) = self.tracks.get_track_by_id(track_id)?;
+        self.tracks.children.get_mut(index)
     }
 
     fn graded_clip_mut(&mut self, item_id: &str) -> Option<&mut Clip> {
@@ -472,6 +580,15 @@ impl Timeline {
             Some((kind, track.items.get_mut(index)?.clip_mut()?))
         })
     }
+}
+
+/// The clips of `track` with video or image media, whose LUTs the player
+/// grades when `track` is a video track.
+fn graded_clips_of(track: &Track) -> impl Iterator<Item = &Clip> {
+    track.items.iter().filter_map(|item| match item {
+        Item::Clip(clip) if clip.is_color_gradable() => Some(clip),
+        _ => None,
+    })
 }
 
 impl Item {

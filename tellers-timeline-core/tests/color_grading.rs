@@ -10,8 +10,8 @@ use serde_json::json;
 use tellers_timeline_core::{
     clear_color_lut_urls, clear_color_luts, insert_color_lut_at, push_color_lut,
     remove_color_lut_at, replace_color_lut_at, resolve_color_luts, set_color_lut_urls,
-    set_color_luts, Clip, ColorLut, Gap, Item, MediaReference, TimeRange, Timeline, Track,
-    TrackKind,
+    set_color_luts, Clip, ColorLut, Gap, IdMetadataExt, Item, MediaReference, TimeRange, Timeline,
+    Track, TrackKind,
 };
 
 fn clip(id: &str) -> Clip {
@@ -278,11 +278,125 @@ fn timeline_edits_clips_by_id() {
 }
 
 #[test]
-fn tracks_are_not_a_grading_stage() {
+fn track_stage_is_stored_on_the_track_metadata() {
+    let mut track = Track::default();
+    assert!(track.is_color_gradable());
+    assert!(track.push_color_lut(lut("track").with_name("track.cube")));
+    assert_eq!(
+        track.metadata["tellers.ai"]["color_grading"],
+        json!([{ "asset_id": "track", "name": "track.cube" }])
+    );
+    assert_eq!(resolve_color_luts(&track.metadata), track.get_color_luts());
+
+    let reparsed: Track = serde_json::from_str(&serde_json::to_string(&track).unwrap()).unwrap();
+    assert_eq!(
+        reparsed.get_color_luts(),
+        vec![lut("track").with_name("track.cube")]
+    );
+
+    track.kind = TrackKind::Audio;
+    assert!(!track.is_color_gradable());
+}
+
+#[test]
+fn timeline_edits_tracks_by_id() {
     let mut tl = timeline_with_clip("c1");
-    push_color_lut(&mut tl.tracks.children[0].metadata, lut("track"));
-    assert!(tl.color_lut_asset_ids().is_empty());
-    assert_eq!(tl.set_color_lut_url("track", "https://cdn/track.cube"), 0);
+    let track_id = tl.tracks.children[0].get_id().unwrap();
+    assert!(tl.is_track_color_gradable(&track_id));
+    assert!(!tl.is_track_color_gradable("missing"));
+
+    assert!(tl.push_track_color_lut(&track_id, lut("warm")));
+    assert!(tl.insert_track_color_lut_at(&track_id, 0, lut("film")));
+    assert_eq!(
+        tl.get_track_color_luts(&track_id),
+        Some(vec![lut("film"), lut("warm")])
+    );
+    assert_eq!(
+        tl.replace_track_color_lut_at(&track_id, 1, lut("cool")),
+        Some(lut("warm"))
+    );
+    assert_eq!(
+        tl.remove_track_color_lut_at(&track_id, 0),
+        Some(lut("film"))
+    );
+    assert!(tl.set_track_color_luts(&track_id, vec![lut("a"), lut("b")]));
+    assert!(tl.clear_track_color_luts(&track_id));
+    assert_eq!(tl.get_track_color_luts(&track_id), Some(vec![]));
+
+    // A track list does not touch the clips or the timeline.
+    assert!(tl.push_track_color_lut(&track_id, lut("t")));
+    assert_eq!(tl.get_item_color_luts("c1"), Some(vec![]));
+    assert!(tl.get_color_luts().is_empty());
+
+    assert!(!tl.push_track_color_lut("missing", lut("x")));
+    assert_eq!(tl.get_track_color_luts("missing"), None);
+    assert_eq!(tl.remove_track_color_lut_at("missing", 0), None);
+    assert!(!tl.clear_track_color_luts("missing"));
+}
+
+#[test]
+fn timeline_writers_refuse_non_video_tracks() {
+    let mut tl = mixed_timeline();
+    let audio_id = tl.tracks.children[1].get_id().unwrap();
+    assert!(!tl.is_track_color_gradable(&audio_id));
+    push_color_lut(&mut tl.tracks.children[1].metadata, lut("stale"));
+
+    assert!(!tl.push_track_color_lut(&audio_id, lut("x")));
+    assert!(!tl.insert_track_color_lut_at(&audio_id, 0, lut("x")));
+    assert_eq!(tl.replace_track_color_lut_at(&audio_id, 0, lut("x")), None);
+    assert!(!tl.set_track_color_luts(&audio_id, vec![lut("x")]));
+    // Still readable and removable, so stale LUTs can be cleaned up.
+    assert_eq!(tl.get_track_color_luts(&audio_id), Some(vec![lut("stale")]));
+    assert_eq!(
+        tl.remove_track_color_lut_at(&audio_id, 0),
+        Some(lut("stale"))
+    );
+    push_color_lut(&mut tl.tracks.children[1].metadata, lut("stale"));
+    assert!(tl.clear_track_color_luts(&audio_id));
+}
+
+#[test]
+fn url_resolution_covers_video_tracks_only() {
+    let mut tl = mixed_timeline();
+    tl.push_color_lut(lut("look"));
+    tl.tracks.children[0].push_color_lut(lut("video-track"));
+    tl.tracks.children[0].push_color_lut(lut("video-lut"));
+    tl.tracks.children[1].push_color_lut(lut("audio-track"));
+
+    // Timeline, then per video track: its graded clips, then the track.
+    assert_eq!(
+        tl.color_lut_asset_ids(),
+        ["look", "video-lut", "video-track"]
+    );
+
+    let urls = HashMap::from([
+        ("video-track".to_string(), "https://cdn/vt.cube".to_string()),
+        ("video-lut".to_string(), "https://cdn/v.cube".to_string()),
+        ("audio-track".to_string(), "https://cdn/at.cube".to_string()),
+    ]);
+    // The video clip's entry and the video track's two entries.
+    assert_eq!(tl.set_color_lut_urls(&urls), 3);
+    let video_id = tl.tracks.children[0].get_id().unwrap();
+    let audio_id = tl.tracks.children[1].get_id().unwrap();
+    assert_eq!(
+        tl.get_track_color_luts(&video_id),
+        Some(vec![
+            lut("video-track").with_url("https://cdn/vt.cube"),
+            lut("video-lut").with_url("https://cdn/v.cube"),
+        ])
+    );
+    assert_eq!(
+        tl.get_track_color_luts(&audio_id),
+        Some(vec![lut("audio-track")])
+    );
+
+    // Clearing strips URLs on every track, graded or not.
+    tl.tracks.children[1].set_color_lut_urls(&urls);
+    assert_eq!(tl.clear_color_lut_urls(), 4);
+    assert_eq!(
+        tl.get_track_color_luts(&video_id),
+        Some(vec![lut("video-track"), lut("video-lut")])
+    );
 }
 
 #[test]
