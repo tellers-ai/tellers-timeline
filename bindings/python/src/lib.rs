@@ -469,6 +469,11 @@ impl PyClip {
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
     }
+    /// Whether the player grades this clip's LUTs when it sits on a video
+    /// track: its active media is video or an image (not text).
+    fn is_color_gradable(&self) -> bool {
+        self.inner.is_color_gradable()
+    }
     /// The `.cube` LUTs graded on this clip, in order, as `{"asset_id", "name", "url"}` dicts.
     fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         color_luts_to_python(py, self.inner.get_color_luts())
@@ -742,6 +747,11 @@ impl PyItem {
     }
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
+    }
+    /// Whether the player grades this clip's LUTs when it sits on a video
+    /// track: its active media is video or an image (not text).
+    fn is_color_gradable(&self) -> bool {
+        self.inner.is_color_gradable()
     }
     /// The `.cube` LUTs graded on this clip (empty for gaps), in order, as `{"asset_id", "name", "url"}` dicts.
     fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
@@ -1685,21 +1695,28 @@ impl PyTimeline {
     fn clear_color_luts(&mut self) -> bool {
         self.inner.clear_color_luts()
     }
-    /// Every distinct LUT asset id used by this timeline: the timeline's,
-    /// then each clip's in track order. These are the ids to resolve into
+    /// Whether the player grades the LUTs of the item `item_id`: a clip on a
+    /// video track whose media is video or an image. False for gaps, text
+    /// clips, clips on audio or other tracks, and unknown ids. The by-id LUT
+    /// writers refuse other clips, and URL resolution skips them.
+    fn is_item_color_gradable(&self, item_id: &str) -> bool {
+        self.inner.is_item_color_gradable(item_id)
+    }
+    /// Every distinct LUT asset id the player grades with: the timeline's,
+    /// then each graded clip's in track order. These are the ids to resolve into
     /// URLs for `set_color_lut_urls`.
     fn color_lut_asset_ids(&self) -> Vec<String> {
         self.inner.color_lut_asset_ids()
     }
-    /// Set the resolved `.cube` URL of every LUT (timeline and clips) whose
-    /// asset id is `asset_id`. Returns how many entries were updated; 0 when
+    /// Set the resolved `.cube` URL of every LUT (timeline and graded clips)
+    /// whose asset id is `asset_id`. Returns how many entries were updated; 0 when
     /// the URL is empty.
     fn set_color_lut_url(&mut self, asset_id: &str, url: &str) -> usize {
         self.inner.set_color_lut_url(asset_id, url)
     }
-    /// Set the resolved `.cube` URL of every LUT (timeline and clips) whose
-    /// asset id is a key of `urls` (asset id -> URL). Returns how many
-    /// entries were updated.
+    /// Set the resolved `.cube` URL of every LUT (timeline and graded clips)
+    /// whose asset id is a key of `urls` (asset id -> URL). Unknown ids are
+    /// ignored. Returns how many entries were updated.
     fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
         self.inner.set_color_lut_urls(&urls)
     }

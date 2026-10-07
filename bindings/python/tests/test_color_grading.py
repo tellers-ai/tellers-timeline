@@ -177,3 +177,68 @@ def test_unknown_asset_ids_are_ignored_without_error():
     tl.push_color_lut("a1")
     assert tl.set_color_lut_url("b2", "https://cdn/b.cube") == 0
     assert tl.get_color_luts() == [lut("a1")]
+
+
+def make_mixed_timeline():
+    """A video clip and a text clip on a video track, a media clip on an audio
+    track; each already carries a LUT `<id>-lut`."""
+    video = make_clip("video")
+    text = Clip(
+        10.0,
+        {"DEFAULT_MEDIA": MediaReference.create_rich_text_reference("<div>Hi</div>")},
+        "DEFAULT_MEDIA",
+        id="text",
+    )
+    audio = make_clip("audio")
+    for c, id in [(video, "video"), (text, "text"), (audio, "audio")]:
+        c.push_color_lut(f"{id}-lut")
+    return Timeline(
+        [
+            Track(kind="video", id="v", children=[Item.from_clip(video), Item.from_clip(text)]),
+            Track(kind="audio", id="a", children=[Item.from_clip(audio)]),
+        ]
+    )
+
+
+def test_only_media_clips_on_video_tracks_are_gradable():
+    tl = make_mixed_timeline()
+    assert tl.is_item_color_gradable("video")
+    assert not tl.is_item_color_gradable("text")
+    assert not tl.is_item_color_gradable("audio")
+    assert not tl.is_item_color_gradable("missing")
+
+    assert make_clip().is_color_gradable()
+    text = Clip(1.0, {"DEFAULT_MEDIA": MediaReference.create_rich_text_reference("x")})
+    assert not text.is_color_gradable()
+    assert not Item.from_gap(Gap(1.0)).is_color_gradable()
+
+
+def test_timeline_writers_refuse_ungraded_clips():
+    tl = make_mixed_timeline()
+    for id in ["text", "audio"]:
+        assert not tl.push_item_color_lut(id, "x")
+        assert not tl.insert_item_color_lut_at(id, 0, "x")
+        assert tl.replace_item_color_lut_at(id, 0, "x") is None
+        assert not tl.set_item_color_luts(id, [{"asset_id": "x"}])
+        # Still readable and removable, so stale LUTs can be cleaned up.
+        assert tl.get_item_color_luts(id) == [lut(f"{id}-lut")]
+    assert tl.remove_item_color_lut_at("text", 0) == lut("text-lut")
+    assert tl.clear_item_color_luts("audio")
+    assert tl.push_item_color_lut("video", "x")
+
+
+def test_url_resolution_skips_ungraded_clips():
+    tl = make_mixed_timeline()
+    tl.push_color_lut("look")
+    assert tl.color_lut_asset_ids() == ["look", "video-lut"]
+
+    assert tl.set_color_lut_urls(
+        {
+            "video-lut": "https://cdn/v.cube",
+            "text-lut": "https://cdn/t.cube",
+            "audio-lut": "https://cdn/a.cube",
+        }
+    ) == 1
+    assert tl.set_color_lut_url("audio-lut", "https://cdn/a.cube") == 0
+    assert tl.get_item_color_luts("video") == [lut("video-lut", url="https://cdn/v.cube")]
+    assert tl.get_item_color_luts("text") == [lut("text-lut")]

@@ -308,3 +308,109 @@ fn unknown_asset_ids_are_ignored() {
     assert_eq!(tl.set_color_lut_url("b2", "https://cdn/b.cube"), 0);
     assert_eq!(tl.get_color_luts(), vec![lut("a1")]);
 }
+
+/// A timeline with a graded clip `video` on a video track, a text clip `text`
+/// on the same track, and a media clip `audio` on an audio track. Each clip
+/// already carries a LUT `<id>-lut`, stored directly on the clip.
+fn mixed_timeline() -> Timeline {
+    fn with_lut(mut c: Clip, id: &str) -> Item {
+        c.push_color_lut(lut(&format!("{id}-lut")));
+        Item::Clip(c)
+    }
+    let mut text = clip("text");
+    text.media_references.insert(
+        "DEFAULT_MEDIA".to_string(),
+        MediaReference::create_rich_text_reference("<div>Hi</div>".to_string()),
+    );
+    let mut video_track = Track::default();
+    video_track.kind = TrackKind::Video;
+    video_track.items.push(with_lut(clip("video"), "video"));
+    video_track.items.push(with_lut(text, "text"));
+    let mut audio_track = Track::default();
+    audio_track.kind = TrackKind::Audio;
+    audio_track.items.push(with_lut(clip("audio"), "audio"));
+    let mut tl = Timeline::default();
+    tl.tracks.children.push(video_track);
+    tl.tracks.children.push(audio_track);
+    tl
+}
+
+#[test]
+fn only_media_clips_on_video_tracks_are_gradable() {
+    let tl = mixed_timeline();
+    assert!(tl.is_item_color_gradable("video"));
+    assert!(!tl.is_item_color_gradable("text"));
+    assert!(!tl.is_item_color_gradable("audio"));
+    assert!(!tl.is_item_color_gradable("missing"));
+
+    let mut other = timeline_with_clip("c1");
+    other.tracks.children[0].kind = TrackKind::Other;
+    assert!(!other.is_item_color_gradable("c1"));
+    assert!(!timeline_with_clip("c1").is_item_color_gradable("gap"));
+}
+
+#[test]
+fn timeline_writers_refuse_ungraded_clips() {
+    let mut tl = mixed_timeline();
+    for id in ["text", "audio"] {
+        assert!(!tl.push_item_color_lut(id, lut("x")));
+        assert!(!tl.insert_item_color_lut_at(id, 0, lut("x")));
+        assert_eq!(tl.replace_item_color_lut_at(id, 0, lut("x")), None);
+        assert!(!tl.set_item_color_luts(id, vec![lut("x")]));
+        // Still readable and removable, so stale LUTs can be cleaned up.
+        assert_eq!(
+            tl.get_item_color_luts(id),
+            Some(vec![lut(&format!("{id}-lut"))])
+        );
+    }
+    assert_eq!(
+        tl.remove_item_color_lut_at("text", 0),
+        Some(lut("text-lut"))
+    );
+    assert!(tl.clear_item_color_luts("audio"));
+    assert!(tl.push_item_color_lut("video", lut("x")));
+}
+
+#[test]
+fn url_resolution_skips_ungraded_clips() {
+    let mut tl = mixed_timeline();
+    tl.push_color_lut(lut("look"));
+    assert_eq!(tl.color_lut_asset_ids(), ["look", "video-lut"]);
+
+    let urls = HashMap::from([
+        ("video-lut".to_string(), "https://cdn/v.cube".to_string()),
+        ("text-lut".to_string(), "https://cdn/t.cube".to_string()),
+        ("audio-lut".to_string(), "https://cdn/a.cube".to_string()),
+    ]);
+    assert_eq!(tl.set_color_lut_urls(&urls), 1);
+    assert_eq!(tl.set_color_lut_url("audio-lut", "https://cdn/a.cube"), 0);
+    assert_eq!(
+        tl.get_item_color_luts("video"),
+        Some(vec![lut("video-lut").with_url("https://cdn/v.cube")])
+    );
+    assert_eq!(tl.get_item_color_luts("text"), Some(vec![lut("text-lut")]));
+
+    // Clearing strips URLs everywhere, including clips that are not graded.
+    let audio = tl.tracks.children[1].items[0].clone();
+    if let Item::Clip(mut audio) = audio {
+        audio.set_color_lut_urls(&urls);
+        tl.tracks.children[1].items[0] = Item::Clip(audio);
+    }
+    assert_eq!(tl.clear_color_lut_urls(), 2);
+}
+
+#[test]
+fn clip_gradability_follows_the_active_media_reference() {
+    let mut c = clip("c1");
+    assert!(c.is_color_gradable());
+    c.media_references.insert(
+        "TITLE".to_string(),
+        MediaReference::create_rich_text_reference("<div>Hi</div>".to_string()),
+    );
+    c.active_media_reference_key = Some("TITLE".to_string());
+    assert!(!c.is_color_gradable());
+    c.active_media_reference_key = Some("MISSING".to_string());
+    assert!(!c.is_color_gradable());
+    c.active_media_reference_key = None;
+    assert!(c.is_color_gradable());
+}
