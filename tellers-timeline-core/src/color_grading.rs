@@ -1,17 +1,25 @@
 //! `.cube` LUT colour grading attached to a timeline and its clips.
 //!
-//! The player (`video-player-js`) grades with 3D `.cube` LUTs read from
-//! `metadata["tellers.ai"]["color_grading"]`, an ordered list of
+//! LUTs live at `metadata["tellers.ai"]["color_grading"]`, an ordered list of
 //!
 //! ```json
 //! [
-//!   { "name": "slog3_to_709.cube", "cube": "https://cdn.example.test/slog3_to_709.cube" },
-//!   { "name": "warm.cube", "cube": "https://cdn.example.test/warm.cube" }
+//!   { "asset_id": "a1b2", "name": "slog3_to_709.cube", "cube": "https://cdn.example.test/…" },
+//!   { "asset_id": "c3d4", "name": "warm.cube" }
 //! ]
 //! ```
 //!
-//! where `cube` is the URL the player downloads the table from and `name` is
-//! an optional display label. The list has the same shape at both stages:
+//! - `asset_id` identifies the `.cube` file. It is what the timeline
+//!   persists and what the list methods take.
+//! - `cube` is the URL the player (`video-player-js`) downloads the table
+//!   from. It is resolved from the asset id, like a media `target_url`: set it
+//!   with [`Timeline::set_color_lut_url`] / [`Timeline::set_color_lut_urls`]
+//!   before handing the timeline to the player, and strip it with
+//!   [`Timeline::clear_color_lut_urls`] so ephemeral (e.g. presigned) URLs are
+//!   not persisted. The player skips an entry without one.
+//! - `name` is an optional display label.
+//!
+//! The list has the same shape at both stages:
 //!
 //! - on a **clip**, graded on that clip only, in list order (typically a
 //!   technical transform such as camera log → Rec.709, then a look);
@@ -20,14 +28,12 @@
 //!
 //! Tracks are not a grading stage.
 //!
-//! Reads skip entries the player would ignore (a `cube` that is not a
-//! non-empty string) and read a legacy single `{ "cube", "name" }` object as a
-//! one-entry list. Indices passed to the list methods count the usable
-//! entries only, which are exactly what [`resolve_color_luts`] returns.
-//! Writes always store the list form, drop unusable entries, and keep the
-//! other keys of untouched entries. The URL is not otherwise restricted: the
-//! player fetches it as-is, so a path relative to the page (`/luts/warm.cube`)
-//! is valid.
+//! An entry is usable when its `asset_id` is a non-empty string; reads skip
+//! the others. Indices passed to the list methods count usable entries only,
+//! which are exactly what [`resolve_color_luts`] returns. List writes drop
+//! unusable entries and keep the other keys of untouched entries.
+
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -36,28 +42,34 @@ use crate::{Clip, Item, Timeline};
 /// Metadata key, under the `tellers.ai` namespace, holding the LUT list.
 pub const COLOR_GRADING_KEY: &str = "color_grading";
 
-/// Key, inside a list entry, holding the `.cube` URL.
+/// Key, inside a list entry, holding the asset id of the `.cube` file.
+const ASSET_ID_KEY: &str = "asset_id";
+/// Key, inside a list entry, holding the resolved `.cube` URL.
 const CUBE_KEY: &str = "cube";
 /// Key, inside a list entry, holding the optional display name.
 const NAME_KEY: &str = "name";
 
-/// A `.cube` LUT referenced by URL.
+/// A `.cube` LUT referenced by asset id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColorLut {
-    /// Where the player downloads the `.cube` file from. Stored as `cube`.
-    #[serde(rename = "cube")]
-    pub url: String,
+    /// Asset id of the `.cube` file.
+    pub asset_id: String,
     /// Optional display name, typically the file name (`look.cube`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The URL the player downloads the file from, once resolved from the
+    /// asset id. Stored as `cube`.
+    #[serde(rename = "cube", default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 impl ColorLut {
-    /// A LUT with no display name.
-    pub fn new(url: impl Into<String>) -> Self {
+    /// A LUT with no display name and no resolved URL.
+    pub fn new(asset_id: impl Into<String>) -> Self {
         ColorLut {
-            url: url.into(),
+            asset_id: asset_id.into(),
             name: None,
+            url: None,
         }
     }
 
@@ -67,21 +79,23 @@ impl ColorLut {
         self
     }
 
-    /// This LUT with url and name trimmed and an empty name dropped. `None`
-    /// when the player would ignore it: an empty URL.
+    /// Set the resolved URL of this LUT.
+    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+        self.url = Some(url.into());
+        self
+    }
+
+    /// This LUT with every field trimmed and an empty name or URL dropped.
+    /// `None` when the asset id is empty.
     pub fn normalized(&self) -> Option<ColorLut> {
-        let url = self.url.trim();
-        if url.is_empty() {
+        let asset_id = self.asset_id.trim();
+        if asset_id.is_empty() {
             return None;
         }
         Some(ColorLut {
-            url: url.to_string(),
-            name: self
-                .name
-                .as_deref()
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
-                .map(str::to_string),
+            asset_id: asset_id.to_string(),
+            name: non_empty(self.name.as_deref()),
+            url: non_empty(self.url.as_deref()),
         })
     }
 
@@ -105,8 +119,8 @@ pub fn resolve_color_luts(metadata: &serde_json::Value) -> Vec<ColorLut> {
 }
 
 /// Replace the whole LUT list with `luts`. An empty list removes the key.
-/// Returns `false` — leaving the metadata untouched — when any LUT has an
-/// empty URL.
+/// Returns `false` — leaving the metadata untouched — when any asset id is
+/// empty.
 pub fn set_color_luts(metadata: &mut serde_json::Value, luts: Vec<ColorLut>) -> bool {
     let Some(luts) = luts
         .iter()
@@ -120,7 +134,7 @@ pub fn set_color_luts(metadata: &mut serde_json::Value, luts: Vec<ColorLut>) -> 
 }
 
 /// Append `lut` to the end of the list (graded last). Returns `false`,
-/// changing nothing, when the URL is empty.
+/// changing nothing, when the asset id is empty.
 pub fn push_color_lut(metadata: &mut serde_json::Value, lut: ColorLut) -> bool {
     let len = usable_entries(metadata).len();
     insert_color_lut_at(metadata, len, lut)
@@ -128,7 +142,7 @@ pub fn push_color_lut(metadata: &mut serde_json::Value, lut: ColorLut) -> bool {
 
 /// Insert `lut` at `index` (0 grades first; the list length appends).
 /// Returns `false`, changing nothing, when `index` is past the end or the
-/// URL is empty.
+/// asset id is empty.
 pub fn insert_color_lut_at(metadata: &mut serde_json::Value, index: usize, lut: ColorLut) -> bool {
     let Some(lut) = lut.normalized() else {
         return false;
@@ -143,7 +157,8 @@ pub fn insert_color_lut_at(metadata: &mut serde_json::Value, index: usize, lut: 
 }
 
 /// Replace the LUT at `index` with `lut`, returning the previous one. `None`,
-/// changing nothing, when there is no LUT at `index` or the URL is empty.
+/// changing nothing, when there is no LUT at `index` or the asset id is
+/// empty.
 pub fn replace_color_lut_at(
     metadata: &mut serde_json::Value,
     index: usize,
@@ -179,6 +194,40 @@ pub fn clear_color_luts(metadata: &mut serde_json::Value) -> bool {
         ai.remove(COLOR_GRADING_KEY);
     }
     had_luts
+}
+
+/// Set the resolved URL of every LUT whose asset id is in `urls` (asset id →
+/// URL), returning how many entries were updated. Other entries are left as
+/// they are. An empty URL is ignored; use [`clear_color_lut_urls`] to strip
+/// URLs.
+pub fn set_color_lut_urls(
+    metadata: &mut serde_json::Value,
+    urls: &HashMap<String, String>,
+) -> usize {
+    let mut updated = 0;
+    for entry in entries_mut(metadata) {
+        let Some(url) = entry
+            .get(ASSET_ID_KEY)
+            .and_then(|id| id.as_str())
+            .and_then(|id| urls.get(id.trim()))
+            .and_then(|url| non_empty(Some(url)))
+        else {
+            continue;
+        };
+        if let Some(entry) = entry.as_object_mut() {
+            entry.insert(CUBE_KEY.to_string(), serde_json::Value::String(url));
+            updated += 1;
+        }
+    }
+    updated
+}
+
+/// Remove the resolved URL from every LUT, keeping its asset id, and return
+/// how many entries had one.
+pub fn clear_color_lut_urls(metadata: &mut serde_json::Value) -> usize {
+    entries_mut(metadata)
+        .filter_map(|entry| entry.as_object_mut()?.remove(CUBE_KEY))
+        .count()
 }
 
 /// Generates the LUT list accessors for a type holding its metadata in
@@ -227,24 +276,63 @@ macro_rules! impl_color_luts {
 impl_color_luts!(Timeline, "over the whole composited image");
 impl_color_luts!(Clip, "on this clip");
 
+impl Clip {
+    /// Set the resolved URL of this clip's LUTs from `urls` (asset id → URL);
+    /// see [`set_color_lut_urls`].
+    pub fn set_color_lut_urls(&mut self, urls: &HashMap<String, String>) -> usize {
+        set_color_lut_urls(&mut self.metadata, urls)
+    }
+
+    /// Strip the resolved URL from this clip's LUTs; see
+    /// [`clear_color_lut_urls`].
+    pub fn clear_color_lut_urls(&mut self) -> usize {
+        clear_color_lut_urls(&mut self.metadata)
+    }
+}
+
 impl Timeline {
-    /// Every distinct LUT URL the player downloads for this timeline: the
-    /// timeline's, then each clip's in track order. Useful to prefetch,
-    /// authorize or package the referenced files.
-    pub fn color_lut_urls(&self) -> Vec<String> {
-        let clip_luts = self
-            .tracks
-            .children
-            .iter()
-            .flat_map(|track| track.items.iter())
-            .flat_map(Item::get_color_luts);
-        let mut urls: Vec<String> = Vec::new();
+    /// Every distinct LUT asset id used by this timeline: the timeline's,
+    /// then each clip's in track order. These are the ids to resolve into
+    /// URLs for [`Timeline::set_color_lut_urls`].
+    pub fn color_lut_asset_ids(&self) -> Vec<String> {
+        let clip_luts = self.clips().flat_map(Clip::get_color_luts);
+        let mut ids: Vec<String> = Vec::new();
         for lut in self.get_color_luts().into_iter().chain(clip_luts) {
-            if !urls.contains(&lut.url) {
-                urls.push(lut.url);
+            if !ids.contains(&lut.asset_id) {
+                ids.push(lut.asset_id);
             }
         }
-        urls
+        ids
+    }
+
+    /// Set the resolved URL of every LUT, on the timeline and on every clip,
+    /// whose asset id is `asset_id`. Returns how many entries were updated;
+    /// 0 when the URL is empty.
+    pub fn set_color_lut_url(&mut self, asset_id: &str, url: &str) -> usize {
+        let urls = HashMap::from([(asset_id.trim().to_string(), url.to_string())]);
+        self.set_color_lut_urls(&urls)
+    }
+
+    /// Set the resolved URL of every LUT, on the timeline and on every clip,
+    /// whose asset id is in `urls` (asset id → URL). Returns how many entries
+    /// were updated.
+    pub fn set_color_lut_urls(&mut self, urls: &HashMap<String, String>) -> usize {
+        set_color_lut_urls(&mut self.metadata, urls)
+            + self
+                .clips_mut()
+                .map(|clip| clip.set_color_lut_urls(urls))
+                .sum::<usize>()
+    }
+
+    /// Strip the resolved URL from every LUT on the timeline and its clips,
+    /// keeping the asset ids, like [`Timeline::clear_target_urls`] does for
+    /// media. Returns how many entries had one.
+    pub fn clear_color_lut_urls(&mut self) -> usize {
+        clear_color_lut_urls(&mut self.metadata)
+            + self
+                .clips_mut()
+                .map(Clip::clear_color_lut_urls)
+                .sum::<usize>()
     }
 
     /// The LUTs of the clip `item_id`. `None` when no clip has this id.
@@ -298,6 +386,25 @@ impl Timeline {
             .is_some_and(|clip| clip.clear_color_luts())
     }
 
+    fn clips(&self) -> impl Iterator<Item = &Clip> {
+        self.tracks
+            .children
+            .iter()
+            .flat_map(|track| track.items.iter())
+            .filter_map(|item| match item {
+                Item::Clip(clip) => Some(clip),
+                Item::Gap(_) => None,
+            })
+    }
+
+    fn clips_mut(&mut self) -> impl Iterator<Item = &mut Clip> {
+        self.tracks
+            .children
+            .iter_mut()
+            .flat_map(|track| track.items.iter_mut())
+            .filter_map(Item::clip_mut)
+    }
+
     fn clip_by_id(&self, item_id: &str) -> Option<&Clip> {
         self.tracks
             .children
@@ -311,10 +418,7 @@ impl Timeline {
     fn clip_mut_by_id(&mut self, item_id: &str) -> Option<&mut Clip> {
         self.tracks.children.iter_mut().find_map(|track| {
             let (index, _) = track.get_item_by_id(item_id)?;
-            match track.items.get_mut(index)? {
-                Item::Clip(clip) => Some(clip),
-                Item::Gap(_) => None,
-            }
+            track.items.get_mut(index)?.clip_mut()
         })
     }
 }
@@ -368,36 +472,48 @@ impl Item {
     }
 }
 
-/// A list entry as a LUT, if the player would use it.
+fn non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// A list entry as a LUT, if usable.
 fn lut_from_json(entry: &serde_json::Value) -> Option<ColorLut> {
+    let text = |key| entry.get(key).and_then(|v| v.as_str()).map(str::to_string);
     ColorLut {
-        url: entry.get(CUBE_KEY)?.as_str()?.to_string(),
-        name: entry
-            .get(NAME_KEY)
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
+        asset_id: text(ASSET_ID_KEY)?,
+        name: text(NAME_KEY),
+        url: text(CUBE_KEY),
     }
     .normalized()
 }
 
-/// The raw entries of the LUT list that the player would use, in order. A
-/// legacy single object reads as a one-entry list.
+/// The raw entries of the LUT list that are usable, in order.
 fn usable_entries(metadata: &serde_json::Value) -> Vec<serde_json::Value> {
-    let Some(grading) = metadata
+    metadata
         .get("tellers.ai")
         .and_then(|ai| ai.get(COLOR_GRADING_KEY))
-    else {
-        return Vec::new();
-    };
-    let entries = match grading {
-        serde_json::Value::Array(entries) => entries.as_slice(),
-        single => std::slice::from_ref(single),
-    };
-    entries
-        .iter()
-        .filter(|entry| lut_from_json(entry).is_some())
-        .cloned()
-        .collect()
+        .and_then(|grading| grading.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter(|entry| lut_from_json(entry).is_some())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Every raw entry of the LUT list, for in-place updates.
+fn entries_mut(metadata: &mut serde_json::Value) -> impl Iterator<Item = &mut serde_json::Value> {
+    metadata
+        .get_mut("tellers.ai")
+        .and_then(|ai| ai.get_mut(COLOR_GRADING_KEY))
+        .and_then(|grading| grading.as_array_mut())
+        .into_iter()
+        .flatten()
 }
 
 /// Store `entries` as the LUT list, creating the `tellers.ai` object as

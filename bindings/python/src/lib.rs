@@ -469,41 +469,42 @@ impl PyClip {
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
     }
-    /// The `.cube` LUTs graded on this clip, in order, as `{"url", "name"}` dicts.
+    /// The `.cube` LUTs graded on this clip, in order, as `{"asset_id", "name", "url"}` dicts.
     fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         color_luts_to_python(py, self.inner.get_color_luts())
     }
-    /// Replace every LUT graded on this clip with `luts` (`{"url", "name"?}`
+    /// Replace every LUT graded on this clip with `luts` (`{"asset_id", "name"?, "url"?}`
     /// dicts); an empty list removes them all. Returns False, changing
-    /// nothing, when a URL is empty.
+    /// nothing, when an asset id is empty.
     fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
     }
     /// Append a LUT graded on this clip (graded last). Returns False, changing
-    /// nothing, when the URL is empty.
-    #[pyo3(signature = (url, name=None))]
-    fn push_color_lut(&mut self, url: String, name: Option<String>) -> bool {
-        self.inner.push_color_lut(ColorLut { url, name })
+    /// nothing, when the asset id is empty.
+    #[pyo3(signature = (asset_id, name=None, url=None))]
+    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.push_color_lut(ColorLut { asset_id, name, url })
     }
     /// Insert a LUT graded on this clip at `index` (0 grades first, the list
     /// length appends). Returns False, changing nothing, when `index` is past
-    /// the end or the URL is empty.
-    #[pyo3(signature = (index, url, name=None))]
-    fn insert_color_lut_at(&mut self, index: usize, url: String, name: Option<String>) -> bool {
-        self.inner.insert_color_lut_at(index, ColorLut { url, name })
+    /// the end or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
+    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
     }
     /// Replace the LUT at `index`, returning the previous one, or None
-    /// (changing nothing) when there is none or the URL is empty.
-    #[pyo3(signature = (index, url, name=None))]
+    /// (changing nothing) when there is none or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
     fn replace_color_lut_at(
         &mut self,
         py: Python<'_>,
         index: usize,
-        url: String,
+        asset_id: String,
         name: Option<String>,
+        url: Option<String>,
     ) -> PyResult<Option<PyObject>> {
         self.inner
-            .replace_color_lut_at(index, ColorLut { url, name })
+            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
             .map(|lut| color_lut_to_python(py, lut))
             .transpose()
     }
@@ -517,6 +518,15 @@ impl PyClip {
     /// Remove every LUT graded on this clip, returning whether any was present.
     fn clear_color_luts(&mut self) -> bool {
         self.inner.clear_color_luts()
+    }
+    /// Set the resolved `.cube` URL of this clip's LUTs whose asset id is a
+    /// key of `urls` (asset id -> URL). Returns how many were updated.
+    fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
+        self.inner.set_color_lut_urls(&urls)
+    }
+    /// Strip the resolved URL from this clip's LUTs, keeping the asset ids.
+    fn clear_color_lut_urls(&mut self) -> usize {
+        self.inner.clear_color_lut_urls()
     }
     #[staticmethod]
     fn parse_json(s: &str) -> PyResult<Self> {
@@ -733,41 +743,42 @@ impl PyItem {
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
     }
-    /// The `.cube` LUTs graded on this clip (empty for gaps), in order, as `{"url", "name"}` dicts.
+    /// The `.cube` LUTs graded on this clip (empty for gaps), in order, as `{"asset_id", "name", "url"}` dicts.
     fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         color_luts_to_python(py, self.inner.get_color_luts())
     }
-    /// Replace every LUT graded on this clip (empty for gaps) with `luts` (`{"url", "name"?}`
+    /// Replace every LUT graded on this clip (empty for gaps) with `luts` (`{"asset_id", "name"?, "url"?}`
     /// dicts); an empty list removes them all. Returns False, changing
-    /// nothing, when a URL is empty.
+    /// nothing, when an asset id is empty.
     fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
     }
     /// Append a LUT graded on this clip (empty for gaps) (graded last). Returns False, changing
-    /// nothing, when the URL is empty.
-    #[pyo3(signature = (url, name=None))]
-    fn push_color_lut(&mut self, url: String, name: Option<String>) -> bool {
-        self.inner.push_color_lut(ColorLut { url, name })
+    /// nothing, when the asset id is empty.
+    #[pyo3(signature = (asset_id, name=None, url=None))]
+    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.push_color_lut(ColorLut { asset_id, name, url })
     }
     /// Insert a LUT graded on this clip (empty for gaps) at `index` (0 grades first, the list
     /// length appends). Returns False, changing nothing, when `index` is past
-    /// the end or the URL is empty.
-    #[pyo3(signature = (index, url, name=None))]
-    fn insert_color_lut_at(&mut self, index: usize, url: String, name: Option<String>) -> bool {
-        self.inner.insert_color_lut_at(index, ColorLut { url, name })
+    /// the end or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
+    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
     }
     /// Replace the LUT at `index`, returning the previous one, or None
-    /// (changing nothing) when there is none or the URL is empty.
-    #[pyo3(signature = (index, url, name=None))]
+    /// (changing nothing) when there is none or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
     fn replace_color_lut_at(
         &mut self,
         py: Python<'_>,
         index: usize,
-        url: String,
+        asset_id: String,
         name: Option<String>,
+        url: Option<String>,
     ) -> PyResult<Option<PyObject>> {
         self.inner
-            .replace_color_lut_at(index, ColorLut { url, name })
+            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
             .map(|lut| color_lut_to_python(py, lut))
             .transpose()
     }
@@ -1375,8 +1386,9 @@ fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<Py
 
 fn color_lut_to_python(py: Python<'_>, lut: ColorLut) -> PyResult<PyObject> {
     let dict = PyDict::new(py);
-    dict.set_item("url", lut.url)?;
+    dict.set_item("asset_id", lut.asset_id)?;
     dict.set_item("name", lut.name)?;
+    dict.set_item("url", lut.url)?;
     Ok(dict.into_py(py))
 }
 
@@ -1384,27 +1396,35 @@ fn color_luts_to_python(py: Python<'_>, luts: Vec<ColorLut>) -> PyResult<Vec<PyO
     luts.into_iter().map(|lut| color_lut_to_python(py, lut)).collect()
 }
 
-/// A list of `{"url", "name"?}` dicts as LUTs.
+/// A list of `{"asset_id", "name"?, "url"?}` dicts as LUTs.
 fn color_luts_from_python(luts: &Bound<PyAny>) -> PyResult<Vec<ColorLut>> {
     luts.iter()?
         .map(|entry| {
             let entry = entry?;
             let dict = entry.downcast::<PyDict>().map_err(|_| {
                 PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                    "color LUTs must be {\"url\", \"name\"} dicts",
+                    "color LUTs must be {\"asset_id\", \"name\", \"url\"} dicts",
                 )
             })?;
-            let url: String = dict
-                .get_item("url")?
+            let asset_id: String = dict
+                .get_item("asset_id")?
                 .ok_or_else(|| {
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>("color LUT is missing \"url\"")
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "color LUT is missing \"asset_id\"",
+                    )
                 })?
                 .extract()?;
-            let name: Option<String> = match dict.get_item("name")? {
-                Some(name) => name.extract()?,
-                None => None,
+            let optional = |key: &str| -> PyResult<Option<String>> {
+                match dict.get_item(key)? {
+                    Some(value) => value.extract(),
+                    None => Ok(None),
+                }
             };
-            Ok(ColorLut { url, name })
+            Ok(ColorLut {
+                asset_id,
+                name: optional("name")?,
+                url: optional("url")?,
+            })
         })
         .collect()
 }
@@ -1615,41 +1635,42 @@ impl PyTimeline {
     fn track_text_styles_css(&self, track_id: &str) -> Option<String> {
         self.inner.track_text_styles_css(track_id)
     }
-    /// The `.cube` LUTs graded over the whole composited image, in order, as `{"url", "name"}` dicts.
+    /// The `.cube` LUTs graded over the whole composited image, in order, as `{"asset_id", "name", "url"}` dicts.
     fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         color_luts_to_python(py, self.inner.get_color_luts())
     }
-    /// Replace every LUT graded over the whole composited image with `luts` (`{"url", "name"?}`
+    /// Replace every LUT graded over the whole composited image with `luts` (`{"asset_id", "name"?, "url"?}`
     /// dicts); an empty list removes them all. Returns False, changing
-    /// nothing, when a URL is empty.
+    /// nothing, when an asset id is empty.
     fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
     }
     /// Append a LUT graded over the whole composited image (graded last). Returns False, changing
-    /// nothing, when the URL is empty.
-    #[pyo3(signature = (url, name=None))]
-    fn push_color_lut(&mut self, url: String, name: Option<String>) -> bool {
-        self.inner.push_color_lut(ColorLut { url, name })
+    /// nothing, when the asset id is empty.
+    #[pyo3(signature = (asset_id, name=None, url=None))]
+    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.push_color_lut(ColorLut { asset_id, name, url })
     }
     /// Insert a LUT graded over the whole composited image at `index` (0 grades first, the list
     /// length appends). Returns False, changing nothing, when `index` is past
-    /// the end or the URL is empty.
-    #[pyo3(signature = (index, url, name=None))]
-    fn insert_color_lut_at(&mut self, index: usize, url: String, name: Option<String>) -> bool {
-        self.inner.insert_color_lut_at(index, ColorLut { url, name })
+    /// the end or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
+    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
     }
     /// Replace the LUT at `index`, returning the previous one, or None
-    /// (changing nothing) when there is none or the URL is empty.
-    #[pyo3(signature = (index, url, name=None))]
+    /// (changing nothing) when there is none or the asset id is empty.
+    #[pyo3(signature = (index, asset_id, name=None, url=None))]
     fn replace_color_lut_at(
         &mut self,
         py: Python<'_>,
         index: usize,
-        url: String,
+        asset_id: String,
         name: Option<String>,
+        url: Option<String>,
     ) -> PyResult<Option<PyObject>> {
         self.inner
-            .replace_color_lut_at(index, ColorLut { url, name })
+            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
             .map(|lut| color_lut_to_python(py, lut))
             .transpose()
     }
@@ -1664,10 +1685,28 @@ impl PyTimeline {
     fn clear_color_luts(&mut self) -> bool {
         self.inner.clear_color_luts()
     }
-    /// Every distinct `.cube` URL the player downloads for this timeline:
-    /// the timeline's, then each clip's in track order.
-    fn color_lut_urls(&self) -> Vec<String> {
-        self.inner.color_lut_urls()
+    /// Every distinct LUT asset id used by this timeline: the timeline's,
+    /// then each clip's in track order. These are the ids to resolve into
+    /// URLs for `set_color_lut_urls`.
+    fn color_lut_asset_ids(&self) -> Vec<String> {
+        self.inner.color_lut_asset_ids()
+    }
+    /// Set the resolved `.cube` URL of every LUT (timeline and clips) whose
+    /// asset id is `asset_id`. Returns how many entries were updated; 0 when
+    /// the URL is empty.
+    fn set_color_lut_url(&mut self, asset_id: &str, url: &str) -> usize {
+        self.inner.set_color_lut_url(asset_id, url)
+    }
+    /// Set the resolved `.cube` URL of every LUT (timeline and clips) whose
+    /// asset id is a key of `urls` (asset id -> URL). Returns how many
+    /// entries were updated.
+    fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
+        self.inner.set_color_lut_urls(&urls)
+    }
+    /// Strip the resolved URL from every LUT (timeline and clips), keeping
+    /// the asset ids. Returns how many entries had one.
+    fn clear_color_lut_urls(&mut self) -> usize {
+        self.inner.clear_color_lut_urls()
     }
     /// The LUTs of the clip `item_id`, or None when no clip has this id.
     fn get_item_color_luts(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<Vec<PyObject>>> {
@@ -1683,35 +1722,37 @@ impl PyTimeline {
     }
     /// `Clip.push_color_lut` on the clip `item_id`; False when no clip has
     /// this id.
-    #[pyo3(signature = (item_id, url, name=None))]
-    fn push_item_color_lut(&mut self, item_id: &str, url: String, name: Option<String>) -> bool {
-        self.inner.push_item_color_lut(item_id, ColorLut { url, name })
+    #[pyo3(signature = (item_id, asset_id, name=None, url=None))]
+    fn push_item_color_lut(&mut self, item_id: &str, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
+        self.inner.push_item_color_lut(item_id, ColorLut { asset_id, name, url })
     }
     /// `Clip.insert_color_lut_at` on the clip `item_id`; False when no clip
     /// has this id.
-    #[pyo3(signature = (item_id, index, url, name=None))]
+    #[pyo3(signature = (item_id, index, asset_id, name=None, url=None))]
     fn insert_item_color_lut_at(
         &mut self,
         item_id: &str,
         index: usize,
-        url: String,
+        asset_id: String,
         name: Option<String>,
+        url: Option<String>,
     ) -> bool {
-        self.inner.insert_item_color_lut_at(item_id, index, ColorLut { url, name })
+        self.inner.insert_item_color_lut_at(item_id, index, ColorLut { asset_id, name, url })
     }
     /// `Clip.replace_color_lut_at` on the clip `item_id`; None when no clip
     /// has this id.
-    #[pyo3(signature = (item_id, index, url, name=None))]
+    #[pyo3(signature = (item_id, index, asset_id, name=None, url=None))]
     fn replace_item_color_lut_at(
         &mut self,
         py: Python<'_>,
         item_id: &str,
         index: usize,
-        url: String,
+        asset_id: String,
         name: Option<String>,
+        url: Option<String>,
     ) -> PyResult<Option<PyObject>> {
         self.inner
-            .replace_item_color_lut_at(item_id, index, ColorLut { url, name })
+            .replace_item_color_lut_at(item_id, index, ColorLut { asset_id, name, url })
             .map(|lut| color_lut_to_python(py, lut))
             .transpose()
     }

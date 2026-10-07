@@ -1,11 +1,14 @@
-"""Tests for the `.cube` LUT list methods on the timeline and its clips."""
+"""Tests for the `.cube` LUT list methods on the timeline and its clips.
+
+LUTs are stored by asset id; the `.cube` URL the player reads is resolved
+from the asset id with `set_color_lut_url(s)` and stripped with
+`clear_color_lut_urls`.
+"""
 import json
 
 import pytest
 
 from tellers_timeline import Clip, Gap, Item, MediaReference, Timeline, Track
-
-LOOK = "https://cdn.example.test/film_look.cube"
 
 
 def make_clip(id="c1"):
@@ -17,28 +20,32 @@ def make_timeline():
     track = Track(
         kind="video",
         id="t1",
-        children=[Item.from_clip(make_clip("c1")), Item.from_gap(Gap(1.0, id="g1"))],
+        children=[
+            Item.from_clip(make_clip("c1")),
+            Item.from_gap(Gap(1.0, id="g1")),
+            Item.from_clip(make_clip("c2")),
+        ],
     )
     return Timeline([track])
 
 
-def lut(url, name=None):
-    return {"url": url, "name": name}
+def lut(asset_id, name=None, url=None):
+    return {"asset_id": asset_id, "name": name, "url": url}
 
 
 def test_timeline_luts_round_trip():
     tl = Timeline()
     assert tl.get_color_luts() == []
-    assert tl.push_color_lut(LOOK, name="film_look.cube")
+    assert tl.push_color_lut("look", name="film_look.cube")
 
-    assert tl.get_color_luts() == [lut(LOOK, "film_look.cube")]
+    assert tl.get_color_luts() == [lut("look", "film_look.cube")]
     metadata = json.loads(tl.get_metadata_json())
     assert metadata["tellers.ai"]["color_grading"] == [
-        {"cube": LOOK, "name": "film_look.cube"}
+        {"asset_id": "look", "name": "film_look.cube"}
     ]
 
     reparsed = Timeline.parse_json(tl.to_json())
-    assert reparsed.get_color_luts() == [lut(LOOK, "film_look.cube")]
+    assert reparsed.get_color_luts() == [lut("look", "film_look.cube")]
 
     assert tl.clear_color_luts()
     assert tl.get_color_luts() == []
@@ -47,44 +54,43 @@ def test_timeline_luts_round_trip():
 
 def test_clip_list_operations():
     clip = make_clip()
-    assert clip.push_color_lut("warm.cube")
-    assert clip.insert_color_lut_at(0, "slog3_to_709.cube", "slog3_to_709.cube")
-    assert not clip.insert_color_lut_at(5, "x.cube")
-    assert clip.get_color_luts() == [
-        lut("slog3_to_709.cube", "slog3_to_709.cube"),
-        lut("warm.cube"),
-    ]
+    assert clip.push_color_lut("warm")
+    assert clip.insert_color_lut_at(0, "slog3", "slog3_to_709.cube")
+    assert not clip.insert_color_lut_at(5, "x")
+    assert clip.get_color_luts() == [lut("slog3", "slog3_to_709.cube"), lut("warm")]
     metadata = json.loads(clip.get_metadata_json())
     assert metadata["tellers.ai"]["color_grading"] == [
-        {"cube": "slog3_to_709.cube", "name": "slog3_to_709.cube"},
-        {"cube": "warm.cube"},
+        {"asset_id": "slog3", "name": "slog3_to_709.cube"},
+        {"asset_id": "warm"},
     ]
 
-    assert clip.replace_color_lut_at(1, "cool.cube") == lut("warm.cube")
-    assert clip.replace_color_lut_at(9, "x.cube") is None
-    assert clip.remove_color_lut_at(0) == lut("slog3_to_709.cube", "slog3_to_709.cube")
+    assert clip.replace_color_lut_at(1, "cool") == lut("warm")
+    assert clip.replace_color_lut_at(9, "x") is None
+    assert clip.remove_color_lut_at(0) == lut("slog3", "slog3_to_709.cube")
     assert clip.remove_color_lut_at(9) is None
-    assert clip.get_color_luts() == [lut("cool.cube")]
+    assert clip.get_color_luts() == [lut("cool")]
 
 
 def test_set_color_luts_replaces_and_validates():
     clip = make_clip()
-    assert clip.set_color_luts([{"url": "a.cube"}, {"url": " b.cube ", "name": "b"}])
-    assert clip.get_color_luts() == [lut("a.cube"), lut("b.cube", "b")]
+    assert clip.set_color_luts(
+        [{"asset_id": "a"}, {"asset_id": " b ", "name": "b.cube", "url": "https://cdn/b.cube"}]
+    )
+    assert clip.get_color_luts() == [lut("a"), lut("b", "b.cube", "https://cdn/b.cube")]
 
-    assert not clip.set_color_luts([{"url": "ok.cube"}, {"url": "  "}])
-    assert clip.get_color_luts() == [lut("a.cube"), lut("b.cube", "b")]
+    assert not clip.set_color_luts([{"asset_id": "ok"}, {"asset_id": "  "}])
+    assert len(clip.get_color_luts()) == 2
 
     with pytest.raises(ValueError):
-        clip.set_color_luts([{"name": "no-url"}])
+        clip.set_color_luts([{"url": "https://cdn/no-id.cube"}])
     with pytest.raises(TypeError):
-        clip.set_color_luts(["a.cube"])
+        clip.set_color_luts(["a"])
 
     assert clip.set_color_luts([])
     assert clip.get_color_luts() == []
 
 
-def test_empty_url_is_rejected():
+def test_empty_asset_id_is_rejected():
     tl = Timeline()
     assert not tl.push_color_lut("   ")
     assert tl.get_color_luts() == []
@@ -92,33 +98,71 @@ def test_empty_url_is_rejected():
 
 def test_item_luts_and_gap():
     item = Item.from_clip(make_clip())
-    assert item.push_color_lut("clip.cube")
-    assert item.get_color_luts() == [lut("clip.cube")]
+    assert item.push_color_lut("clip")
+    assert item.get_color_luts() == [lut("clip")]
 
     gap = Item.from_gap(Gap(1.0))
-    assert not gap.push_color_lut("clip.cube")
+    assert not gap.push_color_lut("clip")
     assert gap.get_color_luts() == []
     assert gap.remove_color_lut_at(0) is None
 
 
 def test_timeline_edits_clips_by_id():
     tl = make_timeline()
-    assert tl.push_item_color_lut("c1", "warm.cube")
-    assert tl.insert_item_color_lut_at("c1", 0, "log.cube")
-    tl.push_color_lut("look.cube")
+    assert tl.push_item_color_lut("c1", "warm")
+    assert tl.insert_item_color_lut_at("c1", 0, "log")
+    assert tl.get_item_color_luts("c1") == [lut("log"), lut("warm")]
 
-    assert tl.get_item_color_luts("c1") == [lut("log.cube"), lut("warm.cube")]
-    assert tl.color_lut_urls() == ["look.cube", "log.cube", "warm.cube"]
-
-    assert tl.replace_item_color_lut_at("c1", 1, "cool.cube") == lut("warm.cube")
-    assert tl.remove_item_color_lut_at("c1", 0) == lut("log.cube")
+    assert tl.replace_item_color_lut_at("c1", 1, "cool") == lut("warm")
+    assert tl.remove_item_color_lut_at("c1", 0) == lut("log")
 
     assert tl.get_item_color_luts("missing") is None
     assert tl.get_item_color_luts("g1") is None
-    assert not tl.push_item_color_lut("missing", "x.cube")
-    assert not tl.push_item_color_lut("g1", "x.cube")
+    assert not tl.push_item_color_lut("missing", "x")
+    assert not tl.push_item_color_lut("g1", "x")
 
-    assert tl.set_item_color_luts("c1", [{"url": "a.cube"}])
+    assert tl.set_item_color_luts("c1", [{"asset_id": "a"}])
     assert tl.clear_item_color_luts("c1")
     assert tl.get_item_color_luts("c1") == []
-    assert tl.color_lut_urls() == ["look.cube"]
+
+
+def test_set_urls_from_asset_ids():
+    tl = make_timeline()
+    tl.push_color_lut("look")
+    tl.set_item_color_luts("c1", [{"asset_id": "log"}, {"asset_id": "warm"}])
+    tl.push_item_color_lut("c2", "log")
+
+    assert tl.color_lut_asset_ids() == ["look", "log", "warm"]
+
+    # One asset id, every entry that uses it.
+    assert tl.set_color_lut_url("log", "https://cdn/log.cube") == 2
+    assert tl.set_color_lut_url("log", "") == 0
+    # Many at once; unknown ids are ignored.
+    assert tl.set_color_lut_urls(
+        {"look": "https://cdn/look.cube", "warm": "https://cdn/warm.cube", "zzz": "x"}
+    ) == 2
+
+    assert tl.get_color_luts() == [lut("look", url="https://cdn/look.cube")]
+    assert tl.get_item_color_luts("c1") == [
+        lut("log", url="https://cdn/log.cube"),
+        lut("warm", url="https://cdn/warm.cube"),
+    ]
+    metadata = json.loads(tl.to_json())
+    track_items = metadata["tracks"]["children"][0]["children"]
+    assert track_items[2]["metadata"]["tellers.ai"]["color_grading"] == [
+        {"asset_id": "log", "cube": "https://cdn/log.cube"}
+    ]
+
+    assert tl.clear_color_lut_urls() == 4
+    assert tl.get_item_color_luts("c1") == [lut("log"), lut("warm")]
+    assert tl.color_lut_asset_ids() == ["look", "log", "warm"]
+
+
+def test_clip_url_setters():
+    clip = make_clip()
+    clip.push_color_lut("a")
+    clip.push_color_lut("b")
+    assert clip.set_color_lut_urls({"a": "https://cdn/a.cube"}) == 1
+    assert clip.get_color_luts() == [lut("a", url="https://cdn/a.cube"), lut("b")]
+    assert clip.clear_color_lut_urls() == 1
+    assert clip.get_color_luts() == [lut("a"), lut("b")]
