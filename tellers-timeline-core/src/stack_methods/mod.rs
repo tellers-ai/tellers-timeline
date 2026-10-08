@@ -13,7 +13,10 @@ mod stack_item_link;
 mod stack_item_move;
 mod stack_item_replace;
 mod stack_item_split;
+mod stack_snap;
 mod stack_track;
+
+pub use stack_snap::{SnapEdge, SnapMatch, SnapTarget};
 
 use stack_item_split::SyncSplitIdPolicy;
 
