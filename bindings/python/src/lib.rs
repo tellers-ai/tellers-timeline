@@ -861,6 +861,21 @@ impl PyTrack {
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
     }
+    /// The ids of the tracks this track's sync partners go to, in slot order
+    /// (`metadata["tellers.ai"]["associated_track_ids"]`). Empty when none is
+    /// stored; `Stack.associated_track_ids` also derives it from sync clips.
+    fn get_associated_track_ids(&self) -> Vec<String> {
+        self.inner.associated_track_ids()
+    }
+    /// Replace the associated track list (duplicates, empty ids and the
+    /// track's own id are dropped).
+    fn set_associated_track_ids(&mut self, ids: Vec<String>) {
+        self.inner.set_associated_track_ids(ids)
+    }
+    /// Remove the stored list; returns whether one was present.
+    fn clear_associated_track_ids(&mut self) -> bool {
+        self.inner.clear_associated_track_ids()
+    }
     /// The CSS classes declared on this track only (not merged with the
     /// timeline's), as `{"name", "declarations"}` dicts.
     fn get_text_styles(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
@@ -1089,6 +1104,23 @@ impl PyStack {
     }
     fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         sync_track_info_to_python(py, self.inner.sync_track_info())
+    }
+    /// The associated track ids of the track with `track_id`, in slot order:
+    /// the stored list, or the association derived from its sync clips when
+    /// nothing is stored. None when the track is unknown.
+    fn associated_track_ids(&self, track_id: &str) -> Option<Vec<String>> {
+        self.inner.associated_track_ids(track_id)
+    }
+    /// Store `partner_ids` as the associated tracks of `track_id`, in that
+    /// order (ids that are not tracks of this stack are dropped).
+    fn associate_tracks(&mut self, track_id: &str, partner_ids: Vec<String>) -> bool {
+        self.inner.associate_tracks(track_id, &partner_ids)
+    }
+    /// An existing audio track free over `[start, start + duration]` for a clip
+    /// without sync partners: tracks no track lists as a partner first, then
+    /// the lowest index. None when no audio track is free there.
+    fn free_audio_track_for(&self, start: f64, duration: f64) -> Option<String> {
+        self.inner.free_audio_track_for(start, duration)
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
@@ -1609,6 +1641,23 @@ impl PyTimeline {
     }
     fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         sync_track_info_to_python(py, self.inner.sync_track_info())
+    }
+    /// The associated track ids of the track with `track_id`, in slot order:
+    /// the stored list, or the association derived from its sync clips when
+    /// nothing is stored. None when the track is unknown.
+    fn associated_track_ids(&self, track_id: &str) -> Option<Vec<String>> {
+        self.inner.tracks.associated_track_ids(track_id)
+    }
+    /// Store `partner_ids` as the associated tracks of `track_id`, in that
+    /// order (ids that are not tracks of this stack are dropped).
+    fn associate_tracks(&mut self, track_id: &str, partner_ids: Vec<String>) -> bool {
+        self.inner.tracks.associate_tracks(track_id, &partner_ids)
+    }
+    /// An existing audio track free over `[start, start + duration]` for a clip
+    /// without sync partners: tracks no track lists as a partner first, then
+    /// the lowest index. None when no audio track is free there.
+    fn free_audio_track_for(&self, start: f64, duration: f64) -> Option<String> {
+        self.inner.tracks.free_audio_track_for(start, duration)
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner

@@ -28,29 +28,38 @@ fn synced_insert_adds_primary_and_audio_tracks_without_touching_clips() {
 
     assert_eq!(result.primary_clip_id, "primary-id");
     assert_eq!(result.audio_clips.len(), 3);
-    // Reuse the adjacent empty audio track and create only two missing channels.
-    // Audio slots retain the fresh-insert descending-index channel order.
+    // Reuse the adjacent empty audio track for the first clip and create only two
+    // missing channels, each past the previous slot (away from the video), so the
+    // slot order is also the stack order: video, audio-track, A1, A2.
     assert_eq!(
         result
             .audio_clips
             .iter()
             .map(|(_, track_index)| *track_index)
             .collect::<Vec<_>>(),
-        vec![3, 1, 0]
+        vec![1, 2, 3]
     );
-    assert_eq!(result.created_track_indices, vec![0, 1]);
+    assert_eq!(result.created_track_indices, vec![2, 3]);
     assert_eq!(stack.children.len(), 4);
-    assert_eq!(stack.children[0].kind, TrackKind::Audio);
+    assert_eq!(stack.children[0].kind, TrackKind::Video);
     assert_eq!(stack.children[1].kind, TrackKind::Audio);
-    assert_eq!(stack.children[2].kind, TrackKind::Video);
+    assert_eq!(stack.children[2].kind, TrackKind::Audio);
     assert_eq!(stack.children[3].kind, TrackKind::Audio);
-    assert_eq!(stack.children[2].get_id().as_deref(), Some("video-track"));
-    assert_eq!(stack.get_item("primary-id").unwrap().0, 2);
-    assert_eq!(stack.children[3].get_id().as_deref(), Some("audio-track"));
-    assert_eq!(stack.children[0].get_id().as_deref(), Some("A1"));
-    assert_eq!(stack.children[0].name.as_deref(), Some("A1"));
-    assert_eq!(stack.children[1].get_id().as_deref(), Some("A2"));
-    assert_eq!(stack.children[1].name.as_deref(), Some("A2"));
+    assert_eq!(stack.children[0].get_id().as_deref(), Some("video-track"));
+    assert_eq!(stack.get_item("primary-id").unwrap().0, 0);
+    assert_eq!(stack.children[1].get_id().as_deref(), Some("audio-track"));
+    assert_eq!(stack.children[2].get_id().as_deref(), Some("A1"));
+    assert_eq!(stack.children[2].name.as_deref(), Some("A1"));
+    assert_eq!(stack.children[3].get_id().as_deref(), Some("A2"));
+    assert_eq!(stack.children[3].name.as_deref(), Some("A2"));
+    assert_eq!(
+        stack.associated_track_ids("video-track").unwrap(),
+        vec![
+            "audio-track".to_string(),
+            "A1".to_string(),
+            "A2".to_string()
+        ]
+    );
 
     let primary = stack.get_item("primary-id").unwrap().2;
     assert_eq!(primary.duration(), 4.0);
@@ -97,9 +106,14 @@ fn synced_insert_master_clip_with_multiple_audio_clips_at_time() {
 
     assert_eq!(result.primary_clip_id, "master-video");
     assert_eq!(result.audio_clips.len(), 3);
-    // Fresh insert with only a video track: three new audio tracks are created below it
-    // at indices [0, 1, 2], pushing the video up to the top of its group (index 3).
-    assert_eq!(result.created_track_indices, vec![0, 1, 2]);
+    // Fresh insert with only a video track: three new audio tracks are created below
+    // it, each below the previous one, so the stack reads A3, A2, A1, video (the
+    // first slot A1 right below the video, at index 2) and the video ends at index 3.
+    assert_eq!(result.created_track_indices, vec![2, 1, 0]);
+    assert_eq!(
+        stack.associated_track_ids("video-track").unwrap(),
+        vec!["A1".to_string(), "A2".to_string(), "A3".to_string()]
+    );
     let (primary_track_index, primary_item_index, primary_item) =
         stack.get_item("master-video").unwrap();
     assert_eq!(

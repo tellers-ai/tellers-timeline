@@ -13,6 +13,7 @@ mod stack_item_link;
 mod stack_item_move;
 mod stack_item_replace;
 mod stack_item_split;
+mod stack_partner_tracks;
 mod stack_snap;
 mod stack_track;
 
@@ -301,23 +302,8 @@ impl Stack {
         }
     }
 
-    /// Audio tracks other than `dest_track_index` whose `[start, end]` range is
-    /// free (empty, or gap-backed), nearest to the destination first (ties go to
-    /// the lower index, the track "below" the video in Resolve layout). Sync
-    /// partners land on one of these before a brand-new track is allocated, so a
-    /// free track is never duplicated just because it is not adjacent to the
-    /// destination or carries unrelated clips elsewhere.
-    fn nearest_free_audio_tracks(
-        &self,
-        dest_track_index: usize,
-        start: Seconds,
-        end: Seconds,
-        exclude: &[usize],
-    ) -> Vec<usize> {
-        self.nearest_free_tracks_of_kind(TrackKind::Audio, dest_track_index, start, end, exclude)
-    }
-
-    /// Video counterpart of [`Self::nearest_free_audio_tracks`].
+    /// Video tracks other than `dest_track_index` free over `[start, end]`,
+    /// nearest first, tracks nobody lists as a partner first.
     fn nearest_free_video_tracks(
         &self,
         dest_track_index: usize,
@@ -328,7 +314,7 @@ impl Stack {
         self.nearest_free_tracks_of_kind(TrackKind::Video, dest_track_index, start, end, exclude)
     }
 
-    fn nearest_free_tracks_of_kind(
+    pub(super) fn nearest_free_tracks_of_kind(
         &self,
         kind: TrackKind,
         dest_track_index: usize,
@@ -348,155 +334,23 @@ impl Stack {
             })
             .map(|(track_index, _)| track_index)
             .collect();
-        candidates
-            .sort_by_key(|track_index| (track_index.abs_diff(dest_track_index), *track_index));
+        candidates.sort_by_key(|&track_index| {
+            (
+                self.is_associated_partner(track_index),
+                track_index.abs_diff(dest_track_index),
+                track_index,
+            )
+        });
         candidates
     }
 
-    fn find_or_create_move_audio_track(
-        &mut self,
-        primary_track_index: usize,
-        dest_time: Seconds,
-        duration: Seconds,
-        created_track_indices: &mut Vec<usize>,
-        used_audio_indices: &[usize],
-        used_audio_boundary_indices: &[usize],
-    ) -> Option<usize> {
-        let end_time = dest_time + duration;
-        match self.children.get(primary_track_index)?.kind {
-            TrackKind::Video => {
-                let mut audio_start = primary_track_index;
-                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
-                    audio_start -= 1;
-                }
-
-                let mut crossed_used_audio_boundary = false;
-                for audio_index in (audio_start..primary_track_index).rev() {
-                    if used_audio_indices.contains(&audio_index) {
-                        if used_audio_boundary_indices.contains(&audio_index) {
-                            crossed_used_audio_boundary = true;
-                        }
-                        continue;
-                    }
-                    if crossed_used_audio_boundary
-                        && !track_is_empty_boundary(&self.children[audio_index])
-                    {
-                        continue;
-                    }
-                    if range_is_gap_backed(&self.children[audio_index], dest_time, end_time) {
-                        return Some(audio_index);
-                    }
-                    if self.track_matches_primary_sync_boundary(primary_track_index, audio_index) {
-                        return Some(audio_index);
-                    }
-                }
-
-                // No reusable audio track above the video. In the common video-over-audio
-                // layout the sync clip belongs on the existing audio track below the video,
-                // so reuse an adjacent audio track there before creating a new one.
-                let mut crossed_used_audio_boundary_below = false;
-                let mut below_index = primary_track_index + 1;
-                while below_index < self.children.len()
-                    && self.children[below_index].kind == TrackKind::Audio
-                {
-                    if used_audio_indices.contains(&below_index) {
-                        if used_audio_boundary_indices.contains(&below_index) {
-                            crossed_used_audio_boundary_below = true;
-                        }
-                        below_index += 1;
-                        continue;
-                    }
-                    if crossed_used_audio_boundary_below
-                        && !track_is_empty_boundary(&self.children[below_index])
-                    {
-                        below_index += 1;
-                        continue;
-                    }
-                    if range_is_gap_backed(&self.children[below_index], dest_time, end_time) {
-                        return Some(below_index);
-                    }
-                    if self.track_matches_primary_sync_boundary(primary_track_index, below_index) {
-                        return Some(below_index);
-                    }
-                    below_index += 1;
-                }
-
-                // Any other audio track that is free over the column beats a new one.
-                if let Some(track_index) = self
-                    .nearest_free_audio_tracks(
-                        primary_track_index,
-                        dest_time,
-                        end_time,
-                        used_audio_indices,
-                    )
-                    .into_iter()
-                    .next()
-                {
-                    return Some(track_index);
-                }
-
-                let insert_at = if audio_start < primary_track_index {
-                    audio_start
-                } else {
-                    primary_track_index
-                };
-                self.children
-                    .insert(insert_at, self.new_numbered_track(TrackKind::Audio));
-                created_track_indices.push(insert_at);
-                Some(insert_at)
-            }
-            TrackKind::Audio => {
-                let mut audio_start = primary_track_index;
-                while audio_start > 0 && self.children[audio_start - 1].kind == TrackKind::Audio {
-                    audio_start -= 1;
-                }
-                let mut audio_end = primary_track_index + 1;
-                while audio_end < self.children.len()
-                    && self.children[audio_end].kind == TrackKind::Audio
-                {
-                    audio_end += 1;
-                }
-
-                let mut candidates: Vec<_> = (audio_start..audio_end)
-                    .filter(|track_index| {
-                        *track_index != primary_track_index
-                            && !used_audio_indices.contains(track_index)
-                            && range_is_gap_backed(
-                                &self.children[*track_index],
-                                dest_time,
-                                end_time,
-                            )
-                    })
-                    .collect();
-                candidates.sort_by_key(|track_index| {
-                    (track_index.abs_diff(primary_track_index), *track_index)
-                });
-                if let Some(track_index) = candidates.into_iter().next() {
-                    return Some(track_index);
-                }
-                if let Some(track_index) = self
-                    .nearest_free_audio_tracks(
-                        primary_track_index,
-                        dest_time,
-                        end_time,
-                        used_audio_indices,
-                    )
-                    .into_iter()
-                    .next()
-                {
-                    return Some(track_index);
-                }
-
-                self.children
-                    .insert(audio_end, self.new_numbered_track(TrackKind::Audio));
-                created_track_indices.push(audio_end);
-                Some(audio_end)
-            }
-            TrackKind::Other => None,
-        }
+    /// Whether `[start, end]` on `track` holds nothing (an empty or gap-only
+    /// track, or a gap-backed range).
+    pub(crate) fn track_range_is_free(track: &Track, start: Seconds, end: Seconds) -> bool {
+        track_is_empty_boundary(track) || range_is_gap_backed(track, start, end)
     }
 
-    fn try_reuse_video_track_for_audio_move(
+    pub(super) fn try_reuse_video_track_for_audio_move(
         &self,
         track_index: usize,
         audio_track_index: usize,
@@ -532,7 +386,7 @@ impl Stack {
         None
     }
 
-    fn find_or_create_video_track_for_audio(
+    pub(super) fn find_or_create_video_track_for_audio(
         &mut self,
         audio_track_index: usize,
         dest_time: Seconds,
@@ -1068,7 +922,7 @@ impl Stack {
         }
     }
 
-    fn new_numbered_track(&self, kind: TrackKind) -> Track {
+    pub(super) fn new_numbered_track(&self, kind: TrackKind) -> Track {
         let prefix = match kind {
             TrackKind::Audio => "A",
             TrackKind::Video => "V",
@@ -1193,251 +1047,7 @@ impl Stack {
         inputs
     }
 
-    fn destination_move_audio_candidates(
-        &self,
-        dest_track_index: usize,
-        used_audio_indices: &[usize],
-    ) -> Vec<usize> {
-        let Some(dest_track) = self.children.get(dest_track_index) else {
-            return Vec::new();
-        };
-        match dest_track.kind {
-            TrackKind::Video => {
-                let mut candidates = Vec::new();
-                let mut above = dest_track_index;
-                while above > 0 && self.children[above - 1].kind == TrackKind::Audio {
-                    above -= 1;
-                    if !used_audio_indices.contains(&above) {
-                        candidates.push(above);
-                    }
-                }
-                let mut below = dest_track_index + 1;
-                while below < self.children.len() && self.children[below].kind == TrackKind::Audio {
-                    if !used_audio_indices.contains(&below) {
-                        candidates.push(below);
-                    }
-                    below += 1;
-                }
-                candidates
-            }
-            TrackKind::Audio => self
-                .boundary_group_indices(dest_track_index)
-                .into_iter()
-                .filter(|&track_index| {
-                    track_index != dest_track_index
-                        && self.children.get(track_index).is_some_and(|track| {
-                            track.kind == TrackKind::Audio
-                                && !used_audio_indices.contains(&track_index)
-                        })
-                })
-                .collect(),
-            TrackKind::Other => Vec::new(),
-        }
-    }
-
-    fn find_usable_destination_move_audio_track(
-        &self,
-        dest_track_index: usize,
-        dest_time: Seconds,
-        duration: Seconds,
-        used_audio_indices: &[usize],
-        exclude_track_indices: &HashSet<usize>,
-    ) -> Option<usize> {
-        let end_time = dest_time + duration;
-        self.destination_move_audio_candidates(dest_track_index, used_audio_indices)
-            .into_iter()
-            .filter(|track_index| !exclude_track_indices.contains(track_index))
-            .find(|&track_index| {
-                self.children.get(track_index).is_some_and(|track| {
-                    track_is_empty_boundary(track)
-                        || range_is_gap_backed(track, dest_time, end_time)
-                        || self.track_matches_primary_sync_boundary(dest_track_index, track_index)
-                })
-            })
-            .or_else(|| {
-                // Nothing adjacent to the destination is usable: fall back to the
-                // nearest audio track anywhere in the stack that is free over the
-                // column before allocating a new track. Source tracks stay
-                // excluded so a move away from a cluster never leaves partners
-                // behind on it.
-                self.nearest_free_audio_tracks(
-                    dest_track_index,
-                    dest_time,
-                    end_time,
-                    used_audio_indices,
-                )
-                .into_iter()
-                .find(|track_index| !exclude_track_indices.contains(track_index))
-            })
-    }
-
-    fn has_non_source_destination_audio_tracks(
-        &self,
-        dest_track_index: usize,
-        exclude_track_indices: &HashSet<usize>,
-    ) -> bool {
-        self.destination_move_audio_candidates(dest_track_index, &[])
-            .iter()
-            .any(|track_index| !exclude_track_indices.contains(track_index))
-    }
-
-    fn preferred_move_audio_track_usable(
-        &self,
-        dest_track_index: usize,
-        candidate_index: usize,
-        dest_time: Seconds,
-        duration: Seconds,
-        used_audio_indices: &[usize],
-        exclude_track_indices: &HashSet<usize>,
-    ) -> bool {
-        if candidate_index == dest_track_index {
-            return false;
-        }
-        let Some(track) = self.children.get(candidate_index) else {
-            return false;
-        };
-        if track.kind != TrackKind::Audio || used_audio_indices.contains(&candidate_index) {
-            return false;
-        }
-        // A horizontal move keeps its original channel mapping even after
-        // lifting the column has erased the last sync metadata on these tracks.
-        if exclude_track_indices.contains(&dest_track_index)
-            && exclude_track_indices.contains(&candidate_index)
-            && (track_is_empty_boundary(track)
-                || range_is_gap_backed(track, dest_time, dest_time + duration))
-        {
-            return true;
-        }
-        let end_time = dest_time + duration;
-        let dest_cluster: HashSet<usize> = self
-            .boundary_group_indices(dest_track_index)
-            .into_iter()
-            .collect();
-        if !dest_cluster.contains(&candidate_index)
-            && self.has_non_source_destination_audio_tracks(dest_track_index, exclude_track_indices)
-        {
-            return false;
-        }
-        if track_is_empty_boundary(track) {
-            return true;
-        }
-        if range_is_gap_backed(track, dest_time, end_time) {
-            return true;
-        }
-        self.track_matches_primary_sync_boundary(dest_track_index, candidate_index)
-    }
-
-    fn find_or_create_destination_move_audio_track(
-        &mut self,
-        dest_track_index: usize,
-        dest_time: Seconds,
-        duration: Seconds,
-        created_track_indices: &mut Vec<usize>,
-        used_audio_indices: &[usize],
-        exclude_track_indices: &HashSet<usize>,
-    ) -> Option<usize> {
-        if let Some(track_index) = self.find_usable_destination_move_audio_track(
-            dest_track_index,
-            dest_time,
-            duration,
-            used_audio_indices,
-            exclude_track_indices,
-        ) {
-            return Some(track_index);
-        }
-
-        let insert_at = match self.children.get(dest_track_index)?.kind {
-            TrackKind::Video => {
-                let mut above = dest_track_index;
-                while above > 0 && self.children[above - 1].kind == TrackKind::Audio {
-                    above -= 1;
-                }
-                if above < dest_track_index {
-                    dest_track_index
-                } else {
-                    dest_track_index + 1
-                }
-            }
-            TrackKind::Audio => dest_track_index + 1,
-            TrackKind::Other => return None,
-        };
-        self.children
-            .insert(insert_at, self.new_numbered_track(TrackKind::Audio));
-        created_track_indices.push(insert_at);
-        Some(insert_at)
-    }
-
-    fn assign_move_audio_slots(
-        &mut self,
-        dest_track_index: &mut usize,
-        cluster: &mut Vec<usize>,
-        created_track_indices: &mut Vec<usize>,
-        start: Seconds,
-        audio_durations: &[Seconds],
-        preferred_indices: &[usize],
-        exclude_track_indices: &HashSet<usize>,
-    ) -> Option<Vec<usize>> {
-        let needed = audio_durations.len();
-        let mut audio_slots = Vec::with_capacity(needed);
-        let mut used_audio_indices = Vec::new();
-        let mut used_audio_boundary_indices = Vec::new();
-
-        for (audio_index, &duration) in audio_durations.iter().enumerate() {
-            let track_count_before = self.children.len();
-            let preferred = preferred_indices.get(audio_index).copied();
-            let track_index = preferred
-                .filter(|&preferred_index| {
-                    self.preferred_move_audio_track_usable(
-                        *dest_track_index,
-                        preferred_index,
-                        start,
-                        duration,
-                        &used_audio_indices,
-                        exclude_track_indices,
-                    )
-                })
-                .or_else(|| {
-                    self.find_usable_destination_move_audio_track(
-                        *dest_track_index,
-                        start,
-                        duration,
-                        &used_audio_indices,
-                        exclude_track_indices,
-                    )
-                })
-                .or_else(|| {
-                    self.find_or_create_destination_move_audio_track(
-                        *dest_track_index,
-                        start,
-                        duration,
-                        created_track_indices,
-                        &used_audio_indices,
-                        exclude_track_indices,
-                    )
-                })?;
-
-            if self.children.len() > track_count_before {
-                Self::shift_insert_track_indices_after_create(
-                    track_index,
-                    dest_track_index,
-                    cluster,
-                    &mut audio_slots,
-                    created_track_indices,
-                );
-            }
-            let reused_empty_boundary = self.children.len() == track_count_before
-                && track_is_empty_boundary(&self.children[track_index]);
-            audio_slots.push(track_index);
-            used_audio_indices.push(track_index);
-            if reused_empty_boundary {
-                used_audio_boundary_indices.push(track_index);
-            }
-        }
-
-        Some(audio_slots)
-    }
-
-    fn shift_insert_track_indices_after_create(
+    pub(super) fn shift_insert_track_indices_after_create(
         inserted_at: usize,
         dest_track_index: &mut usize,
         cluster: &mut [usize],
@@ -1465,7 +1075,7 @@ impl Stack {
     }
 
     /// Sync ids of the clips on `track_index` overlapping `[start, end]`.
-    fn sync_clips_ids_in_range(
+    pub(super) fn sync_clips_ids_in_range(
         &self,
         track_index: usize,
         start: Seconds,
@@ -1494,7 +1104,7 @@ impl Stack {
 
     /// True when every clip on `track_index` overlapping `[start, end]` belongs
     /// to one of `sync_clips_ids` (gaps never block).
-    fn range_only_holds_sync_clips(
+    pub(super) fn range_only_holds_sync_clips(
         &self,
         track_index: usize,
         start: Seconds,
@@ -1856,34 +1466,10 @@ impl Stack {
             },
         );
 
-        // Moves pass source audio track indices so partners land back on their original
-        // tracks. Empty preferred tracks (no clips, or gaps only) are part of the
-        // destination working cluster so insert propagation applies there too.
+        // The destination's associated tracks join the working cluster so insert
+        // propagation applies to them even while they are empty.
         if has_synced_clips {
-            for track_index in self.destination_move_audio_candidates(dest_track_index, &[]) {
-                let Some(track) = self.children.get(track_index) else {
-                    continue;
-                };
-                if !track.items.is_empty() && !track_is_empty_boundary(track) {
-                    continue;
-                }
-                if !cluster.contains(&track_index) {
-                    cluster.push(track_index);
-                }
-            }
-            for &track_index in preferred_audio_track_indices.unwrap_or(&[]) {
-                if track_index == dest_track_index {
-                    continue;
-                }
-                let Some(track) = self.children.get(track_index) else {
-                    continue;
-                };
-                if track.kind != TrackKind::Audio {
-                    continue;
-                }
-                if !track.items.is_empty() && !track_is_empty_boundary(track) {
-                    continue;
-                }
+            for track_index in self.associated_track_indices(dest_track_index) {
                 if !cluster.contains(&track_index) {
                     cluster.push(track_index);
                 }
@@ -1891,153 +1477,51 @@ impl Stack {
             cluster.sort_unstable();
         }
 
-        // Audio targets: reuse existing audio tracks from the cluster, then create
-        // new tracks directly below the destination until every clip has a slot.
-        let needed = synced_inputs.audio.len();
+        // Audio slots: the destination's associated tracks, then created tracks
+        // (see `stack_partner_tracks`). Override replaces whatever sits under the
+        // column on the destination track together with the partners of those
+        // clips; an associated track holding anything else there (unrelated
+        // music, another video track's audio) must not lose it, so it is not a
+        // slot for this column.
         let audio_durations: Vec<Seconds> = synced_inputs
             .audio
             .iter()
             .map(|item| Self::sanitized_clip_duration(item).unwrap_or(modified_duration))
             .collect();
-        let mut audio_slots: Vec<usize> = if let Some(preferred_indices) =
-            preferred_audio_track_indices
-        {
-            let exclude_track_indices: HashSet<usize> = move_source_track_indices
-                .map(|indices| indices.iter().copied().collect())
-                .unwrap_or_default();
-            self.assign_move_audio_slots(
-                &mut dest_track_index,
-                &mut cluster,
-                &mut created_track_indices,
-                start,
-                &audio_durations,
-                preferred_indices,
-                &exclude_track_indices,
-            )?
+        let column_end = start + column_span;
+        let overridden_sync_ids: HashSet<i64> = if overlap_policy == OverlapPolicy::Override {
+            self.sync_clips_ids_in_range(dest_track_index, start, column_end)
         } else {
-            // Override replaces whatever sits under the column on the destination
-            // track together with the partners of those clips. A cluster audio
-            // track holding anything else there (unrelated music, another video
-            // track's audio) must not lose it, so it is not a slot for this column.
-            let column_end = start + column_span;
-            let overridden_sync_ids: HashSet<i64> = if overlap_policy == OverlapPolicy::Override {
-                self.sync_clips_ids_in_range(dest_track_index, start, column_end)
-            } else {
-                HashSet::new()
-            };
-            let mut slots: Vec<usize> = cluster
-                .iter()
-                .copied()
-                .filter(|&i| {
-                    i != dest_track_index
-                        && self.children[i].kind == TrackKind::Audio
-                        && (overlap_policy != OverlapPolicy::Override
-                            || self.range_only_holds_sync_clips(
-                                i,
-                                start,
-                                column_end,
-                                &overridden_sync_ids,
-                            ))
-                })
-                .collect();
-            // The cluster does not have enough audio tracks: reuse the nearest
-            // audio tracks that are free over the column (even non-adjacent ones,
-            // or ones carrying unrelated clips elsewhere) before creating any.
-            if slots.len() < needed {
-                for track_index in
-                    self.nearest_free_audio_tracks(dest_track_index, start, column_end, &slots)
-                {
-                    if slots.len() >= needed {
-                        break;
-                    }
-                    slots.push(track_index);
-                    if !cluster.contains(&track_index) {
-                        cluster.push(track_index);
-                    }
-                }
-                cluster.sort_unstable();
-            }
-            while slots.len() < needed {
-                let insert_at = dest_track_index;
-                let track = self.new_numbered_track(TrackKind::Audio);
-                self.children.insert(insert_at, track);
-                for index in created_track_indices.iter_mut() {
-                    if *index >= insert_at {
-                        *index += 1;
-                    }
-                }
-                created_track_indices.push(insert_at);
-                dest_track_index += 1;
-                for index in cluster.iter_mut() {
-                    if *index >= insert_at {
-                        *index += 1;
-                    }
-                }
-                for index in slots.iter_mut() {
-                    if *index >= insert_at {
-                        *index += 1;
-                    }
-                }
-                slots.push(insert_at);
-            }
-            slots
+            HashSet::new()
         };
-
-        while audio_slots.len() < needed {
-            let insert_at = dest_track_index;
-            let track = self.new_numbered_track(TrackKind::Audio);
-            self.children.insert(insert_at, track);
-            for index in created_track_indices.iter_mut() {
-                if *index >= insert_at {
-                    *index += 1;
-                }
-            }
-            created_track_indices.push(insert_at);
-            dest_track_index += 1;
-            for index in cluster.iter_mut() {
-                if *index >= insert_at {
-                    *index += 1;
-                }
-            }
-            for index in audio_slots.iter_mut() {
-                if *index >= insert_at {
-                    *index += 1;
-                }
-            }
-            audio_slots.push(insert_at);
-        }
+        let mut audio_slots = self.assign_audio_partner_slots(
+            &mut dest_track_index,
+            &mut cluster,
+            &mut created_track_indices,
+            start,
+            &audio_durations,
+            preferred_audio_track_indices,
+            move_source_track_indices.unwrap_or(&[]),
+            overlap_policy,
+            &overridden_sync_ids,
+        );
 
         let mut synced_video_clip_id = None;
         let mut column_video = None;
         if let Some(video_item) = synced_inputs.video {
             let video_span = Self::sanitized_clip_duration(&video_item).unwrap_or(column_span);
             let track_count_before = self.children.len();
-            let video_track_index = preferred_video_track_id
-                .and_then(|track_id| self.get_track_by_id(track_id))
-                .and_then(|(track_index, _)| {
-                    self.try_reuse_video_track_for_audio_move(
-                        track_index,
-                        dest_track_index,
-                        start,
-                        start + video_span,
-                        sync_clips_id,
-                        true,
-                        overlap_policy,
-                        insert_policy,
-                    )
-                })
-                .or_else(|| {
-                    self.find_or_create_video_track_for_audio(
-                        dest_track_index,
-                        start,
-                        video_span,
-                        &mut created_track_indices,
-                        sync_clips_id,
-                        true,
-                        overlap_policy,
-                        insert_policy,
-                    )
-                });
+            let video_track_index = self.pick_video_partner_track(
+                dest_track_index,
+                start,
+                start + video_span,
+                preferred_video_track_id,
+                &[],
+                sync_clips_id,
+                overlap_policy,
+                insert_policy,
+                &mut created_track_indices,
+            );
             let Some(video_track_index) = video_track_index else {
                 *self = backup;
                 return None;
@@ -2048,7 +1532,7 @@ impl Stack {
                     &mut dest_track_index,
                     &mut cluster,
                     &mut audio_slots,
-                    &mut created_track_indices,
+                    &mut [],
                 );
             }
             let Some((video_item, video_id)) = Self::prepare_synced_item_preserve_duration(
@@ -2080,14 +1564,7 @@ impl Stack {
         };
         let mut column = Vec::new();
 
-        // Assign the first synced audio to the audio track immediately below the
-        // destination (largest index still less than `dest_track_index` in Resolve
-        // layout), then the next-nearest, and so on.
-        if preferred_audio_track_indices.is_none() {
-            audio_slots.sort_by(|a, b| b.cmp(a));
-        }
-
-        // Audio clips onto the nearest cluster audio tracks.
+        // Audio clips onto their slots, in partner order.
         let mut audio_clips = Vec::new();
         for (audio_item, &audio_track_index) in synced_inputs.audio.into_iter().zip(&audio_slots) {
             let Some((audio_item, audio_id)) = Self::prepare_synced_item_preserve_duration(
@@ -3023,36 +2500,17 @@ impl Stack {
         let end_time = start + video_duration;
 
         let mut created_track_indices = Vec::new();
-        let video_track_index = if let Some(preferred_id) = preferred_cluster_video_id {
-            self.get_track_by_id(preferred_id)
-                .map(|(track_index, _)| track_index)
-                .and_then(|track_index| {
-                    self.try_reuse_video_track_for_audio_move(
-                        track_index,
-                        dest_audio_track_index,
-                        start,
-                        end_time,
-                        sync_clips_id,
-                        true,
-                        overlap_policy,
-                        insert_policy,
-                    )
-                })
-        } else {
-            None
-        };
-        let Some(video_track_index) = video_track_index.or_else(|| {
-            self.find_or_create_video_track_for_audio(
-                dest_audio_track_index,
-                start,
-                video_duration,
-                &mut created_track_indices,
-                sync_clips_id,
-                true,
-                overlap_policy,
-                insert_policy,
-            )
-        }) else {
+        let Some(video_track_index) = self.pick_video_partner_track(
+            dest_audio_track_index,
+            start,
+            end_time,
+            preferred_cluster_video_id,
+            &[],
+            sync_clips_id,
+            overlap_policy,
+            insert_policy,
+            &mut created_track_indices,
+        ) else {
             return false;
         };
 
@@ -3349,7 +2807,8 @@ impl Stack {
             .iter()
             .filter(|item| !item.is_selected && item.track_kind == TrackKind::Audio)
             .collect();
-        audio_partners.sort_by_key(|item| item.track_index);
+        audio_partners
+            .sort_by_key(|item| self.partner_slot_order(selected.track_index, item.track_index));
 
         for item in &items {
             if item.is_selected {
@@ -3488,7 +2947,8 @@ impl Stack {
             .iter()
             .filter(|item| !item.is_selected && item.track_kind == TrackKind::Audio)
             .collect();
-        audio_partners.sort_by_key(|item| std::cmp::Reverse(item.track_index));
+        audio_partners
+            .sort_by_key(|item| self.partner_slot_order(selected.track_index, item.track_index));
         for item in &items_to_move {
             if item.is_selected {
                 continue;
@@ -3665,7 +3125,6 @@ impl Stack {
         )];
         let mut created_track_indices = Vec::new();
         let mut used_audio_track_indices = Vec::new();
-        let mut used_audio_boundary_indices = Vec::new();
         let mut used_video_track_indices = Vec::new();
         match self.children[dest_track_index].kind {
             TrackKind::Audio => used_audio_track_indices.push(dest_track_index),
@@ -3680,15 +3139,23 @@ impl Stack {
             .into_iter()
             .enumerate()
             .filter(|(position, _)| *position != selected_position)
+            .map(|(_, move_item)| move_item)
             .collect();
-        sync_track_items.sort_by_key(|(_, move_item)| {
-            (
-                move_item.track_index.abs_diff(selected_source_track_index),
-                move_item.track_index,
-            )
+        sync_track_items.sort_by_key(|move_item| {
+            backup.partner_slot_order(selected_source_track_index, move_item.track_index)
         });
+        let moved_end = moved_start + moved_duration;
+        let horizontal = selected_source_track_index == dest_track_index;
+        let mut source_track_indices: Vec<usize> = std::iter::once(selected_source_track_index)
+            .chain(
+                sync_track_items
+                    .iter()
+                    .map(|move_item| move_item.track_index),
+            )
+            .collect();
 
-        for (_, move_item) in sync_track_items {
+        for position in 0..sync_track_items.len() {
+            let move_item = sync_track_items[position].clone();
             if intra_cluster_move {
                 let track_index = move_item.track_index;
                 match move_item.track_kind {
@@ -3703,98 +3170,88 @@ impl Stack {
                 continue;
             }
 
-            match move_item.track_kind {
+            let track_count_before = self.children.len();
+            let track_index = match move_item.track_kind {
                 TrackKind::Audio => {
-                    let track_count_before = self.children.len();
-                    let Some(track_index) = self.find_or_create_move_audio_track(
-                        dest_track_index,
-                        moved_start,
-                        moved_duration,
-                        &mut created_track_indices,
-                        &used_audio_track_indices,
-                        &used_audio_boundary_indices,
-                    ) else {
-                        *self = backup;
-                        return false;
+                    let overridden_sync_ids: HashSet<i64> =
+                        if overlap_policy == OverlapPolicy::Override {
+                            self.sync_clips_ids_in_range(dest_track_index, moved_start, moved_end)
+                        } else {
+                            HashSet::new()
+                        };
+                    let primary = dest_track_index;
+                    let usable = |stack: &Stack, index: usize| {
+                        stack.partner_track_usable(
+                            primary,
+                            index,
+                            moved_start,
+                            moved_end,
+                            overlap_policy,
+                            &overridden_sync_ids,
+                        )
                     };
-                    let reused_empty_boundary_track = self.children.len() == track_count_before
-                        && track_is_empty_boundary(&self.children[track_index]);
-                    if self.children.len() > track_count_before {
-                        shift_track_index_after_insert(&mut dest_track_index, track_index);
-                        shift_move_placements_after_insert(&mut placements, track_index);
-                        shift_track_indices_after_insert(
-                            &mut used_audio_track_indices,
-                            track_index,
-                        );
-                        shift_track_indices_after_insert(
-                            &mut used_audio_boundary_indices,
-                            track_index,
-                        );
-                        shift_track_indices_after_insert(
-                            &mut used_video_track_indices,
-                            track_index,
-                        );
-                    }
-                    placements.push((track_index, move_item.item, false));
-                    used_audio_track_indices.push(track_index);
-                    if reused_empty_boundary_track {
-                        used_audio_boundary_indices.push(track_index);
-                    }
+                    let track_index = self.pick_partner_track(
+                        &stack_partner_tracks::PartnerSlotRequest {
+                            primary_track_index: dest_track_index,
+                            kind: TrackKind::Audio,
+                            start: moved_start,
+                            end: moved_end,
+                            used: &used_audio_track_indices,
+                            preferred: Some(move_item.track_index),
+                            horizontal,
+                            exclude_fallback: &source_track_indices,
+                        },
+                        &usable,
+                        &mut created_track_indices,
+                    );
+                    track_index
                 }
                 TrackKind::Video => {
-                    let track_count_before = self.children.len();
-                    let Some(mut track_index) = self.find_or_create_video_track_for_audio(
+                    let Some(mut track_index) = self.pick_video_partner_track(
                         dest_track_index,
                         moved_start,
-                        moved_duration,
-                        &mut created_track_indices,
+                        moved_end,
+                        None,
+                        &used_video_track_indices,
                         Some(sync_clips_id),
-                        true,
                         overlap_policy,
                         insert_policy_for_video,
+                        &mut created_track_indices,
                     ) else {
                         *self = backup;
                         return false;
                     };
-                    if self.children.len() > track_count_before {
-                        shift_track_index_after_insert(&mut dest_track_index, track_index);
-                        shift_move_placements_after_insert(&mut placements, track_index);
-                        shift_track_indices_after_insert(
-                            &mut used_audio_track_indices,
-                            track_index,
-                        );
-                        shift_track_indices_after_insert(
-                            &mut used_audio_boundary_indices,
-                            track_index,
-                        );
-                        shift_track_indices_after_insert(
-                            &mut used_video_track_indices,
-                            track_index,
-                        );
-                    }
                     if used_video_track_indices.contains(&track_index) {
                         let insert_at = track_index;
                         self.children
                             .insert(insert_at, self.new_numbered_track(TrackKind::Video));
                         created_track_indices.push(insert_at);
-                        shift_track_index_after_insert(&mut dest_track_index, insert_at);
-                        shift_move_placements_after_insert(&mut placements, insert_at);
-                        shift_track_indices_after_insert(&mut used_audio_track_indices, insert_at);
-                        shift_track_indices_after_insert(
-                            &mut used_audio_boundary_indices,
-                            insert_at,
-                        );
-                        shift_track_indices_after_insert(&mut used_video_track_indices, insert_at);
                         track_index = insert_at;
                     }
-                    placements.push((track_index, move_item.item, false));
-                    used_video_track_indices.push(track_index);
+                    track_index
                 }
                 TrackKind::Other => {
                     *self = backup;
                     return false;
                 }
+            };
+            if self.children.len() > track_count_before {
+                // One track was inserted at `track_index`: every index this move
+                // still holds that pointed at or past it moved up by one.
+                shift_track_index_after_insert(&mut dest_track_index, track_index);
+                shift_move_placements_after_insert(&mut placements, track_index);
+                shift_track_indices_after_insert(&mut used_audio_track_indices, track_index);
+                shift_track_indices_after_insert(&mut used_video_track_indices, track_index);
+                shift_track_indices_after_insert(&mut source_track_indices, track_index);
+                for pending in sync_track_items[position + 1..].iter_mut() {
+                    shift_track_index_after_insert(&mut pending.track_index, track_index);
+                }
             }
+            match move_item.track_kind {
+                TrackKind::Audio => used_audio_track_indices.push(track_index),
+                _ => used_video_track_indices.push(track_index),
+            }
+            placements.push((track_index, move_item.item, false));
         }
 
         let mut boundary_track_indices =
@@ -3892,7 +3349,7 @@ pub(super) fn range_is_gap_backed(track: &Track, start: Seconds, end: Seconds) -
     true
 }
 
-fn track_is_empty_boundary(track: &Track) -> bool {
+pub(super) fn track_is_empty_boundary(track: &Track) -> bool {
     track.items.iter().all(|item| matches!(item, Item::Gap(_)))
 }
 

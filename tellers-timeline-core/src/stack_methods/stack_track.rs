@@ -73,6 +73,7 @@ impl Stack {
             })
             .collect();
         let removed = self.children.remove(i);
+        self.prune_associated_track_ids();
         for sync_clips_id in touched_sync_clips_ids {
             self.delete_sync_clips(sync_clips_id, true);
         }
