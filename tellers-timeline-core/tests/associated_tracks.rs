@@ -255,8 +255,10 @@ fn association_survives_json_round_trip_and_track_deletion() {
         "V1",
         &["A1".to_string(), "A2".to_string(), "nope".to_string()]
     ));
-    let mut timeline = Timeline::default();
-    timeline.tracks = stack;
+    let timeline = Timeline {
+        tracks: stack,
+        ..Default::default()
+    };
     let json = serde_json::to_string(&timeline).unwrap();
     let mut reloaded: Timeline = serde_json::from_str(&json).unwrap();
     assert_eq!(
