@@ -338,3 +338,108 @@ fn free_audio_track_prefers_unlisted_tracks() {
     // Past every clip the tracks are free again.
     assert_eq!(stack.free_audio_track_for(25.0, 2.0).as_deref(), Some("A3"));
 }
+
+fn two_channel_column() -> Stack {
+    let mut stack = host_stack(&["A1", "A2", "A3"], &["V1"]);
+    assert!(stack.associate_tracks("V1", &["A1".to_string(), "A2".to_string()]));
+    let v1 = track_index_by_id(&stack, "V1");
+    let mut left = audio_clip(2.0, "file:///left.wav", None);
+    left.set_id(Some("left".into()));
+    let mut right = audio_clip(2.0, "file:///right.wav", None);
+    right.set_id(Some("right".into()));
+    insert_with_audio(
+        &mut stack,
+        v1,
+        0.0,
+        clip(2.0, Some("vid")),
+        vec![left, right],
+    )
+    .unwrap();
+    assert_eq!(track_id_of(&stack, "left"), "A1");
+    assert_eq!(track_id_of(&stack, "right"), "A2");
+    stack
+}
+
+#[test]
+fn moving_an_audio_partner_onto_its_sibling_track_swaps_the_channels() {
+    for policy in [OverlapPolicy::Override, OverlapPolicy::Push] {
+        let mut stack = two_channel_column();
+        assert!(stack.move_item_at_time(
+            "left",
+            "A2",
+            4.0,
+            true,
+            InsertPolicy::SplitAndInsert,
+            policy,
+        ));
+        // The whole column moves to 4; the right channel takes the video's
+        // other slot instead of being evicted outside its partners.
+        assert_eq!(track_id_of(&stack, "left"), "A2");
+        assert_eq!(track_id_of(&stack, "right"), "A1");
+        assert_eq!(track_id_of(&stack, "vid"), "V1");
+        for id in ["left", "right", "vid"] {
+            let (ti, ii, _) = stack.get_item(id).unwrap();
+            assert_eq!(
+                stack.children[ti].start_time_of_item(ii),
+                4.0,
+                "{id} {policy:?}"
+            );
+        }
+        assert_eq!(stack.children.len(), 4);
+        // The audio tracks never get a list of their own: the video owns the column.
+        for id in ["A1", "A2", "A3"] {
+            let index = track_index_by_id(&stack, id);
+            assert_eq!(
+                stack.children[index].stored_associated_track_ids(),
+                None,
+                "{id}"
+            );
+        }
+        assert_eq!(
+            stack.associated_track_ids("V1").unwrap(),
+            vec!["A1".to_string(), "A2".to_string()]
+        );
+    }
+}
+
+#[test]
+fn moving_an_audio_partner_outside_the_partners_makes_the_video_adopt_that_track() {
+    let mut stack = two_channel_column();
+    assert!(stack.move_item_at_time(
+        "left",
+        "A3",
+        4.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+    assert_eq!(track_id_of(&stack, "left"), "A3");
+    assert_eq!(track_id_of(&stack, "right"), "A2");
+    assert_eq!(track_id_of(&stack, "vid"), "V1");
+    assert_eq!(
+        stack.associated_track_ids("V1").unwrap(),
+        vec!["A1".to_string(), "A2".to_string(), "A3".to_string()]
+    );
+    let a3 = track_index_by_id(&stack, "A3");
+    assert_eq!(stack.children[a3].stored_associated_track_ids(), None);
+}
+
+#[test]
+fn moving_an_audio_partner_in_time_keeps_every_channel_on_its_track() {
+    let mut stack = two_channel_column();
+    assert!(stack.move_item_at_time(
+        "right",
+        "A2",
+        8.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+    assert_eq!(track_id_of(&stack, "left"), "A1");
+    assert_eq!(track_id_of(&stack, "right"), "A2");
+    assert_eq!(track_id_of(&stack, "vid"), "V1");
+    for id in ["left", "right", "vid"] {
+        let (ti, ii, _) = stack.get_item(id).unwrap();
+        assert_eq!(stack.children[ti].start_time_of_item(ii), 8.0, "{id}");
+    }
+}

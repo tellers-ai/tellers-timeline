@@ -1466,48 +1466,13 @@ impl Stack {
             },
         );
 
-        // The destination's associated tracks join the working cluster so insert
-        // propagation applies to them even while they are empty.
-        if has_synced_clips {
-            for track_index in self.associated_track_indices(dest_track_index) {
-                if !cluster.contains(&track_index) {
-                    cluster.push(track_index);
-                }
-            }
-            cluster.sort_unstable();
-        }
-
-        // Audio slots: the destination's associated tracks, then created tracks
-        // (see `stack_partner_tracks`). Override replaces whatever sits under the
-        // column on the destination track together with the partners of those
-        // clips; an associated track holding anything else there (unrelated
-        // music, another video track's audio) must not lose it, so it is not a
-        // slot for this column.
-        let audio_durations: Vec<Seconds> = synced_inputs
-            .audio
-            .iter()
-            .map(|item| Self::sanitized_clip_duration(item).unwrap_or(modified_duration))
-            .collect();
-        let column_end = start + column_span;
-        let overridden_sync_ids: HashSet<i64> = if overlap_policy == OverlapPolicy::Override {
-            self.sync_clips_ids_in_range(dest_track_index, start, column_end)
-        } else {
-            HashSet::new()
-        };
-        let mut audio_slots = self.assign_audio_partner_slots(
-            &mut dest_track_index,
-            &mut cluster,
-            &mut created_track_indices,
-            start,
-            &audio_durations,
-            preferred_audio_track_indices,
-            move_source_track_indices.unwrap_or(&[]),
-            overlap_policy,
-            &overridden_sync_ids,
-        );
-
+        // The video partner first: it owns the column, so the audio slots come
+        // from its association even when an audio clip is the primary (a moved
+        // audio partner).
+        let mut audio_slots: Vec<usize> = Vec::new();
         let mut synced_video_clip_id = None;
         let mut column_video = None;
+        let mut owner_track_index = dest_track_index;
         if let Some(video_item) = synced_inputs.video {
             let video_span = Self::sanitized_clip_duration(&video_item).unwrap_or(column_span);
             let track_count_before = self.children.len();
@@ -1545,6 +1510,57 @@ impl Stack {
             };
             synced_video_clip_id = Some(video_id);
             column_video = Some((video_track_index, video_item));
+            owner_track_index = video_track_index;
+        }
+
+        // The owner's associated tracks join the working cluster so insert
+        // propagation applies to them even while they are empty.
+        if has_synced_clips {
+            for track_index in self
+                .associated_track_indices(dest_track_index)
+                .into_iter()
+                .chain(self.associated_track_indices(owner_track_index))
+                .chain(std::iter::once(owner_track_index))
+            {
+                if !cluster.contains(&track_index) {
+                    cluster.push(track_index);
+                }
+            }
+            cluster.sort_unstable();
+        }
+
+        // Audio slots: the owner's associated tracks, then created tracks (see
+        // `stack_partner_tracks`). Override replaces whatever sits under the
+        // column on the destination track together with the partners of those
+        // clips; an associated track holding anything else there (unrelated
+        // music, another video track's audio) must not lose it, so it is not a
+        // slot for this column.
+        let audio_durations: Vec<Seconds> = synced_inputs
+            .audio
+            .iter()
+            .map(|item| Self::sanitized_clip_duration(item).unwrap_or(modified_duration))
+            .collect();
+        let column_end = start + column_span;
+        let overridden_sync_ids: HashSet<i64> = if overlap_policy == OverlapPolicy::Override {
+            self.sync_clips_ids_in_range(dest_track_index, start, column_end)
+        } else {
+            HashSet::new()
+        };
+        audio_slots = self.assign_audio_partner_slots(
+            &mut dest_track_index,
+            &mut owner_track_index,
+            &mut cluster,
+            &mut created_track_indices,
+            start,
+            &audio_durations,
+            preferred_audio_track_indices,
+            move_source_track_indices.unwrap_or(&[]),
+            overlap_policy,
+            &overridden_sync_ids,
+        );
+        if let Some((video_track_index, _)) = column_video.as_mut() {
+            // Audio slot creation may have shifted the video track.
+            *video_track_index = owner_track_index;
         }
 
         // Primary clip/gap on the destination track.
@@ -2807,8 +2823,11 @@ impl Stack {
             .iter()
             .filter(|item| !item.is_selected && item.track_kind == TrackKind::Audio)
             .collect();
-        audio_partners
-            .sort_by_key(|item| self.partner_slot_order(selected.track_index, item.track_index));
+        let member_tracks: Vec<usize> = items.iter().map(|item| item.track_index).collect();
+        let owner = self
+            .column_owner_track_index(&member_tracks)
+            .unwrap_or(selected.track_index);
+        audio_partners.sort_by_key(|item| self.partner_slot_order(owner, item.track_index));
 
         for item in &items {
             if item.is_selected {
@@ -2947,8 +2966,11 @@ impl Stack {
             .iter()
             .filter(|item| !item.is_selected && item.track_kind == TrackKind::Audio)
             .collect();
-        audio_partners
-            .sort_by_key(|item| self.partner_slot_order(selected.track_index, item.track_index));
+        let member_tracks: Vec<usize> = items_to_move.iter().map(|item| item.track_index).collect();
+        let owner = self
+            .column_owner_track_index(&member_tracks)
+            .unwrap_or(selected.track_index);
+        audio_partners.sort_by_key(|item| self.partner_slot_order(owner, item.track_index));
         for item in &items_to_move {
             if item.is_selected {
                 continue;
@@ -3134,6 +3156,8 @@ impl Stack {
 
         let intra_cluster_move =
             backup.is_intra_cluster_sync_move(dest_track_index, &items_to_move);
+        let source_member_tracks: Vec<usize> =
+            items_to_move.iter().map(|item| item.track_index).collect();
 
         let mut sync_track_items: Vec<_> = items_to_move
             .into_iter()
@@ -3141,9 +3165,17 @@ impl Stack {
             .filter(|(position, _)| *position != selected_position)
             .map(|(_, move_item)| move_item)
             .collect();
+        // Video first (it owns the column), then audio in the owner's slot order.
+        let source_owner = backup
+            .column_owner_track_index(&source_member_tracks)
+            .unwrap_or(selected_source_track_index);
         sync_track_items.sort_by_key(|move_item| {
-            backup.partner_slot_order(selected_source_track_index, move_item.track_index)
+            (
+                move_item.track_kind != TrackKind::Video,
+                backup.partner_slot_order(source_owner, move_item.track_index),
+            )
         });
+        let mut owner_track_index = dest_track_index;
         let moved_end = moved_start + moved_duration;
         let horizontal = selected_source_track_index == dest_track_index;
         let mut source_track_indices: Vec<usize> = std::iter::once(selected_source_track_index)
@@ -3180,6 +3212,7 @@ impl Stack {
                             HashSet::new()
                         };
                     let primary = dest_track_index;
+                    let owner = owner_track_index;
                     let usable = |stack: &Stack, index: usize| {
                         stack.partner_track_usable(
                             primary,
@@ -3188,11 +3221,20 @@ impl Stack {
                             moved_end,
                             overlap_policy,
                             &overridden_sync_ids,
-                        )
+                        ) || (owner != primary
+                            && stack.partner_track_usable(
+                                owner,
+                                index,
+                                moved_start,
+                                moved_end,
+                                overlap_policy,
+                                &overridden_sync_ids,
+                            ))
                     };
                     let track_index = self.pick_partner_track(
                         &stack_partner_tracks::PartnerSlotRequest {
                             primary_track_index: dest_track_index,
+                            owner_track_index,
                             kind: TrackKind::Audio,
                             start: moved_start,
                             end: moved_end,
@@ -3228,6 +3270,7 @@ impl Stack {
                         created_track_indices.push(insert_at);
                         track_index = insert_at;
                     }
+                    owner_track_index = track_index;
                     track_index
                 }
                 TrackKind::Other => {
@@ -3243,6 +3286,9 @@ impl Stack {
                 shift_track_indices_after_insert(&mut used_audio_track_indices, track_index);
                 shift_track_indices_after_insert(&mut used_video_track_indices, track_index);
                 shift_track_indices_after_insert(&mut source_track_indices, track_index);
+                if owner_track_index != track_index {
+                    shift_track_index_after_insert(&mut owner_track_index, track_index);
+                }
                 for pending in sync_track_items[position + 1..].iter_mut() {
                     shift_track_index_after_insert(&mut pending.track_index, track_index);
                 }

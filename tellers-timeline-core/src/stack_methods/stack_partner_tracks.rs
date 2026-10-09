@@ -26,7 +26,12 @@ use std::collections::HashSet;
 
 /// One partner slot to resolve.
 pub(super) struct PartnerSlotRequest<'a> {
+    /// The track receiving the primary clip (never a slot).
     pub primary_track_index: usize,
+    /// The track whose association drives the slots: the column's owner
+    /// (its video track when it has one), which may differ from the primary
+    /// when an audio partner is the clip being moved.
+    pub owner_track_index: usize,
     pub kind: TrackKind,
     pub start: Seconds,
     pub end: Seconds,
@@ -159,13 +164,19 @@ impl Stack {
         created_track_indices: &mut Vec<usize>,
     ) -> usize {
         let primary = request.primary_track_index;
+        let owner = request.owner_track_index;
         let associated: Vec<usize> = self
-            .associated_track_indices(primary)
+            .associated_track_indices(owner)
             .into_iter()
-            .filter(|&index| index != primary && self.children[index].kind == request.kind)
+            .filter(|&index| {
+                index != primary && index != owner && self.children[index].kind == request.kind
+            })
             .collect();
         let available = |stack: &Stack, index: usize| {
-            index != primary && !request.used.contains(&index) && usable(stack, index)
+            index != primary
+                && index != owner
+                && !request.used.contains(&index)
+                && usable(stack, index)
         };
 
         if let Some(preferred) = request.preferred {
@@ -215,7 +226,7 @@ impl Stack {
                 return preferred;
             }
         }
-        self.create_partner_track(primary, request.kind.clone(), created_track_indices)
+        self.create_partner_track(owner, request.kind.clone(), created_track_indices)
     }
 
     /// Resolve every audio slot of a column on `dest_track_index`, one per
@@ -227,6 +238,7 @@ impl Stack {
     pub(super) fn assign_audio_partner_slots(
         &mut self,
         dest_track_index: &mut usize,
+        owner_track_index: &mut usize,
         cluster: &mut Vec<usize>,
         created_track_indices: &mut Vec<usize>,
         start: Seconds,
@@ -247,6 +259,7 @@ impl Stack {
         for (slot, &duration) in durations.iter().enumerate() {
             let end = start + duration;
             let primary = *dest_track_index;
+            let owner = *owner_track_index;
             let usable = move |stack: &Stack, index: usize| {
                 stack.partner_track_usable(
                     primary,
@@ -255,12 +268,21 @@ impl Stack {
                     end,
                     overlap_policy,
                     overridden_sync_ids,
-                )
+                ) || (owner != primary
+                    && stack.partner_track_usable(
+                        owner,
+                        index,
+                        start,
+                        end,
+                        overlap_policy,
+                        overridden_sync_ids,
+                    ))
             };
             let track_count_before = self.children.len();
             let track_index = self.pick_partner_track(
                 &PartnerSlotRequest {
                     primary_track_index: primary,
+                    owner_track_index: *owner_track_index,
                     kind: TrackKind::Audio,
                     start,
                     end,
@@ -281,6 +303,9 @@ impl Stack {
                     &mut slots,
                     &mut [],
                 );
+                if track_index <= *owner_track_index {
+                    *owner_track_index += 1;
+                }
                 for index in preferred.iter_mut().flatten() {
                     if *index >= track_index {
                         *index += 1;
@@ -293,7 +318,7 @@ impl Stack {
                 }
             }
             slots.push(track_index);
-            self.record_associated_tracks(*dest_track_index, &[track_index]);
+            self.record_associated_tracks(*owner_track_index, &[track_index]);
         }
 
         for &slot in &slots {
@@ -307,10 +332,11 @@ impl Stack {
 
     /// Resolve the video slot of a column whose primary sits on the audio
     /// track `audio_track_index`: the preferred track when given and usable,
-    /// then the audio track's associated video tracks, then a new track when
-    /// it has some but none is usable, else the cluster/nearest-free fallback.
-    /// Returns the track index (the caller shifts its indices when the stack
-    /// grew) and records the choice on the audio track.
+    /// then the video tracks listing that audio track (and the ones it lists),
+    /// then a new track when there are some but none is usable, else the
+    /// cluster/nearest-free fallback. Returns the track index (the caller
+    /// shifts its indices when the stack grew); the video adopts the audio
+    /// track as a partner.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn pick_video_partner_track(
         &mut self,
@@ -340,11 +366,17 @@ impl Stack {
                     .is_some()
         };
 
-        let associated: Vec<usize> = self
-            .associated_track_indices(audio_track_index)
-            .into_iter()
-            .filter(|&index| self.children[index].kind == TrackKind::Video)
-            .collect();
+        // Videos that list this audio track as a partner (the column's owner),
+        // nearest first, then videos the audio track itself lists.
+        let mut candidates: Vec<usize> = self.tracks_associating(audio_track_index);
+        candidates.sort_by_key(|&index| (index.abs_diff(audio_track_index), index));
+        candidates.extend(self.associated_track_indices(audio_track_index));
+        let mut associated: Vec<usize> = Vec::new();
+        for index in candidates {
+            if self.children[index].kind == TrackKind::Video && !associated.contains(&index) {
+                associated.push(index);
+            }
+        }
 
         let mut chosen = preferred_video_track_id
             .and_then(|id| self.get_track_by_id(id))
@@ -388,13 +420,14 @@ impl Stack {
                 index
             }
         };
-        let primary =
+        // The video owns the column: it adopts the audio track as a partner.
+        let audio_track_index =
             if self.children.len() > track_count_before && track_index <= audio_track_index {
                 audio_track_index + 1
             } else {
                 audio_track_index
             };
-        self.record_associated_tracks(primary, &[track_index]);
+        self.record_associated_tracks(track_index, &[audio_track_index]);
         Some(track_index)
     }
 }

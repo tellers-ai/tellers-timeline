@@ -272,6 +272,25 @@ impl Stack {
         }
     }
 
+    /// The track that owns a column spread over `member_track_indices`: the
+    /// member listing the most other members as associated tracks; ties go
+    /// to a video track, then to the highest index. Partner slots of the
+    /// column are resolved from this track's list whichever member is moved.
+    pub(crate) fn column_owner_track_index(&self, member_track_indices: &[usize]) -> Option<usize> {
+        member_track_indices
+            .iter()
+            .copied()
+            .filter(|&index| index < self.children.len())
+            .max_by_key(|&index| {
+                let listed = self
+                    .associated_track_indices(index)
+                    .iter()
+                    .filter(|partner| member_track_indices.contains(partner))
+                    .count();
+                (listed, self.children[index].kind == TrackKind::Video, index)
+            })
+    }
+
     /// Indices of the tracks whose stored or derived list contains `track_index`.
     pub fn tracks_associating(&self, track_index: usize) -> Vec<usize> {
         (0..self.children.len())
