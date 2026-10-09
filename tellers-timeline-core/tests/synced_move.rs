@@ -930,7 +930,9 @@ fn move_synced_video_between_video_tracks_reuses_free_audio_tracks() {
         stack.children[second.audio_clips[0].1].get_id().unwrap()
     );
 
-    // Source audio track is free at 20: partner goes back there.
+    // The source audio track belongs to V1 (its associated track); V2 has none
+    // yet, so the partner takes the free audio track nobody lists instead of
+    // creating one, and V2 adopts it.
     assert!(stack.move_item_at_time(
         "v1",
         "V2",
@@ -941,14 +943,17 @@ fn move_synced_video_between_video_tracks_reuses_free_audio_tracks() {
     ));
     assert_eq!(stack.children.len(), 4);
     let (audio_track, _, _) = stack.get_item(&first.audio_clips[0].0).unwrap();
+    let v2_audio_track = stack.children[audio_track].get_id().unwrap();
+    assert_ne!(v2_audio_track, v1_audio_track);
+    assert_eq!(stack.children[audio_track].kind, TrackKind::Audio);
     assert_eq!(
-        stack.children[audio_track].get_id().unwrap(),
-        v1_audio_track
+        stack.associated_track_ids("V2").unwrap(),
+        vec![v2_audio_track.clone()]
     );
-    assert_sync_clips_track_aligned(&stack, "cross-track move reusing source audio");
+    assert_sync_clips_track_aligned(&stack, "cross-track move onto a free unlisted audio track");
 
-    // Source audio track is busy at 10 (v2's audio): the other free audio
-    // track is reused instead of creating a new one.
+    // Moving back to 10: V2's own audio track is free there, so it is reused
+    // and no track is created.
     assert!(stack.move_item_at_time(
         "v1",
         "V2",

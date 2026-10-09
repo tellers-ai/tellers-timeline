@@ -861,6 +861,21 @@ impl PyTrack {
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
     }
+    /// The ids of the tracks this track's sync partners go to, in slot order
+    /// (`metadata["tellers.ai"]["associated_track_ids"]`). Empty when none is
+    /// stored; `Stack.associated_track_ids` also derives it from sync clips.
+    fn get_associated_track_ids(&self) -> Vec<String> {
+        self.inner.associated_track_ids()
+    }
+    /// Replace the associated track list (duplicates, empty ids and the
+    /// track's own id are dropped).
+    fn set_associated_track_ids(&mut self, ids: Vec<String>) {
+        self.inner.set_associated_track_ids(ids)
+    }
+    /// Remove the stored list; returns whether one was present.
+    fn clear_associated_track_ids(&mut self) -> bool {
+        self.inner.clear_associated_track_ids()
+    }
     /// The CSS classes declared on this track only (not merged with the
     /// timeline's), as `{"name", "declarations"}` dicts.
     fn get_text_styles(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
@@ -1090,6 +1105,30 @@ impl PyStack {
     fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         sync_track_info_to_python(py, self.inner.sync_track_info())
     }
+    /// The associated track ids of the track with `track_id`, in slot order:
+    /// the stored list, or the association derived from its sync clips when
+    /// nothing is stored. None when the track is unknown.
+    fn associated_track_ids(&self, track_id: &str) -> Option<Vec<String>> {
+        self.inner.associated_track_ids(track_id)
+    }
+    /// Store `partner_ids` as the associated tracks of `track_id`, in that
+    /// order (ids that are not tracks of this stack are dropped).
+    fn associate_tracks(&mut self, track_id: &str, partner_ids: Vec<String>) -> bool {
+        self.inner.associate_tracks(track_id, &partner_ids)
+    }
+    /// An existing audio track free over `[start, start + duration]` for a clip
+    /// without sync partners: tracks no track lists as a partner first, then
+    /// the lowest index. None when no audio track is free there.
+    fn free_audio_track_for(&self, start: f64, duration: f64) -> Option<String> {
+        self.inner.free_audio_track_for(start, duration)
+    }
+    /// Reorder the tracks so every group is contiguous: owner on top, its
+    /// partners right below in list order (see `associated_track_ids`). Call
+    /// it once at the end of a request: it is the only library call that
+    /// changes track indices. Returns whether the order changed.
+    fn normalize_track_order(&mut self) -> bool {
+        self.inner.normalize_track_order()
+    }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
             .delete_track(id)
@@ -1205,6 +1244,74 @@ impl PyStack {
                 .transpose()?;
             match self.inner.insert_item_at_time(
                 dest_track_index,
+                dest_time,
+                inner_item,
+                op,
+                ip,
+                linked_audio_clips,
+                linked_video_clip,
+            ) {
+                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
+                Some(InsertItemAtTimeResult::Synced(result)) => {
+                    let dict = PyDict::new(py);
+                    dict.set_item("primary_clip_id", result.primary_clip_id)?;
+                    dict.set_item("audio_clips", result.audio_clips)?;
+                    dict.set_item("linked_video_clip_id", result.synced_video_clip_id)?;
+                    dict.set_item("link_group_id", result.sync_clips_id)?;
+                    dict.set_item("created_track_indices", result.created_track_indices)?;
+                    Ok(Some(dict.into_py(py)))
+                }
+                None => Ok(None),
+            }
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "insert_item_at_time expects an Item, Clip, or Gap",
+            ))
+        }
+    }
+    #[pyo3(signature = (dest_track_id, dest_time, item, overlap_policy, insert_policy, linked_audio_clips=None, linked_video_clip=None))]
+    fn insert_item_at_time_by_id(
+        &mut self,
+        py: Python<'_>,
+        dest_track_id: &str,
+        dest_time: f64,
+        item: &Bound<PyAny>,
+        overlap_policy: &str,
+        insert_policy: &str,
+        linked_audio_clips: Option<Vec<PyObject>>,
+        linked_video_clip: Option<PyObject>,
+    ) -> PyResult<Option<PyObject>> {
+        if let Some(inner_item) = extract_item(item) {
+            let linked_video_clip = extract_optional_linked_clip(
+                py,
+                linked_video_clip,
+                "linked_video_clip",
+            )?;
+            if (linked_audio_clips.is_some() || linked_video_clip.is_some())
+                && !matches!(inner_item, Item::Clip(_))
+            {
+                return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                    "linked_audio_clips and linked_video_clip can only be used when item is a Clip",
+                ));
+            }
+            let op = overlap_policy_from_str(overlap_policy);
+            let ip = insert_policy_from_str(insert_policy);
+            let linked_audio_clips = linked_audio_clips
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|item| {
+                            extract_item(item.bind(py)).ok_or_else(|| {
+                                PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                                    "linked_audio_clips expects Item or Clip values",
+                                )
+                            })
+                        })
+                        .collect::<PyResult<Vec<_>>>()
+                })
+                .transpose()?;
+            match self.inner.insert_item_at_time_by_id(
+                dest_track_id,
                 dest_time,
                 inner_item,
                 op,
@@ -1609,6 +1716,30 @@ impl PyTimeline {
     }
     fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         sync_track_info_to_python(py, self.inner.sync_track_info())
+    }
+    /// The associated track ids of the track with `track_id`, in slot order:
+    /// the stored list, or the association derived from its sync clips when
+    /// nothing is stored. None when the track is unknown.
+    fn associated_track_ids(&self, track_id: &str) -> Option<Vec<String>> {
+        self.inner.tracks.associated_track_ids(track_id)
+    }
+    /// Store `partner_ids` as the associated tracks of `track_id`, in that
+    /// order (ids that are not tracks of this stack are dropped).
+    fn associate_tracks(&mut self, track_id: &str, partner_ids: Vec<String>) -> bool {
+        self.inner.tracks.associate_tracks(track_id, &partner_ids)
+    }
+    /// An existing audio track free over `[start, start + duration]` for a clip
+    /// without sync partners: tracks no track lists as a partner first, then
+    /// the lowest index. None when no audio track is free there.
+    fn free_audio_track_for(&self, start: f64, duration: f64) -> Option<String> {
+        self.inner.tracks.free_audio_track_for(start, duration)
+    }
+    /// Reorder the tracks so every group is contiguous: owner on top, its
+    /// partners right below in list order (see `associated_track_ids`). Call
+    /// it once at the end of a request: it is the only library call that
+    /// changes track indices. Returns whether the order changed.
+    fn normalize_track_order(&mut self) -> bool {
+        self.inner.tracks.normalize_track_order()
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner

@@ -262,6 +262,11 @@ fn insert_synced_clip_with_more_audio_links_creates_additional_audio_track() {
         _ => panic!("first linked insert should succeed"),
     };
     let video_track_index = stack.get_item("first-video").unwrap().0;
+    let first_track_ids: Vec<String> = first
+        .audio_clips
+        .iter()
+        .map(|(_, t)| stack.children[*t].get_id().unwrap())
+        .collect();
 
     let second = match stack.insert_item_at_time(
         video_track_index,
@@ -289,24 +294,23 @@ fn insert_synced_clip_with_more_audio_links_creates_additional_audio_track() {
         3
     );
     assert_eq!(second.audio_clips.len(), 3);
-    // The new audio track is created directly below the video (nearest-first), so it
-    // takes the first of the second group's clips; the two existing cluster tracks are
-    // reused for the remaining clips. Both of the first group's tracks reappear among the
-    // second group's tracks, plus exactly one brand-new track.
-    let first_tracks: std::collections::HashSet<usize> =
-        first.audio_clips.iter().map(|(_, t)| *t).collect();
-    let second_tracks: std::collections::HashSet<usize> =
-        second.audio_clips.iter().map(|(_, t)| *t).collect();
-    assert!(first_tracks.is_subset(&second_tracks));
-    let new_tracks: Vec<usize> = second
+    // The video's associated tracks are its first slots, so the first two clips of
+    // the second group land on the first group's tracks and the extra clip gets a
+    // brand-new track created past them. Both of the first group's tracks reappear
+    // among the second group's tracks, plus exactly one brand-new track.
+    let second_track_ids: Vec<String> = second
         .audio_clips
         .iter()
-        .map(|(_, t)| *t)
-        .filter(|t| !first_tracks.contains(t))
+        .map(|(_, t)| stack.children[*t].get_id().unwrap())
         .collect();
-    assert_eq!(new_tracks.len(), 1);
-    // The newly created track is nearest the video (the first assigned clip).
-    assert_eq!(second.audio_clips[0].1, new_tracks[0]);
+    assert_eq!(second_track_ids[..2], first_track_ids[..]);
+    assert!(!first_track_ids.contains(&second_track_ids[2]));
+    assert_eq!(second.created_track_indices, vec![second.audio_clips[2].1]);
+    assert_eq!(
+        stack.associated_track_ids("v").unwrap().len(),
+        3,
+        "the video lists its three audio slots"
+    );
     for (audio_id, _) in &second.audio_clips {
         let (track_index, item_index, item) = stack.get_item(audio_id).unwrap();
         assert_eq!(
@@ -338,6 +342,7 @@ fn insert_synced_clip_with_more_audio_links_reuses_pushable_boundary_track() {
     };
     let first_audio_id = first.audio_clips[0].0.clone();
     let first_audio_track = first.audio_clips[0].1;
+    let first_audio_track_id = stack.children[first_audio_track].get_id().unwrap();
     let video_track_index = stack.get_item("first-video").unwrap().0;
 
     let second = match stack.insert_item_at_time(
@@ -365,14 +370,18 @@ fn insert_synced_clip_with_more_audio_links_reuses_pushable_boundary_track() {
         2
     );
     assert_eq!(second.created_track_indices.len(), 1);
-    assert!(second
-        .audio_clips
-        .iter()
-        .any(|(_, track_index)| *track_index == first_audio_track));
+    // The first slot is the existing audio track; the new one is created past it.
+    assert_eq!(
+        stack.children[second.audio_clips[0].1].get_id().unwrap(),
+        first_audio_track_id
+    );
 
     let (first_audio_track_after, first_audio_index, first_audio_item) =
         stack.get_item(&first_audio_id).unwrap();
-    assert_eq!(first_audio_track_after, first_audio_track);
+    assert_eq!(
+        stack.children[first_audio_track_after].get_id().unwrap(),
+        first_audio_track_id
+    );
     assert_eq!(
         stack.children[first_audio_track_after].start_time_of_item(first_audio_index),
         5.0

@@ -1,4 +1,4 @@
-use crate::{Item, Stack};
+use crate::{IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Stack, TrackKind};
 use std::collections::HashSet;
 
 impl Stack {
@@ -131,6 +131,10 @@ impl Stack {
         }
 
         let backup = self.clone();
+        let Some(targets) = self.gather_sync_targets_into_one_group(targets) else {
+            *self = backup;
+            return None;
+        };
         let mut touched_sync_clips = Vec::new();
         for (track_index, item_index) in &targets {
             let Some(Item::Clip(clip)) = self
@@ -162,5 +166,78 @@ impl Stack {
         }
 
         Some(sync_clips_id)
+    }
+
+    /// Clips synced by hand must end up in one group. The column's owner is
+    /// its video track (two video clips cannot be synced: that would need a
+    /// second video track), or the owner of the group of the highest audio
+    /// track among the clips. A clip on a track of that group stays; one on a
+    /// free track makes the owner adopt the track; one on a track of another
+    /// group is moved, at the same time, to a new partner track created for
+    /// the owner. Returns the updated targets, or `None` when the clips
+    /// cannot be grouped.
+    fn gather_sync_targets_into_one_group(
+        &mut self,
+        targets: Vec<(usize, usize)>,
+    ) -> Option<Vec<(usize, usize)>> {
+        let clip_ids: Vec<String> = targets
+            .iter()
+            .map(|&(track_index, item_index)| self.children[track_index].items[item_index].get_id())
+            .collect::<Option<Vec<_>>>()?;
+        let video_tracks: Vec<usize> = targets
+            .iter()
+            .map(|&(track_index, _)| track_index)
+            .filter(|&track_index| self.children[track_index].kind == TrackKind::Video)
+            .collect();
+        if video_tracks.len() > 1 {
+            return None;
+        }
+        let owner_index = match video_tracks.first() {
+            Some(&video) => video,
+            None => {
+                let highest = targets.iter().map(|&(track_index, _)| track_index).max()?;
+                self.group_owner_of(highest)
+            }
+        };
+        let owner_id = self.children[owner_index].get_id()?;
+
+        let mut adopted_ids: Vec<String> = Vec::new();
+        for clip_id in &clip_ids {
+            let (track_index, item_index) = self.clip_target(clip_id)?;
+            let (owner_index, _) = self.get_track_by_id(&owner_id)?;
+            if track_index == owner_index || self.group_owner_of(track_index) == owner_index {
+                continue;
+            }
+            if self.track_is_free(track_index) {
+                adopted_ids.push(self.children[track_index].get_id()?);
+                continue;
+            }
+            // Move the clip to a new partner track of the owner, at the same time.
+            let start = self.children[track_index].start_time_of_item(item_index);
+            let item = self.children[track_index].delete_clip(item_index, true)?;
+            let kind = self.children[track_index].kind.clone();
+            let mut created = Vec::new();
+            let new_index = self.create_partner_track(owner_index, kind, &mut created);
+            let inserted = self.children[new_index].insert_at_time(
+                start,
+                item,
+                OverlapPolicy::Override,
+                InsertPolicy::InsertBefore,
+            );
+            if !inserted.success {
+                return None;
+            }
+            let (owner_index, _) = self.get_track_by_id(&owner_id)?;
+            self.record_associated_tracks(owner_index, &[new_index]);
+        }
+        let (owner_index, _) = self.get_track_by_id(&owner_id)?;
+        let adopted: Vec<usize> = adopted_ids
+            .iter()
+            .filter_map(|id| self.get_track_by_id(id).map(|(index, _)| index))
+            .collect();
+        if !adopted.is_empty() {
+            self.record_associated_tracks(owner_index, &adopted);
+        }
+        clip_ids.iter().map(|id| self.clip_target(id)).collect()
     }
 }

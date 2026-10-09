@@ -220,7 +220,7 @@ fn delete_unsynced_item_without_gap_pulls_later_synced_assets() {
 }
 
 #[test]
-fn delete_track_removes_synced_assets_left_behind() {
+fn delete_track_keeps_the_other_channels_of_its_columns() {
     // The synced insert reuses the existing empty audio track; deleting the
     // video leaves that same audio track behind as a gap.
     let mut stack = Stack::default();
@@ -247,11 +247,9 @@ fn delete_track_removes_synced_assets_left_behind() {
         .children
         .iter()
         .any(|track| track.get_id().as_deref() == Some("a")));
-    assert!(stack.get_item(&audio_id).is_none());
-    assert!(stack.children.iter().any(|track| {
-        track
-            .items
-            .iter()
-            .any(|item| matches!(item, Item::Gap(_)) && (item.duration() - 3.0).abs() <= 1e-9)
-    }));
+    // Only the deleted track's channel leaves the column: the audio clip stays
+    // and, now alone, is no longer synced.
+    let (_, _, audio_item) = stack.get_item(&audio_id).expect("audio stays");
+    assert_eq!(audio_item.duration(), 3.0);
+    assert_eq!(sync_clips_id(audio_item), None);
 }

@@ -1,3 +1,4 @@
+pub mod associated_tracks;
 pub mod color_grading;
 pub mod fonts;
 pub mod metadata;
@@ -9,6 +10,7 @@ pub mod track_methods;
 pub mod types;
 pub mod validate;
 
+pub use associated_tracks::*;
 pub use color_grading::*;
 pub use fonts::*;
 pub use metadata::*;
