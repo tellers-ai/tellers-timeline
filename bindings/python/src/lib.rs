@@ -1122,6 +1122,13 @@ impl PyStack {
     fn free_audio_track_for(&self, start: f64, duration: f64) -> Option<String> {
         self.inner.free_audio_track_for(start, duration)
     }
+    /// Reorder the tracks so every group is contiguous: owner on top, its
+    /// partners right below in list order (see `associated_track_ids`). Call
+    /// it once at the end of a request: it is the only library call that
+    /// changes track indices. Returns whether the order changed.
+    fn normalize_track_order(&mut self) -> bool {
+        self.inner.normalize_track_order()
+    }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
             .delete_track(id)
@@ -1726,6 +1733,13 @@ impl PyTimeline {
     /// the lowest index. None when no audio track is free there.
     fn free_audio_track_for(&self, start: f64, duration: f64) -> Option<String> {
         self.inner.tracks.free_audio_track_for(start, duration)
+    }
+    /// Reorder the tracks so every group is contiguous: owner on top, its
+    /// partners right below in list order (see `associated_track_ids`). Call
+    /// it once at the end of a request: it is the only library call that
+    /// changes track indices. Returns whether the order changed.
+    fn normalize_track_order(&mut self) -> bool {
+        self.inner.tracks.normalize_track_order()
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
