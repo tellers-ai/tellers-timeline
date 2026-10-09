@@ -1,5 +1,5 @@
 use super::SyncTrackInfo;
-use crate::{IdMetadataExt, Item, Stack, Track};
+use crate::{IdMetadataExt, Stack, Track};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +39,7 @@ impl Stack {
             dest_index
         };
         self.children.insert(adjusted_dest_index, track);
+        self.sync_list_with_physical_order(adjusted_dest_index);
         self.sanitize();
         true
     }
@@ -61,22 +62,13 @@ impl Stack {
             .collect()
     }
 
-    /// Delete a track by id. Returns the removed track on success.
+    /// Delete a track by id. Returns the removed track on success. Only that
+    /// track's channel leaves the sync columns it took part in: the clips on
+    /// the other tracks stay, and a column left with a single clip is unsynced.
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
-        let (i, track) = self.get_track_by_id(id)?;
-        let touched_sync_clips_ids: Vec<_> = track
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Clip(clip) => super::resolve_sync_clips_id(&clip.metadata),
-                Item::Gap(_) => None,
-            })
-            .collect();
+        let (i, _) = self.get_track_by_id(id)?;
         let removed = self.children.remove(i);
         self.prune_associated_track_ids();
-        for sync_clips_id in touched_sync_clips_ids {
-            self.delete_sync_clips(sync_clips_id, true);
-        }
         self.sanitize_preserving_all_gap_tracks();
         Some(removed)
     }

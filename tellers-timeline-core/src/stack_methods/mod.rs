@@ -1405,6 +1405,7 @@ impl Stack {
         insert_policy: InsertPolicy,
         synced_audio_clips: Option<Vec<Item>>,
         synced_video_clip: Option<Item>,
+        column_video_placed_separately: bool,
         preferred_video_track_id: Option<&str>,
         preferred_audio_track_indices: Option<&[usize]>,
         move_source_track_indices: Option<&[usize]>,
@@ -1419,12 +1420,14 @@ impl Stack {
         if has_synced_clips && !matches!(primary_item, Item::Clip(_)) {
             return None;
         }
-        if synced_inputs.video.is_some()
-            && self.children.get(dest_track_index)?.kind == TrackKind::Video
-        {
+        if matches!(synced_inputs.video, Some(Item::Gap(_))) {
             return None;
         }
-        if matches!(synced_inputs.video, Some(Item::Gap(_))) {
+        if !self.column_may_land_on(
+            dest_track_index,
+            matches!(primary_item, Item::Gap(_)),
+            synced_inputs.video.is_some() || column_video_placed_separately,
+        ) {
             return None;
         }
 
@@ -1472,7 +1475,10 @@ impl Stack {
         let mut audio_slots: Vec<usize> = Vec::new();
         let mut synced_video_clip_id = None;
         let mut column_video = None;
-        let mut owner_track_index = dest_track_index;
+        // An audio-only column on a partner track of an audio group is recorded
+        // on the group's owner; on a video track or a free track the
+        // destination itself owns the column.
+        let mut owner_track_index = self.group_owner_of(dest_track_index);
         if let Some(video_item) = synced_inputs.video {
             let video_span = Self::sanitized_clip_duration(&video_item).unwrap_or(column_span);
             let track_count_before = self.children.len();
@@ -2348,6 +2354,50 @@ impl Stack {
         Some(items)
     }
 
+    /// Whether the selected member of a column may be moved onto
+    /// `dest_track_index` over `[start, end]`: a video clip only onto a video
+    /// track; an audio partner onto a sibling track of its own group only when
+    /// that range is empty or holds clips of the same column (a swap), never
+    /// onto unrelated content; the partner of a video column onto another
+    /// video group (the column follows) or a free track, never an audio
+    /// group; an audio-only column never onto a video group.
+    fn partner_move_target_allowed(
+        &self,
+        selected: &SyncedMoveItem,
+        column_has_video: bool,
+        dest_track_index: usize,
+        start: Seconds,
+        end: Seconds,
+    ) -> bool {
+        let Some(dest) = self.children.get(dest_track_index) else {
+            return false;
+        };
+        if selected.track_kind == TrackKind::Video {
+            return dest.kind == TrackKind::Video;
+        }
+        if selected.track_kind != TrackKind::Audio || dest.kind != TrackKind::Audio {
+            return selected.track_kind == dest.kind;
+        }
+        if dest_track_index == selected.track_index {
+            return true;
+        }
+        let sync_clips_id = match &selected.item {
+            Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
+            Item::Gap(_) => None,
+        };
+        let source_owner = self.group_owner_of(selected.track_index);
+        let dest_owner = self.group_owner_of(dest_track_index);
+        if source_owner == dest_owner {
+            let allowed: HashSet<i64> = sync_clips_id.into_iter().collect();
+            return self.range_only_holds_sync_clips(dest_track_index, start, end, &allowed);
+        }
+        if column_has_video {
+            return self.track_in_video_group(dest_track_index)
+                || self.track_is_free(dest_track_index);
+        }
+        !self.track_in_video_group(dest_track_index)
+    }
+
     fn is_intra_cluster_sync_move(
         &self,
         dest_track_index: usize,
@@ -2683,6 +2733,7 @@ impl Stack {
                 insert_policy,
                 None,
                 None,
+                false,
                 None::<&str>,
                 None::<&[usize]>,
                 None::<&[usize]>,
@@ -2698,6 +2749,7 @@ impl Stack {
                 insert_policy,
                 (!linked_audio_items.is_empty()).then_some(linked_audio_items),
                 None,
+                linked_video_item.is_some(),
                 preferred_cluster_video_id.as_deref(),
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
@@ -2891,6 +2943,7 @@ impl Stack {
                 InsertPolicy::SplitAndInsert,
                 synced_audio_clips,
                 synced_video,
+                false,
                 None,
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
@@ -2951,6 +3004,19 @@ impl Stack {
             return false;
         };
         let primary_item = selected.item.clone();
+        let moved_end = dest_time + primary_item.duration().max(0.0);
+        let column_has_video = items_to_move
+            .iter()
+            .any(|item| item.track_kind == TrackKind::Video);
+        if !self.partner_move_target_allowed(
+            selected,
+            column_has_video,
+            dest_track_index,
+            dest_time,
+            moved_end,
+        ) {
+            return false;
+        }
 
         // Deleting the last column erases the sync-cluster evidence. Keep the
         // original video identity for a horizontal audio move before deleting it.
@@ -3025,6 +3091,7 @@ impl Stack {
                 insert_policy,
                 synced_audio_clips,
                 synced_video,
+                false,
                 preferred_video_track_id.as_deref(),
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
@@ -3117,6 +3184,21 @@ impl Stack {
                 .any(|item| (item.item.duration().max(0.0) - moved_duration).abs() > EPS)
         {
             return false;
+        }
+        {
+            let planned_start = self.children[dest_track_index].start_time_of_item(dest_index);
+            let column_has_video = items_to_move
+                .iter()
+                .any(|item| item.track_kind == TrackKind::Video);
+            if !self.partner_move_target_allowed(
+                selected_item,
+                column_has_video,
+                dest_track_index,
+                planned_start,
+                planned_start + moved_duration,
+            ) {
+                return false;
+            }
         }
 
         let mut used_ids = self.collect_timeline_ids();

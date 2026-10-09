@@ -173,6 +173,7 @@ impl Stack {
                     InsertPolicy::SplitAndInsert,
                     (!audio.is_empty()).then_some(audio),
                     video,
+                    false,
                     video_track.as_deref(),
                     Some(&audio_tracks),
                     Some(&source_tracks),

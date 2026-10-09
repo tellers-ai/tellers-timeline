@@ -165,18 +165,15 @@ impl Stack {
     ) -> usize {
         let primary = request.primary_track_index;
         let owner = request.owner_track_index;
-        let associated: Vec<usize> = self
-            .associated_track_indices(owner)
-            .into_iter()
-            .filter(|&index| {
-                index != primary && index != owner && self.children[index].kind == request.kind
-            })
+        // The owner is slot 0 of its group: when the primary sits on a partner
+        // track (an audio-only column added on a stem track) the owner takes a
+        // partner like any other member.
+        let associated: Vec<usize> = std::iter::once(owner)
+            .chain(self.associated_track_indices(owner))
+            .filter(|&index| index != primary && self.children[index].kind == request.kind)
             .collect();
         let available = |stack: &Stack, index: usize| {
-            index != primary
-                && index != owner
-                && !request.used.contains(&index)
-                && usable(stack, index)
+            index != primary && !request.used.contains(&index) && usable(stack, index)
         };
 
         if let Some(preferred) = request.preferred {

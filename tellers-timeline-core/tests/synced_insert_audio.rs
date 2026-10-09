@@ -290,7 +290,7 @@ fn insert_audio_primary_with_more_audio_links_creates_additional_audio_track() {
 }
 
 #[test]
-fn insert_audio_primary_with_sync_video_clip_creates_video_track() {
+fn insert_audio_primary_with_sync_video_clip_is_refused() {
     let mut stack = Stack::default();
     stack
         .children
@@ -301,7 +301,9 @@ fn insert_audio_primary_with_sync_video_clip_creates_video_track() {
     let mut synced_video = Item::Clip(clip(3.0, Some("synced-video")));
     synced_video.set_id(Some("synced-video".to_string()));
 
-    let result = match stack.insert_item_at_time(
+    // A column with a video clip is inserted on a video track with the video
+    // as its primary; an audio-track destination is refused and nothing changes.
+    let result = stack.insert_item_at_time(
         0,
         1.0,
         primary,
@@ -309,43 +311,17 @@ fn insert_audio_primary_with_sync_video_clip_creates_video_track() {
         InsertPolicy::InsertBeforeOrAfter,
         Some(vec![audio_clip(3.0, "file:///linked-a1.wav", None)]),
         Some(synced_video),
-    ) {
-        Some(InsertItemAtTimeResult::Synced(result)) => result,
-        _ => panic!("audio-primary insert with sync video clip should succeed"),
-    };
-
-    assert_eq!(result.primary_clip_id, "primary-audio");
-    assert_eq!(result.synced_video_clip_id.as_deref(), Some("synced-video"));
-    assert_eq!(result.audio_clips.len(), 1);
-
-    let primary_track_index = stack.get_item("primary-audio").unwrap().0;
-    let (video_track_index, video_item_index, video_item) =
-        stack.get_item("synced-video").unwrap();
-    assert_eq!(stack.children[video_track_index].kind, TrackKind::Video);
-    assert!(
-        video_track_index > primary_track_index,
-        "synced video must sit above the audio-primary group"
     );
-
-    let primary_start = stack.children[primary_track_index]
-        .start_time_of_item(stack.get_item("primary-audio").unwrap().1);
-    assert_eq!(
-        stack.children[video_track_index].start_time_of_item(video_item_index),
-        primary_start
-    );
-    assert_eq!(sync_clips_id(video_item), result.sync_clips_id);
-    assert_eq!(
-        sync_clips_id(stack.get_item("primary-audio").unwrap().2),
-        result.sync_clips_id
-    );
-    assert_eq!(
-        sync_clips_id(stack.get_item(&result.audio_clips[0].0).unwrap().2),
-        result.sync_clips_id
-    );
+    assert!(result.is_none());
+    assert_eq!(stack.children.len(), 1);
+    assert!(stack.get_item("primary-audio").is_none());
+    assert!(stack.get_item("synced-video").is_none());
+    assert!(stack.children[0].items.is_empty());
+    assert_eq!(stack.children[0].kind, TrackKind::Audio);
 }
 
 #[test]
-fn insert_audio_primary_with_sync_video_clip_only_links_primary_and_video() {
+fn insert_audio_primary_with_sync_video_clip_is_rejected() {
     let mut stack = Stack::default();
     stack
         .children
@@ -354,7 +330,9 @@ fn insert_audio_primary_with_sync_video_clip_only_links_primary_and_video() {
     let mut primary = audio_clip(2.0, "file:///primary.wav", None);
     primary.set_id(Some("primary-audio".to_string()));
 
-    let result = match stack.insert_item_at_time(
+    // A column with a video clip is inserted on a video track with the video
+    // as its primary; dropping it on an audio track is refused.
+    let result = stack.insert_item_at_time(
         0,
         0.0,
         primary,
@@ -362,22 +340,10 @@ fn insert_audio_primary_with_sync_video_clip_only_links_primary_and_video() {
         InsertPolicy::InsertBeforeOrAfter,
         None,
         Some(Item::Clip(clip(2.0, Some("synced-video")))),
-    ) {
-        Some(InsertItemAtTimeResult::Synced(result)) => result,
-        _ => panic!("audio-primary insert with only sync video clip should succeed"),
-    };
-
-    assert_eq!(result.primary_clip_id, "primary-audio");
-    assert_eq!(result.audio_clips, Vec::new());
-    assert_eq!(result.synced_video_clip_id.as_deref(), Some("synced-video"));
-    assert_eq!(
-        sync_clips_id(stack.get_item("primary-audio").unwrap().2),
-        result.sync_clips_id
     );
-    assert_eq!(
-        sync_clips_id(stack.get_item("synced-video").unwrap().2),
-        result.sync_clips_id
-    );
+    assert!(result.is_none());
+    assert!(stack.get_item("primary-audio").is_none());
+    assert!(stack.get_item("synced-video").is_none());
 }
 
 #[test]
@@ -401,7 +367,7 @@ fn insert_sync_video_clip_requires_audio_destination_track() {
 }
 
 #[test]
-fn insert_item_at_index_with_sync_video_clip_creates_synced_video() {
+fn insert_item_at_index_with_sync_video_clip_is_rejected() {
     let mut stack = Stack::default();
     stack.children.push(Track::new(
         TrackKind::Audio,
@@ -411,28 +377,16 @@ fn insert_item_at_index_with_sync_video_clip_creates_synced_video() {
         .items
         .push(Item::Gap(Gap::make_gap(5.0)));
 
-    let result = match stack.insert_item_at_index(
+    let result = stack.insert_item_at_index(
         "primary-audio-track",
         0,
         audio_clip(2.0, "file:///primary.wav", None),
         OverlapPolicy::Override,
         None,
         Some(Item::Clip(clip(2.0, Some("synced-video")))),
-    ) {
-        Some(InsertItemAtTimeResult::Synced(result)) => result,
-        _ => panic!("index insert with sync video clip should succeed"),
-    };
-
-    assert_eq!(result.synced_video_clip_id.as_deref(), Some("synced-video"));
-    let (video_track_index, _, video_item) = stack.get_item("synced-video").unwrap();
-    assert_eq!(stack.children[video_track_index].kind, TrackKind::Video);
-    assert_eq!(sync_clips_id(video_item), result.sync_clips_id);
-    assert_eq!(
-        stack.children[video_track_index].start_time_of_item(
-            stack.get_item("synced-video").unwrap().1
-        ),
-        0.0
     );
+    assert!(result.is_none());
+    assert_eq!(stack.children.len(), 1);
 }
 
 #[test]

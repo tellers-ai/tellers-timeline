@@ -212,8 +212,18 @@ fn audio_primary_lists_its_audio_partner_tracks() {
 
 #[test]
 fn derived_association_comes_from_sync_clips_until_stored() {
+    // A Resolve-style import: Link Group IDs on the clips, no stored lists.
     let mut stack = Stack::default();
-    push_sync_set(&mut stack, "s", 3.0, 2);
+    let mut video = Track::new(TrackKind::Video, Some("s-v".into()));
+    video.items.push(synced_clip_item(3.0, "s-vid", 7));
+    stack.children.push(video);
+    for i in 0..2 {
+        let mut audio = Track::new(TrackKind::Audio, Some(format!("s-a{i}")));
+        audio
+            .items
+            .push(synced_clip_item(3.0, &format!("s-aud{i}"), 7));
+        stack.children.push(audio);
+    }
     // Nothing stored yet: derived from the Link Group IDs, nearest first.
     let v = track_index_by_id(&stack, "s-v");
     assert_eq!(stack.children[v].stored_associated_track_ids(), None);

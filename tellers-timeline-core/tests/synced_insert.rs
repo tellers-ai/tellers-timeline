@@ -436,7 +436,7 @@ fn synced_insert_allows_synced_audio_with_different_duration() {
 }
 
 #[test]
-fn synced_insert_allows_sync_video_with_different_duration_from_primary() {
+fn synced_insert_rejects_sync_video_on_an_audio_destination() {
     let mut stack = Stack::default();
     stack
         .children
@@ -446,7 +446,9 @@ fn synced_insert_allows_sync_video_with_different_duration_from_primary() {
     primary.set_id(Some("primary-audio".to_string()));
     let synced_video = Item::Clip(clip(2.0, Some("synced-video")));
 
-    let result = match stack.insert_item_at_time(
+    // A column with a video clip is inserted on a video track with the video
+    // as its primary; an audio-track destination is refused and nothing changes.
+    let result = stack.insert_item_at_time(
         0,
         0.0,
         primary,
@@ -454,16 +456,10 @@ fn synced_insert_allows_sync_video_with_different_duration_from_primary() {
         InsertPolicy::InsertBeforeOrAfter,
         None,
         Some(synced_video),
-    ) {
-        Some(InsertItemAtTimeResult::Synced(result)) => result,
-        _ => panic!("audio-primary insert with shorter sync video should succeed"),
-    };
-
-    let (_, _, primary_item) = stack.get_item("primary-audio").unwrap();
-    let (_, _, video_item) = stack.get_item(result.synced_video_clip_id.as_deref().unwrap()).unwrap();
-    assert_eq!(primary_item.duration(), 5.0);
-    assert_eq!(video_item.duration(), 2.0);
-    assert_eq!(sync_clips_id(primary_item), sync_clips_id(video_item));
+    );
+    assert!(result.is_none());
+    assert_eq!(stack.children.len(), 1);
+    assert!(stack.children[0].items.is_empty());
 }
 
 #[test]

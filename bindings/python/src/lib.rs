@@ -1262,6 +1262,74 @@ impl PyStack {
             ))
         }
     }
+    #[pyo3(signature = (dest_track_id, dest_time, item, overlap_policy, insert_policy, linked_audio_clips=None, linked_video_clip=None))]
+    fn insert_item_at_time_by_id(
+        &mut self,
+        py: Python<'_>,
+        dest_track_id: &str,
+        dest_time: f64,
+        item: &Bound<PyAny>,
+        overlap_policy: &str,
+        insert_policy: &str,
+        linked_audio_clips: Option<Vec<PyObject>>,
+        linked_video_clip: Option<PyObject>,
+    ) -> PyResult<Option<PyObject>> {
+        if let Some(inner_item) = extract_item(item) {
+            let linked_video_clip = extract_optional_linked_clip(
+                py,
+                linked_video_clip,
+                "linked_video_clip",
+            )?;
+            if (linked_audio_clips.is_some() || linked_video_clip.is_some())
+                && !matches!(inner_item, Item::Clip(_))
+            {
+                return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                    "linked_audio_clips and linked_video_clip can only be used when item is a Clip",
+                ));
+            }
+            let op = overlap_policy_from_str(overlap_policy);
+            let ip = insert_policy_from_str(insert_policy);
+            let linked_audio_clips = linked_audio_clips
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|item| {
+                            extract_item(item.bind(py)).ok_or_else(|| {
+                                PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                                    "linked_audio_clips expects Item or Clip values",
+                                )
+                            })
+                        })
+                        .collect::<PyResult<Vec<_>>>()
+                })
+                .transpose()?;
+            match self.inner.insert_item_at_time_by_id(
+                dest_track_id,
+                dest_time,
+                inner_item,
+                op,
+                ip,
+                linked_audio_clips,
+                linked_video_clip,
+            ) {
+                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
+                Some(InsertItemAtTimeResult::Synced(result)) => {
+                    let dict = PyDict::new(py);
+                    dict.set_item("primary_clip_id", result.primary_clip_id)?;
+                    dict.set_item("audio_clips", result.audio_clips)?;
+                    dict.set_item("linked_video_clip_id", result.synced_video_clip_id)?;
+                    dict.set_item("link_group_id", result.sync_clips_id)?;
+                    dict.set_item("created_track_indices", result.created_track_indices)?;
+                    Ok(Some(dict.into_py(py)))
+                }
+                None => Ok(None),
+            }
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                "insert_item_at_time expects an Item, Clip, or Gap",
+            ))
+        }
+    }
     #[pyo3(signature = (dest_track_id, dest_index, item, overlap_policy, linked_audio_clips=None, linked_video_clip=None))]
     fn insert_item_at_index(
         &mut self,
