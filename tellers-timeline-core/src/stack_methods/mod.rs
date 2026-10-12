@@ -336,7 +336,7 @@ impl Stack {
             .collect();
         candidates.sort_by_key(|&track_index| {
             (
-                self.is_associated_partner(track_index),
+                !self.track_is_free(track_index),
                 track_index.abs_diff(dest_track_index),
                 track_index,
             )

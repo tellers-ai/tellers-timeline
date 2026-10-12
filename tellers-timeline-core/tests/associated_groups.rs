@@ -586,3 +586,31 @@ fn track_groups_lists_every_track_once_with_its_partners() {
     assert_eq!(groups[0].partner_track_ids, vec![Some("s-a0".to_string())]);
     assert!(!groups[0].stored);
 }
+
+#[test]
+fn a_video_column_never_borrows_an_audio_group_owner() {
+    // M1 owns a stem group (M1 + M2); V1 has one partner A1 and needs a second
+    // slot: it must create a track, not take M1 (listed by nobody) or M2.
+    let mut stack = host_stack(&["A1", "M2", "M1"], &["V1"]);
+    assert!(stack.associate_tracks("V1", &["A1".into()]));
+    assert!(stack.associate_tracks("M1", &["M2".into()]));
+    assert!(insert_column(
+        &mut stack,
+        "V1",
+        0.0,
+        "vid",
+        vec![named_audio("left", 2.0), named_audio("right", 2.0)]
+    ));
+    assert_eq!(track_id_of(&stack, "left"), "A1");
+    let right_track = track_id_of(&stack, "right");
+    assert!(!["A1", "M1", "M2"].contains(&right_track.as_str()), "got {right_track}");
+    assert_eq!(stack.children.len(), 5);
+    assert_eq!(
+        stack.associated_track_ids("V1").unwrap(),
+        vec!["A1".to_string(), right_track]
+    );
+    assert_eq!(stack.associated_track_ids("M1").unwrap(), vec!["M2".to_string()]);
+    // A plain clip may go on the stem group (M2 is the lowest), never on a
+    // video group's track.
+    assert_eq!(stack.free_audio_track_for(0.0, 1.0).as_deref(), Some("M2"));
+}

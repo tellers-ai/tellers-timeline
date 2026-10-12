@@ -9,8 +9,9 @@
 //!    lists that track;
 //! 2. the first associated track of the right kind that is usable;
 //! 3. the nearest existing track of that kind that is free over the column
-//!    and that no track lists as a partner (listed tracks are reserved for
-//!    their own primary's columns);
+//!    and in no group at all: neither listed by a track nor listing any
+//!    (partners are reserved for their owner, and an audio group's owner
+//!    belongs to its stems);
 //! 4. for a move, the partner's source track when it is usable and the
 //!    destination has no partner of that kind at all (one shared audio track
 //!    serves both videos rather than a new track per video);
@@ -210,7 +211,7 @@ impl Stack {
                 &exclude,
             )
             .into_iter()
-            .find(|&index| !self.is_associated_partner(index))
+            .find(|&index| self.track_is_free(index))
         {
             return index;
         }

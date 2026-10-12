@@ -548,9 +548,9 @@ impl Stack {
     }
 
     /// Pick an existing audio track for a clip that has no sync partners,
-    /// free over `[start, start + duration]`. Tracks nobody lists as an
-    /// associated track come first (so a video's channels keep their slots),
-    /// then the lowest index. `None` when no audio track is free there; the
+    /// free over `[start, start + duration]`, never a video group's audio
+    /// track (a plain clip is refused there). Tracks in no group come first,
+    /// then audio-group tracks, lowest index first. `None` when no audio track is free there; the
     /// caller then adds a track.
     pub fn free_audio_track_for(&self, start: Seconds, duration: Seconds) -> Option<String> {
         let end = start + duration.max(0.0);
@@ -562,10 +562,11 @@ impl Stack {
                 track.kind == TrackKind::Audio
                     && Stack::track_range_is_free(track, start, end)
                     && self.children[*index].get_id().is_some()
+                    && !self.track_in_video_group(*index)
             })
             .map(|(index, _)| index)
             .collect();
-        candidates.sort_by_key(|&index| (self.is_associated_partner(index), index));
+        candidates.sort_by_key(|&index| (!self.track_is_free(index), index));
         candidates
             .into_iter()
             .next()
