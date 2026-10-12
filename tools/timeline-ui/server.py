@@ -184,11 +184,16 @@ class State:
             sync_info = self.stack.sync_track_info()
         except Exception as exc:  # pragma: no cover - defensive
             sync_info = [{"error": str(exc)}]
+        try:
+            track_groups = self.stack.track_groups()
+        except Exception as exc:  # pragma: no cover - defensive
+            track_groups = [{"error": str(exc)}]
         return {
             "tracks": tracks,
             "timeline": json.loads(timeline.to_json()),
             "validation": timeline.validate(),
             "sync_track_info": sync_info,
+            "track_groups": track_groups,
             "result": result,
             "call": call,
             "error": error,
@@ -284,6 +289,19 @@ def op_undo(state: State, p: dict):
 def op_sanitize(state: State, p: dict):
     state.stack.sanitize()
     return True, "stack.sanitize()"
+
+
+@op("normalize_tracks")
+def op_normalize_tracks(state: State, p: dict):
+    changed = state.stack.normalize_track_order()
+    return changed, "stack.normalize_track_order()"
+
+
+@op("associate_tracks")
+def op_associate_tracks(state: State, p: dict):
+    ids = [x for x in (p.get("partner_ids") or []) if x]
+    ok = state.stack.associate_tracks(p["id"], ids)
+    return ok, f"stack.associate_tracks({_fmt(p['id'])}, {_fmt(ids)})"
 
 
 @op("add_track")

@@ -50,6 +50,12 @@
   .lane.drop { background-color: rgba(79,140,255,.12); }
   .lane.reject { background-color: rgba(239,83,80,.12); }
   .lane.disabled { opacity: .5; }
+  .row.owner .hdr { border-left: 3px solid var(--acc, #4f8cff); }
+  .row.partner .hdr { border-left: 3px solid var(--acc, #4f8cff); opacity: .92; }
+  .row.partner .hdr .line1 { padding-left: 10px; }
+  .hdr .grp { font-size: 10px; color: var(--fg2); margin-left: 4px; }
+  .hdr button.fold { min-width: 18px; padding: 0 3px; }
+  .row.owner.collapsed .hdr { background: rgba(79,140,255,.08); }
   #ruler { position: relative; flex: 1; cursor: pointer; }
   #ruler .tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--line); padding-left: 3px; font-size: 10px; color: var(--fg2); pointer-events: none; }
   #playhead { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--danger); z-index: 15; pointer-events: none; }
@@ -123,6 +129,7 @@
     <button id="btnReset" title="Empty stack with one video track">Reset</button>
     <button id="btnUndo" title="Undo last op (⌘Z)">Undo</button>
     <button id="btnSanitize" title="stack.sanitize()">Sanitize</button>
+    <button id="btnNormalize" title="stack.normalize_track_order(): make every group contiguous, owner on top">Normalize</button>
   </div>
   <div class="group">
     <label class="opt">Overlap <select id="overlap"><option>override</option><option>push</option></select></label>
@@ -163,7 +170,7 @@
     <button data-tab="result" class="active">Result</button>
     <button data-tab="log">Log</button>
     <button data-tab="validation">Validation <span class="cnt zero" id="valCnt">0</span></button>
-    <button data-tab="sync">Sync tracks</button>
+    <button data-tab="sync">Groups</button>
     <button data-tab="json">JSON</button>
     <span class="spacer"></span>
     <span id="hint">drag = move · edges = resize · dbl-click lane = insert · right-click = menu · ⌘Z undo</span>
@@ -291,7 +298,12 @@
     const order = [...S.tracks];
     if ($('#reverse').checked) order.reverse();
     el.tracks.innerHTML = '';
-    for (const t of order) el.tracks.appendChild(renderTrack(t, width));
+    const groups = groupsByTrack();
+    for (const t of order) {
+      const g = groups.get(t.id);
+      if (g && g.owner !== t.id && collapsed.has(g.owner)) continue;
+      el.tracks.appendChild(renderTrack(t, width, g));
+    }
     if (!S.tracks.length) {
       const d = document.createElement('div');
       d.style.cssText = 'padding:30px;color:var(--fg2)';
@@ -317,15 +329,36 @@
     }
   }
 
-  function renderTrack(t, width) {
+  // Collapsed group owners (track ids); partners of a collapsed owner are hidden.
+  const collapsed = new Set();
+  // Map track id → { owner, partners, stored, kind } from stack.track_groups().
+  function groupsByTrack() {
+    const map = new Map();
+    for (const g of (S.track_groups || [])) {
+      if (g.error || !g.owner_track_id || !(g.partner_track_ids || []).length) continue;
+      const info = { owner: g.owner_track_id, partners: g.partner_track_ids, stored: g.stored, kind: g.kind };
+      map.set(g.owner_track_id, info);
+      for (const id of g.partner_track_ids) if (id) map.set(id, info);
+    }
+    return map;
+  }
+
+  function renderTrack(t, width, g) {
     const row = document.createElement('div');
-    row.className = 'row';
+    const isOwner = g && g.owner === t.id;
+    row.className = 'row' + (isOwner ? ' owner' + (collapsed.has(t.id) ? ' collapsed' : '') : (g ? ' partner' : ''));
     row.dataset.trackId = t.id;
     const hdr = document.createElement('div');
     hdr.className = 'hdr';
+    const fold = isOwner
+      ? `<button class="fold" data-act="fold" title="Collapse / expand this group's partner tracks (stack.track_groups)">${collapsed.has(t.id) ? '▸' : '▾'}</button>`
+      : '';
+    const grp = isOwner
+      ? `<span class="grp" title="${g.stored ? 'stored list' : 'derived from sync clips'}">${g.kind} group · ${g.partners.length} partner${g.partners.length > 1 ? 's' : ''}${g.stored ? '' : ' (derived)'}</span>`
+      : (g ? `<span class="grp" title="partner of ${esc(g.owner)}">↳ slot ${g.partners.indexOf(t.id) + 1} of ${esc(trackById(g.owner)?.name || g.owner)}</span>` : '');
     hdr.innerHTML = `
-      <div class="line1"><span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
-        <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span></div>
+      <div class="line1">${fold}<span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
+        <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span>${grp}</div>
       <div class="line2">
         <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>
         <button data-act="up" title="reorder_track: move toward end of list (top layer)">▲</button>
@@ -341,6 +374,7 @@
       const act = e.target.dataset.act;
       if (!act) return;
       if (act === 'add') openItemPopover(e.target, t);
+      if (act === 'fold') { collapsed.has(t.id) ? collapsed.delete(t.id) : collapsed.add(t.id); render(); return; }
       if (act === 'up') api('reorder_track', { id: t.id, index: t.index + 2 });
       if (act === 'down') api('reorder_track', { id: t.id, index: Math.max(0, t.index - 1) });
       if (act === 'del') api('delete_track', { id: t.id });
@@ -424,7 +458,10 @@
     const v = S.validation || [];
     const cnt = $('#valCnt'); cnt.textContent = v.length; cnt.classList.toggle('zero', !v.length);
     $('#tab-validation').innerHTML = v.length ? v.map(x => `<div class="err">${esc(x)}</div>`).join('') : '<span style="color:var(--ok)">validate() → no errors</span>';
-    $('#tab-sync').innerHTML = '<div style="color:var(--fg2)">stack.sync_track_info()</div>' + (S.sync_track_info || []).map(g =>
+    $('#tab-sync').innerHTML = '<div style="color:var(--fg2)">stack.track_groups()</div>' + (S.track_groups || []).map(g =>
+      g.error ? `<div class="err">${esc(g.error)}</div>` :
+      `<div>${g.kind} group · owner #${g.owner_track_index} ${esc(g.owner_track_id)} → partners [${(g.partner_track_ids || []).map(x => esc(x || 'None')).join(', ')}]${g.stored ? '' : ' (derived)'}</div>`).join('')
+      + '<div style="color:var(--fg2);margin-top:8px">stack.sync_track_info()</div>' + (S.sync_track_info || []).map(g =>
       `<div>tracks [${g.track_indices.join(', ')}] → ids [${(g.track_ids || []).map(x => x || 'None').join(', ')}]</div>`).join('');
     $('#tab-log').innerHTML = [...(S.log || [])].reverse().map(l =>
       `<div class="logline"><span class="call">${esc(l.call)}</span> <span class="r">→ ${esc(l.error ? l.error : JSON.stringify(l.result))}</span></div>`).join('');
@@ -695,6 +732,7 @@
   $('#btnReset').addEventListener('click', () => { selected.clear(); api('reset'); });
   $('#btnUndo').addEventListener('click', () => api('undo'));
   $('#btnSanitize').addEventListener('click', () => api('sanitize'));
+  $('#btnNormalize').addEventListener('click', () => api('normalize_tracks'));
   $('#btnLoadJson').addEventListener('click', () => {
     let parsed; try { parsed = JSON.parse($('#jsonText').value); } catch (e) { return showResult({ error: 'invalid JSON: ' + e.message }); }
     api('load_json', { json: parsed });
