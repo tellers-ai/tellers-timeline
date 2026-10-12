@@ -363,7 +363,7 @@
       <div class="line1">${fold}<span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
         <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span>${grp}</div>
       <div class="line2">
-        <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>${t.kind === 'video' ? '<button class="primary" data-act="add2" title="Insert a 2s clip with 2 sync audio clips at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}
+        <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>${t.kind === 'video' ? '<button class="primary" data-act="add2" title="Insert a 2s video clip with 2 sync audio clips at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}${t.kind === 'audio' ? '<button class="primary" data-act="add2" title="Insert a 2s audio clip with 2 sync audio clips (stems) at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}
         <button data-act="up" title="reorder_track: move toward end of list (top layer)">▲</button>
         <button data-act="down" title="reorder_track: move toward start of list (bottom layer)">▼</button>
         <button data-act="del" class="danger" title="delete_track">×</button>
@@ -404,7 +404,7 @@
       openMenu(e, [
         { label: `Insert clip here (${fmt(snapT(time))}s)`, run: () => openItemPopover(null, t, snapT(time), e) },
         { label: 'Insert gap here', run: () => insertQuick(t, 'gap', snapT(time)) },
-        ...(t.kind === 'video' ? [{ label: 'Insert clip + 2 sync audio here', run: () => insertQuickSynced(t, snapT(time), 2) }] : []),
+        ...(t.kind !== 'other' ? [{ label: `Insert ${t.kind} clip + 2 sync audio here`, run: () => insertQuickSynced(t, snapT(time), 2) }] : []),
         { label: 'Set playhead here', run: () => setPlayhead(time) },
       ]);
     });
@@ -648,10 +648,14 @@
     return Array.from({ length: Math.max(1, n) }, (_, i) =>
       itemSpec('clip', `${name} audio ${i + 1}`, dur, { url: `file:///${base}_a${i + 1}.wav` }));
   }
+  // On a video track: a video clip with N sync audio clips (a video column).
+  // On an audio track: an audio clip with N sync audio clips (an audio-only
+  // column, stems), which the library keeps in an audio group.
   function insertQuickSynced(track, time, n) {
     const o = opts();
     const name = `Clip ${clipCounter++}`;
-    api('insert_item', { mode: 'time', track_index: track.index, time, item: itemSpec('clip', name, 2, { url: `file:///${name.replace(/\s+/g, '_').toLowerCase()}.mov` }), linked_audio: syncAudioSpecs(name, 2, n), overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
+    const ext = track.kind === 'audio' ? 'wav' : 'mov';
+    api('insert_item', { mode: 'time', track_index: track.index, time, item: itemSpec('clip', name, 2, { url: `file:///${name.replace(/\s+/g, '_').toLowerCase()}.${ext}` }), linked_audio: syncAudioSpecs(name, 2, n), overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
   }
   function insertQuick(track, kind, time) {
     const o = opts();
