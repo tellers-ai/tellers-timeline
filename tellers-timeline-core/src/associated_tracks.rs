@@ -31,6 +31,27 @@ use crate::{IdMetadataExt, Item, Seconds, Stack, Track, TrackKind};
 /// of associated track ids.
 pub const ASSOCIATED_TRACK_IDS_KEY: &str = "associated_track_ids";
 
+/// One track group: an owner with its partners in slot order. A track in no
+/// group is reported as a group of one. Hosts use this to draw or collapse a
+/// group as one unit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackGroup {
+    /// Index of the owner track (the video track of a video group, the
+    /// highest audio track of an audio group).
+    pub owner_track_index: usize,
+    /// Id of the owner track, when it has one.
+    pub owner_track_id: Option<String>,
+    /// Kind of the owner: `Video` for a video group, `Audio` for an audio group.
+    pub kind: TrackKind,
+    /// Partner track indices in slot order (first partner right below the
+    /// owner once normalized).
+    pub partner_track_indices: Vec<usize>,
+    /// Partner track ids in slot order.
+    pub partner_track_ids: Vec<Option<String>>,
+    /// Whether the owner stores its list, or it is derived from sync clips.
+    pub stored: bool,
+}
+
 fn tellers_namespace_mut(
     metadata: &mut serde_json::Value,
 ) -> &mut serde_json::Map<String, serde_json::Value> {
@@ -349,6 +370,34 @@ impl Stack {
             }
             TrackKind::Other => !has_video_partner,
         }
+    }
+
+    /// Every track group, owners in stack order (bottom to top). Tracks in no
+    /// group come back as groups of one, so every track appears exactly once.
+    pub fn track_groups(&self) -> Vec<TrackGroup> {
+        let len = self.children.len();
+        let owner_of: Vec<usize> = (0..len).map(|index| self.group_owner_of(index)).collect();
+        (0..len)
+            .filter(|&owner| owner_of[owner] == owner)
+            .map(|owner| {
+                let partner_track_indices: Vec<usize> = self
+                    .associated_track_indices(owner)
+                    .into_iter()
+                    .filter(|&partner| partner != owner && owner_of[partner] == owner)
+                    .collect();
+                TrackGroup {
+                    owner_track_index: owner,
+                    owner_track_id: self.children[owner].get_id(),
+                    kind: self.children[owner].kind.clone(),
+                    partner_track_ids: partner_track_indices
+                        .iter()
+                        .map(|&partner| self.children[partner].get_id())
+                        .collect(),
+                    partner_track_indices,
+                    stored: self.children[owner].stored_associated_track_ids().is_some(),
+                }
+            })
+            .collect()
     }
 
     /// Reorder the tracks so every group is contiguous: the owner on top

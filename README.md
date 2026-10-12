@@ -45,7 +45,9 @@ updates the list so the layout survives normalization.
 API: `Track.get/set/clear_associated_track_ids`,
 `Stack.associated_track_ids(track_id)`, `Stack.associate_tracks(track_id, ids)`,
 `Stack.free_audio_track_for(start, duration)`, `Stack.normalize_track_order()`,
-`Stack.insert_item_at_time_by_id(...)`, in Rust and Python.
+`Stack.insert_item_at_time_by_id(...)`, `Stack.track_groups()` (every group as
+one object: owner, kind, partners in slot order, stored or derived; tracks in
+no group are groups of one), in Rust and Python.
 `tools/audit_associated_tracks.py` reports what these rules see in a set of
 project documents.
 

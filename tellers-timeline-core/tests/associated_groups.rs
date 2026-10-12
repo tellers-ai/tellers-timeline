@@ -513,3 +513,61 @@ fn syncing_by_hand_gathers_clips_into_the_video_group() {
     ));
     assert!(stack.sync_item(&["vid".into(), "vid2".into()]).is_none());
 }
+
+type GroupSummary = (Option<String>, TrackKind, Vec<Option<String>>, bool);
+
+#[test]
+fn track_groups_lists_every_track_once_with_its_partners() {
+    let mut stack = host_stack(&["A2", "A1", "M1", "F1"], &["V1", "V2"]);
+    assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
+    // M1 holds a derived audio group: a stem column with F1... keep F1 free and
+    // give M1 nothing, so M1 and F1 are groups of one.
+    let groups = stack.track_groups();
+    let summary: Vec<GroupSummary> = groups
+        .iter()
+        .map(|g| {
+            (
+                g.owner_track_id.clone(),
+                g.kind.clone(),
+                g.partner_track_ids.clone(),
+                g.stored,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            (Some("M1".into()), TrackKind::Audio, vec![], false),
+            (Some("F1".into()), TrackKind::Audio, vec![], false),
+            (
+                Some("V1".into()),
+                TrackKind::Video,
+                vec![Some("A1".into()), Some("A2".into())],
+                true
+            ),
+            (Some("V2".into()), TrackKind::Video, vec![], false),
+        ]
+    );
+    let seen: Vec<usize> = groups
+        .iter()
+        .flat_map(|g| std::iter::once(g.owner_track_index).chain(g.partner_track_indices.clone()))
+        .collect();
+    let mut sorted = seen.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), stack.children.len());
+
+    // A derived group (Resolve import) is reported as not stored.
+    let mut imported = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("s-v".into()));
+    video.items.push(synced_clip_item(3.0, "s-vid", 7));
+    let mut audio = Track::new(TrackKind::Audio, Some("s-a0".into()));
+    audio.items.push(synced_clip_item(3.0, "s-aud0", 7));
+    imported.children.push(audio);
+    imported.children.push(video);
+    let groups = imported.track_groups();
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].owner_track_id.as_deref(), Some("s-v"));
+    assert_eq!(groups[0].partner_track_ids, vec![Some("s-a0".to_string())]);
+    assert!(!groups[0].stored);
+}

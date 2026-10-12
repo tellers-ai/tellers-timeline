@@ -67,3 +67,24 @@ def test_insert_follows_and_records_the_association():
     timeline.set_stack(stack)
     assert timeline.associated_track_ids("V1") == ["A1", "A2"]
     assert timeline.free_audio_track_for(0.0, 1.0) == "A3"
+
+
+def test_track_groups_report_each_track_once():
+    stack = Stack(
+        [
+            _gap_track("audio", "A2"),
+            _gap_track("audio", "A1"),
+            _gap_track("audio", "M1"),
+            _gap_track("video", "V1"),
+        ]
+    )
+    assert stack.associate_tracks("V1", ["A1", "A2"])
+    groups = stack.track_groups()
+    assert [(g["owner_track_id"], g["kind"], g["partner_track_ids"], g["stored"]) for g in groups] == [
+        ("M1", "audio", [], False),
+        ("V1", "video", ["A1", "A2"], True),
+    ]
+    assert groups[1]["partner_track_indices"] == [1, 0]
+    timeline = Timeline()
+    timeline.set_stack(stack)
+    assert [g["owner_track_id"] for g in timeline.track_groups()] == ["M1", "V1"]

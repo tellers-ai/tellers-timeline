@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, ColorLut, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline,
+    validate_timeline, Clip, ColorLut, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -1129,6 +1129,13 @@ impl PyStack {
     fn normalize_track_order(&mut self) -> bool {
         self.inner.normalize_track_order()
     }
+    /// Every track group, owners in stack order (bottom to top): the owner,
+    /// its kind ("video" or "audio" group), its partners in slot order and
+    /// whether the list is stored or derived from sync clips. Tracks in no
+    /// group are groups of one, so every track appears exactly once.
+    fn track_groups(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_groups_to_python(py, self.inner.track_groups())
+    }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
             .delete_track(id)
@@ -1538,6 +1545,29 @@ fn extract_optional_linked_clip(
     .transpose()
 }
 
+fn track_groups_to_python(py: Python<'_>, groups: Vec<TrackGroup>) -> PyResult<Vec<PyObject>> {
+    groups
+        .into_iter()
+        .map(|group| {
+            let dict = PyDict::new(py);
+            dict.set_item("owner_track_index", group.owner_track_index)?;
+            dict.set_item("owner_track_id", group.owner_track_id)?;
+            dict.set_item(
+                "kind",
+                match group.kind {
+                    TrackKind::Video => "video",
+                    TrackKind::Audio => "audio",
+                    TrackKind::Other => "other",
+                },
+            )?;
+            dict.set_item("partner_track_indices", group.partner_track_indices)?;
+            dict.set_item("partner_track_ids", group.partner_track_ids)?;
+            dict.set_item("stored", group.stored)?;
+            Ok(dict.into_py(py))
+        })
+        .collect()
+}
+
 fn sync_track_info_to_python(
     py: Python<'_>,
     groups: Vec<tellers_timeline_core::SyncTrackInfo>,
@@ -1740,6 +1770,13 @@ impl PyTimeline {
     /// changes track indices. Returns whether the order changed.
     fn normalize_track_order(&mut self) -> bool {
         self.inner.tracks.normalize_track_order()
+    }
+    /// Every track group, owners in stack order (bottom to top): the owner,
+    /// its kind ("video" or "audio" group), its partners in slot order and
+    /// whether the list is stored or derived from sync clips. Tracks in no
+    /// group are groups of one, so every track appears exactly once.
+    fn track_groups(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_groups_to_python(py, self.inner.tracks.track_groups())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
         self.inner
