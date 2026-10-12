@@ -193,6 +193,7 @@
   <div class="frow"><label>Type</label><select id="piType"><option value="clip">Clip</option><option value="gap">Gap</option><option value="text">Text clip (rich text)</option><option value="linked">Clip + linked audio</option><option value="linkedvideo">Audio clip + linked video</option></select></div>
   <div class="frow"><label>Name</label><input type="text" id="piName" style="width:130px"></div>
   <div class="frow"><label>Duration (s)</label><input type="number" id="piDur" step="0.5" min="0.1" value="2"></div>
+  <div class="frow" id="piAudioRow"><label>Sync audio clips</label><input type="number" id="piAudioN" step="1" min="1" max="4" value="2" title="How many linked audio clips go with the video clip (one per partner track)"></div>
   <div class="frow" id="piMediaRow"><label>Media duration (s)</label><input type="number" id="piMedia" step="0.5" min="0" placeholder="unbounded"></div>
   <div class="frow" id="piSourceRow"><label>Media start (s)</label><input type="number" id="piSource" step="0.5" min="0" placeholder="0"></div>
   <div class="frow" id="piTimeRow"><label>At time (s)</label><input type="number" id="piTime" step="0.1" min="0" value="0"></div>
@@ -360,7 +361,7 @@
       <div class="line1">${fold}<span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
         <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span>${grp}</div>
       <div class="line2">
-        <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>
+        <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>${t.kind === 'video' ? '<button class="primary" data-act="add2" title="Insert a 2s clip with 2 sync audio clips at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}
         <button data-act="up" title="reorder_track: move toward end of list (top layer)">▲</button>
         <button data-act="down" title="reorder_track: move toward start of list (bottom layer)">▼</button>
         <button data-act="del" class="danger" title="delete_track">×</button>
@@ -374,6 +375,7 @@
       const act = e.target.dataset.act;
       if (!act) return;
       if (act === 'add') openItemPopover(e.target, t);
+      if (act === 'add2') insertQuickSynced(t, snapT(playhead), 2);
       if (act === 'fold') { collapsed.has(t.id) ? collapsed.delete(t.id) : collapsed.add(t.id); render(); return; }
       if (act === 'up') api('reorder_track', { id: t.id, index: t.index + 2 });
       if (act === 'down') api('reorder_track', { id: t.id, index: Math.max(0, t.index - 1) });
@@ -400,6 +402,7 @@
       openMenu(e, [
         { label: `Insert clip here (${fmt(snapT(time))}s)`, run: () => openItemPopover(null, t, snapT(time), e) },
         { label: 'Insert gap here', run: () => insertQuick(t, 'gap', snapT(time)) },
+        ...(t.kind === 'video' ? [{ label: 'Insert clip + 2 sync audio here', run: () => insertQuickSynced(t, snapT(time), 2) }] : []),
         { label: 'Set playhead here', run: () => setPlayhead(time) },
       ]);
     });
@@ -604,6 +607,7 @@
     const type = $('#piType').value, mode = $('#piMode').value;
     $('#piMediaRow').style.display = (type === 'gap' || type === 'text') ? 'none' : '';
     $('#piSourceRow').style.display = (type === 'gap' || type === 'text') ? 'none' : '';
+    $('#piAudioRow').style.display = type === 'linked' ? '' : 'none';
     $('#piTimeRow').style.display = mode === 'time' ? '' : 'none';
     $('#piIndexRow').style.display = mode === 'index' ? '' : 'none';
     if (type === 'gap' && $('#piName').value.startsWith('Clip ')) $('#piName').value = '';
@@ -627,7 +631,7 @@
     let item, linked_audio = null, linked_video = null;
     if (type === 'gap') item = itemSpec('gap', name, dur);
     else if (type === 'text') item = itemSpec('clip', name, dur, { text: true, text_html: `<p>${esc(name || 'Text')}</p>` });
-    else if (type === 'linked') { item = itemSpec('clip', name, dur, { url: url('', 'mov'), media_duration, media_start }); linked_audio = [itemSpec('clip', (name || 'clip') + ' audio', dur, { url: url('', 'wav') })]; }
+    else if (type === 'linked') { item = itemSpec('clip', name, dur, { url: url('', 'mov'), media_duration, media_start }); linked_audio = syncAudioSpecs(name || 'clip', dur, parseInt($('#piAudioN').value) || 1); }
     else if (type === 'linkedvideo') { item = itemSpec('clip', name, dur, { url: url('', 'wav'), media_duration, media_start }); linked_video = itemSpec('clip', (name || 'clip') + ' video', dur, { url: url('', 'mov') }); }
     else item = itemSpec('clip', name, dur, { url: url('', isAudioTrack ? 'wav' : 'mov'), media_duration, media_start });
     const o = opts();
@@ -636,6 +640,17 @@
     else Object.assign(params, { mode: 'time', track_index: track.index, time: parseFloat($('#piTime').value) || 0 });
     closePops();
     await api('insert_item', params);
+  }
+  // N linked audio clips for a video clip: "<name> audio 1", "<name> audio 2", ...
+  function syncAudioSpecs(name, dur, n) {
+    const base = name.replace(/\s+/g, '_').toLowerCase();
+    return Array.from({ length: Math.max(1, n) }, (_, i) =>
+      itemSpec('clip', `${name} audio ${i + 1}`, dur, { url: `file:///${base}_a${i + 1}.wav` }));
+  }
+  function insertQuickSynced(track, time, n) {
+    const o = opts();
+    const name = `Clip ${clipCounter++}`;
+    api('insert_item', { mode: 'time', track_index: track.index, time, item: itemSpec('clip', name, 2, { url: `file:///${name.replace(/\s+/g, '_').toLowerCase()}.mov` }), linked_audio: syncAudioSpecs(name, 2, n), overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
   }
   function insertQuick(track, kind, time) {
     const o = opts();
