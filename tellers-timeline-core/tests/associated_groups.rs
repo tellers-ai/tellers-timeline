@@ -280,8 +280,8 @@ fn partner_swaps_only_with_its_own_column() {
 }
 
 #[test]
-fn partner_moved_to_another_video_group_takes_the_column_along() {
-    let mut stack = host_stack(&["A1", "A2", "B1", "B2"], &["V1", "V2"]);
+fn partner_cannot_leave_its_video_group() {
+    let mut stack = host_stack(&["A1", "A2", "B1", "B2", "F1"], &["V1", "V2"]);
     assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
     assert!(stack.associate_tracks("V2", &["B1".into(), "B2".into()]));
     assert!(insert_column(
@@ -291,20 +291,35 @@ fn partner_moved_to_another_video_group_takes_the_column_along() {
         "vid",
         vec![named_audio("left", 2.0), named_audio("right", 2.0)]
     ));
+    let before = stack.clone();
+    // Another video group's track, and a free track: both refused; the
+    // library answers false and nothing changes (the UI relies on this).
+    for dest in ["B1", "F1"] {
+        assert!(!stack.move_item_at_time(
+            "left",
+            dest,
+            4.0,
+            true,
+            InsertPolicy::SplitAndInsert,
+            OverlapPolicy::Override
+        ));
+        assert!(!stack.move_item_at_index("left", dest, 0, true, OverlapPolicy::Push));
+        assert_eq!(stack, before, "{dest}");
+    }
+    // Within the group the column still moves in time and swaps channels.
     assert!(stack.move_item_at_time(
         "left",
-        "B1",
+        "A2",
         4.0,
         true,
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override
     ));
-    assert_eq!(track_id_of(&stack, "vid"), "V2");
-    assert_eq!(track_id_of(&stack, "left"), "B1");
-    assert_eq!(track_id_of(&stack, "right"), "B2");
-    assert_eq!(stack.children.len(), 6);
-    assert_sync_clips_track_aligned(&stack, "partner moved to another video group");
+    assert_eq!(track_id_of(&stack, "left"), "A2");
+    assert_eq!(track_id_of(&stack, "right"), "A1");
+    assert_eq!(track_id_of(&stack, "vid"), "V1");
 }
+
 
 #[test]
 fn partner_cannot_join_an_audio_group_and_stems_cannot_join_a_video_group() {

@@ -85,7 +85,7 @@ fn move_synced_set_on_same_track_in_cluster_preserves_track_and_cluster_count() 
 }
 
 #[test]
-fn move_synced_audio_creates_video_track_below_audio_group_in_resolve_layout() {
+fn move_synced_audio_to_another_group_is_refused_in_resolve_layout() {
     let mut stack = Stack::default();
     const DUR: f64 = 5.0;
 
@@ -120,11 +120,11 @@ fn move_synced_audio_creates_video_track_below_audio_group_in_resolve_layout() {
     dest_a.items.push(Item::Gap(Gap::make_gap(100.0)));
     stack.children.push(dest_a);
 
-    let dest_a_index = stack.get_track_by_id("dest-a").unwrap().0;
-    let v1_index = stack.get_track_by_id("V1").unwrap().0;
-    let track_count_before = stack.children.len();
 
-    assert!(stack.move_item_at_time(
+    // The audio partner of a video column stays in its video's group: a move to
+    // another group's audio track is refused by the library and nothing changes.
+    let before = stack.clone();
+    assert!(!stack.move_item_at_time(
         "moving-aud",
         "dest-a",
         50.0,
@@ -132,19 +132,7 @@ fn move_synced_audio_creates_video_track_below_audio_group_in_resolve_layout() {
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override,
     ));
-
-    assert_eq!(stack.children.len(), track_count_before + 1);
-    let (video_track, video_index, _) = stack.get_item("moving-vid").unwrap();
-    assert_eq!(stack.children[video_track].kind, TrackKind::Video);
-    assert_eq!(
-        video_track, dest_a_index + 1,
-        "new video track must sit directly below dest-a, not at stack top or next to V1"
-    );
-    assert_eq!(stack.get_track_by_id("V1").unwrap().0, v1_index);
-    assert_eq!(
-        stack.children[video_track].start_time_of_item(video_index),
-        50.0
-    );
+    assert_eq!(stack, before, "a refused move changes nothing");
 }
 
 #[test]
@@ -448,6 +436,7 @@ fn move_synced_set_creates_audio_track_when_preferred_track_has_content() {
         ])
         .unwrap();
     let source_second_audio_track = stack.get_item("d-aud1").unwrap().0;
+
     let track_count_before = stack.children.len();
 
     assert!(stack.move_item_at_time(
@@ -636,7 +625,7 @@ fn move_synced_item_preserves_duration_mismatch() {
 }
 
 #[test]
-fn move_synced_audio_to_lower_cluster_reuses_cluster_video_not_upper_neighbor() {
+fn move_synced_audio_to_lower_cluster_is_refused() {
     const GROUP8: i64 = 8;
     const GROUP5: i64 = 5;
     const GROUP7: i64 = 7;
@@ -678,7 +667,10 @@ fn move_synced_audio_to_lower_cluster_reuses_cluster_video_not_upper_neighbor() 
         .push(synced_clip_item(FAR_DUR - LEAD, "v2-g7", GROUP7));
     stack.children.push(video2);
 
-    assert!(stack.move_item_at_time(
+    // The audio partner of a video column stays in its video's group: a move to
+    // another group's audio track is refused by the library and nothing changes.
+    let before = stack.clone();
+    assert!(!stack.move_item_at_time(
         "hh10-a1",
         "A9",
         LEAD,
@@ -686,21 +678,11 @@ fn move_synced_audio_to_lower_cluster_reuses_cluster_video_not_upper_neighbor() 
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override,
     ));
-
-    let (video_track, _, _) = stack.get_item("hh10-v").unwrap();
-    assert_eq!(
-        stack.children[video_track].get_id().as_deref(),
-        Some("Video 2"),
-        "synced video must land on the destination cluster video track, not Main Video above A9"
-    );
-    assert!(
-        stack.get_item("hh10-v").is_some(),
-        "video partner must survive the audio-primary move"
-    );
+    assert_eq!(stack, before, "a refused move changes nothing");
 }
 
 #[test]
-fn move_synced_audio_cut_through_destination_cluster_reuses_video2_not_v1() {
+fn move_synced_audio_cut_into_another_cluster_is_refused() {
     let json =
         std::fs::read_to_string(fixture_path("new_project_move_cut.otio")).expect("fixture");
     let mut tl: Timeline = serde_json::from_str(&json).expect("parse");
@@ -708,7 +690,10 @@ fn move_synced_audio_cut_through_destination_cluster_reuses_video2_not_v1() {
 
     // Cut into link group 7 on A9 (~26 frames into the 63-frame tail clip).
     const DEST_TIME: f64 = 7.716;
-    assert!(tl.tracks.move_item_at_time(
+    // The audio partner of a video column stays in its video's group: a move to
+    // another group's audio track is refused by the library and nothing changes.
+    let before = tl.tracks.clone();
+    assert!(!tl.tracks.move_item_at_time(
         "68dd84161a27",
         "A9",
         DEST_TIME,
@@ -716,26 +701,7 @@ fn move_synced_audio_cut_through_destination_cluster_reuses_video2_not_v1() {
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override,
     ));
-
-    let (video_track, _, _) = tl.tracks.get_item("0399904de764").unwrap();
-    assert_eq!(
-        tl.tracks.children[video_track].get_id().as_deref(),
-        Some("4c7edef5-ed41-4699-8b5f-b4d91d7918c4"),
-        "synced video must stay on the destination cluster video track when the insert cuts through existing clips"
-    );
-    assert!(
-        tl.tracks.get_track_by_id("V1").is_none(),
-        "must not spawn V1 when Video 2 can host the override split insert"
-    );
-
-    let a9 = track_index_by_id(&tl.tracks, "A9");
-    let a9_track = &tl.tracks.children[a9];
-    let cut_index = a9_track.get_item_at_time(DEST_TIME).unwrap();
-    let cut_start = a9_track.start_time_of_item(cut_index);
-    assert!(
-        (cut_start - DEST_TIME).abs() < 0.05,
-        "moved audio should land at the cut point, got {cut_start}"
-    );
+    assert_eq!(tl.tracks, before, "a refused move changes nothing");
 }
 
 #[test]
@@ -768,6 +734,7 @@ fn move_sync_set_to_different_track_matrix() {
                                 "d-a0".to_string()
                             };
 
+                            let before = stack.clone();
                             let moved = if by_index {
                                 stack.move_item_at_index(
                                     &primary_id,
@@ -786,6 +753,12 @@ fn move_sync_set_to_different_track_matrix() {
                                     op,
                                 )
                             };
+                            if !primary_is_video {
+                                // An audio partner never leaves its video's group.
+                                assert!(!moved, "{label}: audio partner left its group");
+                                assert_eq!(stack, before, "{label}: refused move changed the stack");
+                                continue;
+                            }
                             assert!(moved, "{label}: move returned false");
 
                             // The whole source set survived as one sync set, one shared
@@ -830,7 +803,7 @@ fn move_sync_set_to_different_track_matrix() {
 }
 
 #[test]
-fn move_synced_audio_reuses_free_video_track_instead_of_creating_one() {
+fn move_synced_audio_to_another_group_is_refused_even_with_a_free_video_track() {
     // Same layout as the creation test above, but V1 is free over the
     // destination range: the video partner lands there and no track is added.
     let mut stack = Stack::default();
@@ -862,8 +835,10 @@ fn move_synced_audio_reuses_free_video_track_instead_of_creating_one() {
     dest_a.items.push(Item::Gap(Gap::make_gap(100.0)));
     stack.children.push(dest_a);
 
-    let track_count_before = stack.children.len();
-    assert!(stack.move_item_at_time(
+    // The audio partner of a video column stays in its video's group: a move to
+    // another group's audio track is refused by the library and nothing changes.
+    let before = stack.clone();
+    assert!(!stack.move_item_at_time(
         "moving-aud",
         "dest-a",
         50.0,
@@ -871,24 +846,7 @@ fn move_synced_audio_reuses_free_video_track_instead_of_creating_one() {
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override,
     ));
-
-    assert_eq!(stack.children.len(), track_count_before);
-    let (video_track, video_index, _) = stack.get_item("moving-vid").unwrap();
-    assert_eq!(stack.children[video_track].get_id().as_deref(), Some("V1"));
-    assert_eq!(
-        stack.children[video_track].start_time_of_item(video_index),
-        50.0
-    );
-    let (audio_track, audio_index, _) = stack.get_item("moving-aud").unwrap();
-    assert_eq!(
-        stack.children[audio_track].get_id().as_deref(),
-        Some("dest-a")
-    );
-    assert_eq!(
-        stack.children[audio_track].start_time_of_item(audio_index),
-        50.0
-    );
-    assert_sync_clips_track_aligned(&stack, "audio move reusing free video track");
+    assert_eq!(stack, before, "a refused move changes nothing");
 }
 
 #[test]

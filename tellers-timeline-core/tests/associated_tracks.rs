@@ -415,9 +415,10 @@ fn moving_an_audio_partner_onto_its_sibling_track_swaps_the_channels() {
 }
 
 #[test]
-fn moving_an_audio_partner_outside_the_partners_makes_the_video_adopt_that_track() {
+fn moving_an_audio_partner_to_a_free_track_is_refused() {
     let mut stack = two_channel_column();
-    assert!(stack.move_item_at_time(
+    let before = stack.clone();
+    assert!(!stack.move_item_at_time(
         "left",
         "A3",
         4.0,
@@ -425,16 +426,13 @@ fn moving_an_audio_partner_outside_the_partners_makes_the_video_adopt_that_track
         InsertPolicy::SplitAndInsert,
         OverlapPolicy::Override,
     ));
-    assert_eq!(track_id_of(&stack, "left"), "A3");
-    assert_eq!(track_id_of(&stack, "right"), "A2");
-    assert_eq!(track_id_of(&stack, "vid"), "V1");
+    assert_eq!(stack, before);
     assert_eq!(
         stack.associated_track_ids("V1").unwrap(),
-        vec!["A1".to_string(), "A2".to_string(), "A3".to_string()]
+        vec!["A1".to_string(), "A2".to_string()]
     );
-    let a3 = track_index_by_id(&stack, "A3");
-    assert_eq!(stack.children[a3].stored_associated_track_ids(), None);
 }
+
 
 #[test]
 fn moving_an_audio_partner_in_time_keeps_every_channel_on_its_track() {

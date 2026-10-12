@@ -49,6 +49,8 @@
   .lane { position: relative; flex: 1; min-width: 100px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); background-size: var(--sec) 100%; }
   .lane.drop { background-color: rgba(79,140,255,.12); }
   .lane.reject { background-color: rgba(239,83,80,.12); }
+  @keyframes refused-pulse { 0%, 100% { background-color: transparent; } 25%, 75% { background-color: rgba(239,83,80,.35); } }
+  .row.refused .lane, .row.refused .hdr { animation: refused-pulse .9s ease-in-out 2; }
   .lane.disabled { opacity: .5; }
   .row.owner .hdr { border-left: 3px solid var(--acc, #4f8cff); }
   .row.partner .hdr { border-left: 3px solid var(--acc, #4f8cff); opacity: .92; }
@@ -506,17 +508,8 @@
     s.lane = lane || null;
     if (!lane) { el.dropline.style.display = 'none'; el.droptip.style.display = 'none'; return; }
     const track = trackById(lane.dataset.trackId);
-    // Clips retain the media kind of their source track. Gaps and "other"
-    // tracks stay flexible so the UI can still test generic timeline edits.
-    const incompatible = s.it.kind === 'clip' && s.t.kind !== 'other' && track.kind !== 'other' && s.t.kind !== track.kind;
-    if (incompatible) {
-      lane.classList.add('reject');
-      s.lane = null;
-      el.dropline.style.display = 'none';
-      el.droptip.textContent = `${s.t.kind} clips cannot move to a ${track.kind} track`;
-      el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
-      return;
-    }
+    // No pre-check here: every drop is sent to the library, and a refused move
+    // comes back as `false`: the target track pulses red (see the Result panel).
     lane.classList.add('drop');
     const lrect = lane.getBoundingClientRect();
     const mode = $('#mode').value;
@@ -565,11 +558,19 @@
     const dest = trackById(lane.dataset.trackId);
     const o = opts();
     if (o.mode === 'index') {
-      await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy });
+      flashIfRefused(lane, await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy }));
     } else {
       if (dest.id === t.id && time === it.start) return render();
-      await api('move_item', { mode: o.mode, id: it.id, track_id: dest.id, time, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
+      flashIfRefused(lane, await api('move_item', { mode: o.mode, id: it.id, track_id: dest.id, time, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy, insert_policy: o.insert_policy }));
     }
+  }
+  // A move the library refused comes back as `result: false`: flash the
+  // target lane red and say so in the status, nothing else changed.
+  function flashIfRefused(lane, state) {
+    if (!state || state.error || state.result !== false) return;
+    el.status.textContent = 'refused by the library';
+    const row = lane && lane.dataset ? $(`.row[data-track-id="${lane.dataset.trackId}"]`) : null;
+    if (row) { row.classList.add('refused'); setTimeout(() => row.classList.remove('refused'), 1900); }
   }
   function cancelDrag() { if (dragState && dragState.moved) { cleanupDrag(); render(); } dragState = null; }
   function cleanupDrag() {

@@ -30,10 +30,11 @@ created past the existing partners and appended to the list.
 
 Rules: a column with a video clip is inserted on a video track (its primary is
 the video); a plain audio clip or an audio-only column never lands on a video
-group's audio track; moving an audio partner onto a sibling track swaps it with
-the channel there (refused when the slot holds anything else); moving it onto
-another video group's track moves the whole column; audio groups and video
-groups never mix. Deleting a track drops only its channel from the columns.
+group's audio track; the audio partner of a video column never leaves its
+video's group: it moves in time, or onto a sibling track where it swaps with
+the channel there (refused when the slot holds anything else), and a drop on
+any other track is refused; the video clip moves the whole column to another
+video track; audio groups and video groups never mix. Deleting a track drops only its channel from the columns.
 Empty tracks are kept. Syncing clips by hand gathers them into one group,
 adopting free tracks and moving clips off other groups onto new partner tracks.
 

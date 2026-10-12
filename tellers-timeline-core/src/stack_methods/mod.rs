@@ -2356,11 +2356,10 @@ impl Stack {
 
     /// Whether the selected member of a column may be moved onto
     /// `dest_track_index` over `[start, end]`: a video clip only onto a video
-    /// track; an audio partner onto a sibling track of its own group only when
-    /// that range is empty or holds clips of the same column (a swap), never
-    /// onto unrelated content; the partner of a video column onto another
-    /// video group (the column follows) or a free track, never an audio
-    /// group; an audio-only column never onto a video group.
+    /// track; the audio partner of a video column only within its own group,
+    /// onto a sibling track whose range is empty or holds clips of the same
+    /// column (a swap); a member of an audio-only column onto its own group
+    /// or another audio group, never a video group.
     fn partner_move_target_allowed(
         &self,
         selected: &SyncedMoveItem,
@@ -2392,8 +2391,9 @@ impl Stack {
             return self.range_only_holds_sync_clips(dest_track_index, start, end, &allowed);
         }
         if column_has_video {
-            return self.track_in_video_group(dest_track_index)
-                || self.track_is_free(dest_track_index);
+            // The audio partner of a video column stays in its video's group:
+            // it moves in time, or swaps with a sibling, never to another track.
+            return false;
         }
         !self.track_in_video_group(dest_track_index)
     }
@@ -2695,7 +2695,11 @@ impl Stack {
                 // Resolve link groups often misalign video/audio columns; when
                 // moving onto an audio destination, keep the video partner for
                 // the synced insert instead of leaving it on the source track.
-                if linked_video_item.is_some() {
+                // The audio partner of a video column stays in its video's
+                // group, so the destination must belong to that video.
+                if linked_video_item.is_some()
+                    || backup.group_owner_of(dest_track_index) != source_track_index
+                {
                     *self = backup;
                     return false;
                 }
