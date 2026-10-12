@@ -340,8 +340,9 @@ fn free_audio_track_prefers_unlisted_tracks() {
     assert_eq!(stack.free_audio_track_for(0.0, 2.0).as_deref(), Some("A3"));
     let a3 = track_index_by_id(&stack, "A3");
     stack.children[a3].items = vec![audio_clip(20.0, "file:///music.wav", None)];
-    // Only listed tracks are free: the lowest index wins.
-    assert_eq!(stack.free_audio_track_for(0.0, 2.0).as_deref(), Some("A1"));
+    // Only V1's partners are free there: a plain clip is never steered to a
+    // video group's track, so there is no pick.
+    assert_eq!(stack.free_audio_track_for(0.0, 2.0), None);
     let a1 = track_index_by_id(&stack, "A1");
     let a2 = track_index_by_id(&stack, "A2");
     stack.children[a1].items = vec![audio_clip(20.0, "file:///a1.wav", None)];
