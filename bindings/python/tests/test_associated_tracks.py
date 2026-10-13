@@ -91,7 +91,9 @@ def test_track_groups_report_each_track_once():
 
 
 def test_prune_empty_partner_tracks_removes_auto_named_partners_only():
-    stack = Stack([_gap_track("audio", "Voice"), _gap_track("video", "V1")])
+    voice = _gap_track("audio", "Voice")
+    voice.set_name("Voice over")  # a user name: never pruned
+    stack = Stack([voice, _gap_track("video", "V1")])
     result = stack.insert_item_at_time(
         1,
         0.0,
