@@ -106,7 +106,7 @@ fn derived_membership_is_exclusive_too() {
 }
 
 #[test]
-fn audio_group_owner_is_the_highest_track() {
+fn audio_group_stems_are_recorded_on_the_group_owner() {
     let mut stack = host_stack(&["M1", "M2", "M3"], &["V1"]);
     // Stems on M1 with a partner: M1 is alone, so it owns the new group and
     // the partner goes to a free track.
@@ -319,7 +319,6 @@ fn partner_cannot_leave_its_video_group() {
     assert_eq!(track_id_of(&stack, "right"), "A1");
     assert_eq!(track_id_of(&stack, "vid"), "V1");
 }
-
 
 #[test]
 fn partner_cannot_join_an_audio_group_and_stems_cannot_join_a_video_group() {
@@ -603,14 +602,90 @@ fn a_video_column_never_borrows_an_audio_group_owner() {
     ));
     assert_eq!(track_id_of(&stack, "left"), "A1");
     let right_track = track_id_of(&stack, "right");
-    assert!(!["A1", "M1", "M2"].contains(&right_track.as_str()), "got {right_track}");
+    assert!(
+        !["A1", "M1", "M2"].contains(&right_track.as_str()),
+        "got {right_track}"
+    );
     assert_eq!(stack.children.len(), 5);
     assert_eq!(
         stack.associated_track_ids("V1").unwrap(),
         vec!["A1".to_string(), right_track]
     );
-    assert_eq!(stack.associated_track_ids("M1").unwrap(), vec!["M2".to_string()]);
+    assert_eq!(
+        stack.associated_track_ids("M1").unwrap(),
+        vec!["M2".to_string()]
+    );
     // A plain clip may go on the stem group (M2 is the lowest), never on a
     // video group's track.
     assert_eq!(stack.free_audio_track_for(0.0, 1.0).as_deref(), Some("M2"));
+}
+
+#[test]
+fn audio_group_main_track_is_the_one_with_most_clips() {
+    // Derived from sync clips: M2 holds two stem columns and a plain clip, M1
+    // and M3 hold the stems only. M2 owns the derived group.
+    let mut stack = Stack::default();
+    for id in ["M1", "M2", "M3"] {
+        stack
+            .children
+            .push(Track::new(TrackKind::Audio, Some(id.into())));
+    }
+    for (i, id) in ["M1", "M2", "M3"].iter().enumerate() {
+        stack.children[i]
+            .items
+            .push(synced_clip_item(2.0, &format!("{id}-s1"), 1));
+        stack.children[i]
+            .items
+            .push(synced_clip_item(2.0, &format!("{id}-s2"), 2));
+    }
+    stack.children[1].items.push(named_audio("extra", 1.0));
+    assert_eq!(
+        stack.associated_track_ids("M2").unwrap(),
+        vec!["M1".to_string(), "M3".to_string()]
+    );
+    assert!(stack.associated_track_ids("M3").unwrap().is_empty());
+
+    // On a tie the highest track owns the group.
+    let mut tied = Stack::default();
+    for id in ["T1", "T2"] {
+        tied.children
+            .push(Track::new(TrackKind::Audio, Some(id.into())));
+    }
+    for i in 0..2 {
+        tied.children[i]
+            .items
+            .push(synced_clip_item(2.0, &format!("t{i}"), 9));
+    }
+    assert_eq!(
+        tied.associated_track_ids("T2").unwrap(),
+        vec!["T1".to_string()]
+    );
+
+    // A stored group is re-homed by normalization: stems were first dropped on
+    // M1 (so M1 stores the list), but M3 ends up with the most clips.
+    let mut stack = host_stack(&["M1", "M2", "M3"], &["V1"]);
+    assert!(stack.associate_tracks("M1", &["M2".into(), "M3".into()]));
+    assert!(insert_plain(
+        &mut stack,
+        "M3",
+        0.0,
+        named_audio("fx-1", 1.0)
+    ));
+    assert!(insert_plain(
+        &mut stack,
+        "M3",
+        2.0,
+        named_audio("fx-2", 1.0)
+    ));
+    assert!(stack.normalize_track_order());
+    assert_eq!(
+        stack.associated_track_ids("M3").unwrap(),
+        vec!["M2".to_string(), "M1".to_string()],
+        "the former owner takes the main track's slot"
+    );
+    let m1 = track_index_by_id(&stack, "M1");
+    assert_eq!(stack.children[m1].stored_associated_track_ids(), None);
+    // Owner on top: M3 above M2 above M1, V1 keeps its place at the top.
+    assert_eq!(ids(&stack), vec!["M1", "M2", "M3", "V1"]);
+    assert!(!stack.normalize_track_order());
 }

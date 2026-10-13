@@ -14,7 +14,8 @@
 //!
 //! The association is kind-agnostic: a video track lists its audio tracks, an
 //! audio track that receives audio-only sync groups lists the audio tracks its
-//! partners go to. A track with no stored list falls back to the association
+//! partners go to. The main track of an audio group, its owner once
+//! normalized, is the member with the most clips (highest index on a tie). A track with no stored list falls back to the association
 //! implied by the sync clips already on it (Resolve imports, timelines edited
 //! before this metadata existed), see [`Stack::derived_associated_track_indices`].
 //!
@@ -193,12 +194,77 @@ impl Stack {
             .copied()
             .filter(|&index| self.children[index].kind == TrackKind::Video)
             .max()
-            .or_else(|| member_track_indices.iter().copied().max())
+            .or_else(|| self.audio_group_main_track(member_track_indices))
+    }
+
+    /// Number of clips (not gaps) on a track.
+    fn track_clip_count(&self, track_index: usize) -> usize {
+        self.children
+            .get(track_index)
+            .map(|track| {
+                track
+                    .items
+                    .iter()
+                    .filter(|item| matches!(item, Item::Clip(_)))
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    /// The main track of an audio group: the member holding the most clips,
+    /// the highest index on a tie. It owns the list and sits on top of the
+    /// group once normalized.
+    pub fn audio_group_main_track(&self, member_track_indices: &[usize]) -> Option<usize> {
+        member_track_indices
+            .iter()
+            .copied()
+            .max_by_key(|&index| (self.track_clip_count(index), index))
+    }
+
+    /// Move each stored audio group's list to its main track (the member with
+    /// the most clips) when another member holds it. Partners keep their
+    /// slot order; the former owner takes the main track's former slot.
+    /// Returns whether any list moved. Run by [`Self::normalize_track_order`].
+    pub fn rehome_audio_groups(&mut self) -> bool {
+        let mut changed = false;
+        for group in self.track_groups() {
+            if group.kind != TrackKind::Audio
+                || !group.stored
+                || group.partner_track_indices.is_empty()
+            {
+                continue;
+            }
+            let mut members = vec![group.owner_track_index];
+            members.extend(group.partner_track_indices.iter().copied());
+            let Some(main) = self.audio_group_main_track(&members) else {
+                continue;
+            };
+            if main == group.owner_track_index {
+                continue;
+            }
+            // The former owner steps into the main track's slot.
+            let partners: Vec<String> = members
+                .iter()
+                .map(|&index| {
+                    if index == main {
+                        group.owner_track_index
+                    } else {
+                        index
+                    }
+                })
+                .skip(1)
+                .filter_map(|index| self.children[index].get_id())
+                .collect();
+            self.children[group.owner_track_index].clear_associated_track_ids();
+            self.children[main].set_associated_track_ids(partners);
+            changed = true;
+        }
+        changed
     }
 
     /// The association implied by the sync clips, for every track at once:
-    /// for each sync group, its primary track (highest video, else highest
-    /// track) lists the other member tracks nearest first. Membership is
+    /// for each sync group, its primary track (highest video, else the audio
+    /// member with the most clips) lists the other member tracks nearest first. Membership is
     /// exclusive: a track that would be listed by two primaries stays with
     /// the one it shares the most sync groups with (ties to the lower index).
     pub fn derived_association_map(&self) -> Vec<Vec<usize>> {
@@ -408,6 +474,7 @@ impl Stack {
     /// This is a separate step the host runs once per request, after its
     /// edits: every index it holds across library calls stays valid until then.
     pub fn normalize_track_order(&mut self) -> bool {
+        let rehomed = self.rehome_audio_groups();
         let len = self.children.len();
         let owner_of: Vec<usize> = (0..len).map(|index| self.group_owner_of(index)).collect();
         let mut order: Vec<usize> = Vec::with_capacity(len);
@@ -433,7 +500,7 @@ impl Stack {
             .enumerate()
             .all(|(position, &index)| position == index)
         {
-            return false;
+            return rehomed;
         }
         let mut tracks: Vec<Option<Track>> = self.children.drain(..).map(Some).collect();
         self.children = order

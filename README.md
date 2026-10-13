@@ -14,8 +14,9 @@ Open-source, cross-language library for reading, writing, validating, and editin
 
 #### Associated tracks (sync partners)
 Tracks form groups. A *video group* is a video track (the owner) with zero or
-more audio tracks; an *audio group* is audio tracks only, the highest one
-owning the list. The owner stores, in
+more audio tracks; an *audio group* is audio tracks only, owned by its main
+track, the member with the most clips (highest index on a tie); normalization
+moves a stored list to the main track when another member holds it. The owner stores, in
 `metadata["tellers.ai"]["associated_track_ids"]`, the ordered tracks its sync
 partners go to; a track belongs to one group. Tracks with no stored list derive
 it from their sync clips (Resolve imports), and the first column inserted stores
