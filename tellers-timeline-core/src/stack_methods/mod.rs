@@ -1332,6 +1332,7 @@ impl Stack {
         }
         let mut seen = HashSet::new();
         let mut changes: Vec<GroupChange> = Vec::new();
+        let mut removed_groups: Vec<i64> = Vec::new();
         for (id, before) in before_states {
             if excluded_ids.contains(id) || !modified_track_indices.contains(&before.track_index) {
                 continue;
@@ -1340,6 +1341,10 @@ impl Stack {
                 .get_item(id)
                 .or_else(|| self.surviving_sync_fragment(before))
             else {
+                // The clip was wiped out entirely: its column goes with it.
+                if seen.insert(before.sync_clips_id) {
+                    removed_groups.push(before.sync_clips_id);
+                }
                 continue;
             };
             let start = self.children[track_index].start_time_of_item(item_index);
@@ -1359,6 +1364,26 @@ impl Stack {
             }
         }
         changes.sort_by(|a, b| a.primary_start.total_cmp(&b.primary_start));
+
+        // Partners of a removed column leave a gap where they were, as the
+        // overridden clip did on the primary track.
+        for sync_clips_id in removed_groups {
+            let partner_ids: Vec<String> = before_states
+                .iter()
+                .filter(|(_, state)| {
+                    state.sync_clips_id == sync_clips_id
+                        && !modified_track_indices.contains(&state.track_index)
+                })
+                .map(|(id, _)| id.clone())
+                .collect();
+            for partner_id in partner_ids {
+                let Some((track_index, item_index, _)) = self.get_item(&partner_id) else {
+                    continue;
+                };
+                self.children[track_index].delete_clip(item_index, true);
+                self.children[track_index].sanitize_preserving_all_gap_track();
+            }
+        }
 
         // Ripple already applied on a partner track: (from time, delta).
         let mut applied: HashMap<usize, Vec<(Seconds, Seconds)>> = HashMap::new();

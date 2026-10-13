@@ -1133,3 +1133,62 @@ fn right_handle_growth_with_push_moves_the_next_column_on_every_track() {
     }
     assert_sync_clips_track_aligned(&stack, "right-handle push");
 }
+
+#[test]
+fn extending_over_a_whole_sync_fragment_removes_its_partners() {
+    // Column clip1 at 3.5..6.5 split at 6 (right fragment has its own sync
+    // id), plain clip2 at 6.5. Pulling clip2's left edge to 5 with Override
+    // trims the left fragment and wipes the right one: its audio must go too.
+    let mut stack = Stack::default();
+    for id in ["A2", "A1"] {
+        stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
+    }
+    stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
+    assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
+    let v1 = track_index_by_id(&stack, "V1");
+    let column: Vec<Item> = (1..=2)
+        .map(|i| {
+            let mut item = audio_clip(3.0, &format!("file:///c{i}.wav"), None);
+            item.set_id(Some(format!("clip1-a{i}")));
+            item
+        })
+        .collect();
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            3.5,
+            Item::Clip(clip(3.0, Some("clip1"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            Some(column),
+            None,
+        )
+        .is_some());
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            6.5,
+            Item::Clip(clip(2.0, Some("clip2"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            None,
+            None,
+        )
+        .is_some());
+    assert!(stack.split_item_at_time("clip1", 6.0));
+
+    assert!(stack.resize_item("clip2", 5.0, 3.5, OverlapPolicy::Override, false));
+
+    for id in ["clip1", "clip1-a1", "clip1-a2"] {
+        let (track_index, item_index, item) = stack.get_item(id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 3.5, "{id}");
+        assert_eq!(item.duration(), 1.5, "{id}");
+    }
+    for id in ["A1", "A2"] {
+        let track = &stack.children[track_index_by_id(&stack, id)];
+        let clips = track.items.iter().filter(|item| matches!(item, Item::Clip(_))).count();
+        assert_eq!(clips, 1, "{id} keeps only the trimmed partner");
+        assert!(track.total_duration() <= 5.0 + 1e-9, "{id} has nothing after 5s");
+    }
+    assert_sync_clips_track_aligned(&stack, "override wipes a fragment");
+}
