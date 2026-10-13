@@ -12,7 +12,7 @@ fn read_id_from_metadata(meta: &serde_json::Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-fn write_id_to_metadata(meta: &mut serde_json::Value, id: Option<String>) {
+pub(crate) fn write_id_to_metadata(meta: &mut serde_json::Value, id: Option<String>) {
     // Ensure we have an object at the root
     if meta.as_object().is_none() {
         *meta = serde_json::Value::Object(serde_json::Map::new());

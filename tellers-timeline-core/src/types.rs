@@ -39,7 +39,7 @@ pub(crate) fn gen_hex_id_12() -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_json::Value {
+pub(crate) fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_json::Value {
     // Ensure we have an object at the root
     if meta.as_object().is_none() {
         meta = serde_json::Value::Object(serde_json::Map::new());
@@ -125,7 +125,7 @@ where
     Ok(meta)
 }
 
-fn deserialize_metadata_with_id<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
+pub(crate) fn deserialize_metadata_with_id<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -162,6 +162,8 @@ pub struct Track {
     pub metadata: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<crate::Marker>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -176,6 +178,8 @@ pub struct Stack {
     pub metadata: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<crate::Marker>,
 }
 
 impl Default for Stack {
@@ -186,6 +190,7 @@ impl Default for Stack {
             children: vec![],
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             effects: Vec::new(),
+            markers: Vec::new(),
         }
     }
 }
@@ -406,6 +411,8 @@ pub struct Clip {
     pub metadata: serde_json::Value,
     #[serde(default)]
     pub effects: Vec<Effect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<crate::Marker>,
 }
 
 impl Clip {
@@ -501,6 +508,7 @@ impl Clip {
             active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             effects: Vec::new(),
+            markers: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
         c
@@ -522,6 +530,7 @@ impl Clip {
             active_media_reference_key,
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             effects: Vec::new(),
+            markers: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut c, Some(id.unwrap_or_else(gen_hex_id_12)));
         c
@@ -992,6 +1001,8 @@ pub struct Gap {
     pub metadata: serde_json::Value,
     #[serde(default)]
     pub effects: Vec<Effect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<crate::Marker>,
 }
 
 impl Gap {
@@ -1014,6 +1025,7 @@ impl Gap {
             },
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             effects: Vec::new(),
+            markers: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut g, Some(id.unwrap_or_else(gen_hex_id_12)));
         g
@@ -1725,6 +1737,7 @@ impl Track {
             items: vec![],
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             effects: Vec::new(),
+            markers: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut t, Some(id.unwrap_or_else(gen_hex_id_12)));
         t

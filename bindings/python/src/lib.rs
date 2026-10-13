@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, ColorLut, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
+    validate_timeline, Clip, ColorLut, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -1659,6 +1659,30 @@ fn text_styles_to_python(py: Python<'_>, styles: Vec<TextStyle>) -> PyResult<Vec
         .collect()
 }
 
+fn marker_info_to_python(py: Python<'_>, info: MarkerInfo) -> PyResult<PyObject> {
+    let dict = PyDict::new(py);
+    dict.set_item("id", info.marker.get_id())?;
+    dict.set_item("name", &info.marker.name)?;
+    dict.set_item("comment", &info.marker.comment)?;
+    dict.set_item("color", &info.marker.color)?;
+    dict.set_item("created_by", info.marker.get_created_by())?;
+    dict.set_item(
+        "owner_kind",
+        match info.owner_kind {
+            MarkerOwnerKind::Stack => "stack",
+            MarkerOwnerKind::Track => "track",
+            MarkerOwnerKind::Clip => "clip",
+            MarkerOwnerKind::Gap => "gap",
+        },
+    )?;
+    dict.set_item("owner_id", info.owner_id)?;
+    dict.set_item("track_id", info.track_id)?;
+    dict.set_item("timeline_start", info.timeline_start)?;
+    dict.set_item("duration", info.duration)?;
+    dict.set_item("visible", info.visible)?;
+    Ok(dict.into_py(py))
+}
+
 #[pyclass(name = "Timeline")]
 #[derive(Clone)]
 struct PyTimeline {
@@ -1849,6 +1873,65 @@ impl PyTimeline {
     /// Remove the declared class `name`, returning whether it was present.
     fn remove_text_style(&mut self, name: &str) -> bool {
         self.inner.remove_text_style(name)
+    }
+    /// Every marker of the timeline (stack, tracks, clips) as dicts with
+    /// timeline times: `{"id", "name", "comment", "color", "created_by",
+    /// "owner_kind", "owner_id", "track_id", "timeline_start", "duration",
+    /// "visible"}`.
+    fn get_markers(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        self.inner
+            .get_markers()
+            .into_iter()
+            .map(|info| marker_info_to_python(py, info))
+            .collect()
+    }
+    /// The marker with id `marker_id`, as in `get_markers`, or None.
+    fn get_marker(&self, py: Python<'_>, marker_id: &str) -> PyResult<Option<PyObject>> {
+        self.inner
+            .get_marker(marker_id)
+            .map(|info| marker_info_to_python(py, info))
+            .transpose()
+    }
+    /// Add a marker at `timeline_start` (timeline seconds) on the stack
+    /// (`owner_id` None), on the track with id `owner_id`, or on the clip with
+    /// id `owner_id`. Returns the marker id, or None when the owner is not
+    /// found (or is a gap) or `id` is already used.
+    #[pyo3(signature = (timeline_start, name="".to_string(), comment="".to_string(), color=None, duration=0.0, owner_id=None, created_by=None, id=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn add_marker(
+        &mut self,
+        timeline_start: f64,
+        name: String,
+        comment: String,
+        color: Option<String>,
+        duration: f64,
+        owner_id: Option<String>,
+        created_by: Option<String>,
+        id: Option<String>,
+    ) -> Option<String> {
+        let marker = Marker::new(timeline_start, duration, name, comment, color, created_by, id);
+        self.inner.add_marker(owner_id.as_deref(), marker)
+    }
+    /// Change the given fields of a marker (`timeline_start` in timeline
+    /// seconds). Returns False when no such marker exists.
+    #[pyo3(signature = (marker_id, name=None, comment=None, color=None, timeline_start=None, duration=None))]
+    fn update_marker(
+        &mut self,
+        marker_id: &str,
+        name: Option<String>,
+        comment: Option<String>,
+        color: Option<String>,
+        timeline_start: Option<f64>,
+        duration: Option<f64>,
+    ) -> bool {
+        self.inner.update_marker(
+            marker_id,
+            MarkerUpdate { name, comment, color, timeline_start, duration },
+        )
+    }
+    /// Remove a marker. Returns False when no such marker exists.
+    fn delete_marker(&mut self, marker_id: &str) -> bool {
+        self.inner.delete_marker(marker_id).is_some()
     }
     /// The stylesheet the player injects for this timeline's text clips: one
     /// `.name { declarations }` rule per declared style.
@@ -2139,5 +2222,6 @@ fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyTrack>()?;
     m.add_class::<PyStack>()?;
     m.add_class::<PyTimeline>()?;
+    m.add("MARKER_COLORS", tellers_timeline_core::MARKER_COLORS.to_vec())?;
     Ok(())
 }

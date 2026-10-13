@@ -52,6 +52,7 @@ fn gap() -> Item {
         source_range: range(2.0),
         metadata: serde_json::json!({}),
         effects: Vec::new(),
+        markers: Vec::new(),
     })
 }
 

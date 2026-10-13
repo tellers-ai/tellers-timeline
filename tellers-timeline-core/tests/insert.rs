@@ -38,6 +38,7 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
         active_media_reference_key: None,
         metadata: serde_json::Value::Null,
         effects: Vec::new(),
+        markers: Vec::new(),
     })
 }
 
@@ -98,6 +99,7 @@ fn make_clip_with_default_available_range(duration: Seconds, media_duration: Sec
         active_media_reference_key: None,
         metadata: serde_json::Value::Null,
         effects: Vec::new(),
+        markers: Vec::new(),
     })
 }
 
@@ -155,6 +157,7 @@ fn make_clip_with_mixed_rates(
         active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
         effects: Vec::new(),
+        markers: Vec::new(),
     })
 }
 

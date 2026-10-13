@@ -30,6 +30,7 @@ fn make_video_clip() -> Clip {
         active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
         effects: Vec::new(),
+        markers: Vec::new(),
     }
 }
 

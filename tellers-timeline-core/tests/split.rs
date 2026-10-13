@@ -38,6 +38,7 @@ fn make_clip(duration: Seconds, media_start: Seconds) -> Item {
         active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
         effects: Vec::new(),
+        markers: Vec::new(),
     })
 }
 

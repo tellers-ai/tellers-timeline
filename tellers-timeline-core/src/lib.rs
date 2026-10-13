@@ -1,6 +1,7 @@
 pub mod associated_tracks;
 pub mod color_grading;
 pub mod fonts;
+pub mod markers;
 pub mod metadata;
 pub mod sanitize;
 pub mod serialize;
@@ -13,6 +14,7 @@ pub mod validate;
 pub use associated_tracks::*;
 pub use color_grading::*;
 pub use fonts::*;
+pub use markers::*;
 pub use metadata::*;
 pub use serialize::*;
 pub use stack_methods::*;

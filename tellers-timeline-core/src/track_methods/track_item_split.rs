@@ -50,6 +50,14 @@ impl Track {
                     .start_time
                     .set_from_seconds(right_source_start);
 
+                // Each marker stays on the half whose source range holds its
+                // start (source time is shared, so no time shift is needed).
+                let split_source_time = right_source_start;
+                left_clip
+                    .markers
+                    .retain(|m| m.start() < split_source_time - EPS);
+                clip.markers.retain(|m| m.start() >= split_source_time - EPS);
+
                 // Ensure the right-hand piece receives a fresh unique id
                 crate::metadata::IdMetadataExt::set_id(
                     &mut clip,
@@ -89,6 +97,18 @@ impl Track {
                     .set_from_seconds(left_duration);
 
                 gap.source_range.duration.set_from_seconds(right_duration);
+                // The right gap restarts at the gap's source start, so its
+                // markers move back by the left part's length.
+                let gap_source_start = gap.source_range.start_time.to_seconds();
+                let split_source_time = gap_source_start + left_duration;
+                left_gap
+                    .markers
+                    .retain(|m| m.start() < split_source_time - EPS);
+                gap.markers.retain(|m| m.start() >= split_source_time - EPS);
+                for m in &mut gap.markers {
+                    let start = m.start() - left_duration;
+                    m.marked_range.set_start_time(start);
+                }
                 crate::metadata::IdMetadataExt::set_id(
                     &mut gap,
                     Some(crate::types::gen_hex_id_12()),
