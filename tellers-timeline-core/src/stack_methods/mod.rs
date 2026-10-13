@@ -64,6 +64,7 @@ struct SyncedClipState {
     track_index: usize,
     start: Seconds,
     duration: Seconds,
+    source_start: Seconds,
     sync_clips_id: i64,
 }
 
@@ -876,6 +877,7 @@ impl Stack {
                         track_index,
                         start: track.start_time_of_item(item_index),
                         duration: item.duration().max(0.0),
+                        source_start: item_source_start(item),
                         sync_clips_id,
                     },
                 );
@@ -1312,31 +1314,67 @@ impl Stack {
             if excluded_ids.contains(id) || !modified_track_indices.contains(&before.track_index) {
                 continue;
             }
-            let Some((track_index, item_index, item)) = self.get_item(id) else {
+            // The clip itself, or, when an Override resize cut its head and left
+            // a fragment under a new id, that fragment: same track, same sync
+            // id, overlapping the clip's old range.
+            let Some((track_index, item_index, item)) = self.get_item(id).or_else(|| {
+                self.surviving_sync_fragment(before)
+            }) else {
                 continue;
             };
             let start = self.children[track_index].start_time_of_item(item_index);
             let duration = item.duration().max(0.0);
+            let source_delta = item_source_start(item) - before.source_start;
             if ((start - before.start).abs() > EPS || (duration - before.duration).abs() > EPS)
                 && synced_clips.insert(before.sync_clips_id)
             {
-                changed_groups.push((before.sync_clips_id, start - before.start, duration));
+                changed_groups.push((
+                    before.sync_clips_id,
+                    start - before.start,
+                    duration,
+                    source_delta,
+                ));
             }
         }
 
-        for (sync_clips_id, start_delta, duration) in changed_groups {
+        for (sync_clips_id, start_delta, duration, source_delta) in changed_groups {
             if !self.shift_sync_clips_by_delta(
                 sync_clips_id,
                 before_states,
                 modified_track_indices,
                 start_delta,
                 duration,
+                source_delta,
                 overlap_policy,
             ) {
                 return false;
             }
         }
         true
+    }
+
+    /// The fragment that survived an edit of a synced clip whose id is gone:
+    /// a clip on the same track with the same sync id overlapping the clip's
+    /// former range.
+    fn surviving_sync_fragment(&self, before: &SyncedClipState) -> Option<(usize, usize, &Item)> {
+        let track = self.children.get(before.track_index)?;
+        let old_end = before.start + before.duration;
+        let mut position: Seconds = 0.0;
+        for (item_index, item) in track.items.iter().enumerate() {
+            let item_start = position;
+            let item_end = position + item.duration().max(0.0);
+            position = item_end;
+            let Item::Clip(clip) = item else {
+                continue;
+            };
+            if resolve_sync_clips_id(&clip.metadata) != Some(before.sync_clips_id) {
+                continue;
+            }
+            if item_end > before.start + EPS && item_start < old_end - EPS {
+                return Some((before.track_index, item_index, item));
+            }
+        }
+        None
     }
 
     fn shift_sync_clips_by_delta(
@@ -1346,6 +1384,7 @@ impl Stack {
         modified_track_indices: &[usize],
         start_delta: Seconds,
         duration: Seconds,
+        source_delta: Seconds,
         overlap_policy: OverlapPolicy,
     ) -> bool {
         let mut items = Vec::new();
@@ -1369,6 +1408,10 @@ impl Stack {
             }
             let mut item = item;
             item.set_duration(duration);
+            if source_delta.abs() > EPS {
+                let shifted = item_source_start(&item) + source_delta;
+                set_item_source_start(&mut item, shifted);
+            }
             items.push((id, before.track_index, before.start + start_delta, item));
         }
 

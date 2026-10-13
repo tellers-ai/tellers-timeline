@@ -954,3 +954,63 @@ fn modify_item_negative_duration_deletes_synced_clips() {
         .iter()
         .all(|track| track.items.iter().all(|item| matches!(item, Item::Gap(_)))));
 }
+
+#[test]
+fn override_resize_that_trims_a_synced_clip_trims_its_partners_too() {
+    // V1 owns A1 and A2. Clip 2 (plain, 2..3) sits right before a synced column
+    // (clip1 + two audio, 3..5.5). Extending Clip 2 to 2..4 with Override cuts
+    // the head of clip1: the audio partners must follow (start 4, 1.5s, media
+    // offset +1s), not keep their old place.
+    let mut stack = Stack::default();
+    for id in ["A2", "A1"] {
+        stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
+    }
+    stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
+    assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
+    let v1 = track_index_by_id(&stack, "V1");
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            2.0,
+            Item::Clip(clip(1.0, Some("clip2"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            None,
+            None,
+        )
+        .is_some());
+    let mut left = audio_clip(2.5, "file:///left.wav", None);
+    left.set_id(Some("left".into()));
+    let mut right = audio_clip(2.5, "file:///right.wav", None);
+    right.set_id(Some("right".into()));
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            3.0,
+            Item::Clip(clip(2.5, Some("clip1"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            Some(vec![left, right]),
+            None,
+        )
+        .is_some());
+
+    assert!(stack.resize_item("clip2", 2.0, 2.0, OverlapPolicy::Override, false));
+
+    let video = &stack.children[track_index_by_id(&stack, "V1")];
+    let fragment_index = video.get_item_at_time(4.5).expect("clip1 fragment");
+    let fragment = &video.items[fragment_index];
+    assert_eq!(video.start_time_of_item(fragment_index), 4.0);
+    assert_eq!(fragment.duration(), 1.5);
+    assert_eq!(source_start(fragment), 1.0);
+    let group = sync_clips_id(fragment);
+    assert!(group.is_some());
+    for id in ["left", "right"] {
+        let (track_index, item_index, item) = stack.get_item(id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 4.0, "{id}");
+        assert_eq!(item.duration(), 1.5, "{id}");
+        assert_eq!(source_start(item), 1.0, "{id} media offset follows the trim");
+        assert_eq!(sync_clips_id(item), group, "{id}");
+    }
+    assert_sync_clips_track_aligned(&stack, "override resize trims the column");
+}
