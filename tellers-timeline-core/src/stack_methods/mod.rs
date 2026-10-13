@@ -1588,6 +1588,14 @@ impl Stack {
         };
 
         let backup = self.clone();
+        // A plain clip or an audio-only column on an empty partner of a video
+        // group takes the track out of that group (restored if the insert fails).
+        if synced_inputs.video.is_none()
+            && !column_video_placed_separately
+            && matches!(primary_item, Item::Clip(_))
+        {
+            self.release_empty_partner(dest_track_index);
+        }
         let mut used_ids = self.collect_timeline_ids();
         let sync_clips_id = has_synced_clips.then(|| self.next_sync_clips_id());
         let mut created_track_indices = Vec::new();
@@ -2555,7 +2563,10 @@ impl Stack {
             // it moves in time, or swaps with a sibling, never to another track.
             return false;
         }
+        // An audio-only column never joins a video group, but an empty partner
+        // is released on landing.
         !self.track_in_video_group(dest_track_index)
+            || self.is_empty_video_partner(dest_track_index)
     }
 
     fn is_intra_cluster_sync_move(

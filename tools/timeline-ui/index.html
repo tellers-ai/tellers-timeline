@@ -132,6 +132,7 @@
     <button id="btnUndo" title="Undo last op (⌘Z)">Undo</button>
     <button id="btnSanitize" title="stack.sanitize()">Sanitize</button>
     <button id="btnNormalize" title="stack.normalize_track_order(): make every group contiguous, owner on top">Normalize</button>
+    <button id="btnPrune" title="stack.prune_empty_partner_tracks(): remove empty auto-named partner tracks">Prune</button>
   </div>
   <div class="group">
     <label class="opt">Overlap <select id="overlap"><option>override</option><option>push</option></select></label>
@@ -753,6 +754,7 @@
   $('#btnUndo').addEventListener('click', () => api('undo'));
   $('#btnSanitize').addEventListener('click', () => api('sanitize'));
   $('#btnNormalize').addEventListener('click', () => api('normalize_tracks'));
+  $('#btnPrune').addEventListener('click', () => api('prune_tracks'));
   $('#btnLoadJson').addEventListener('click', () => {
     let parsed; try { parsed = JSON.parse($('#jsonText').value); } catch (e) { return showResult({ error: 'invalid JSON: ' + e.message }); }
     api('load_json', { json: parsed });

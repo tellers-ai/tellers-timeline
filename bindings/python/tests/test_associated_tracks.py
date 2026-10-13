@@ -88,3 +88,23 @@ def test_track_groups_report_each_track_once():
     timeline = Timeline()
     timeline.set_stack(stack)
     assert [g["owner_track_id"] for g in timeline.track_groups()] == ["M1", "V1"]
+
+
+def test_prune_empty_partner_tracks_removes_auto_named_partners_only():
+    stack = Stack([_gap_track("audio", "Voice"), _gap_track("video", "V1")])
+    result = stack.insert_item_at_time(
+        1,
+        0.0,
+        _clip("c", 2.0, "file:///c.mov"),
+        "override",
+        "split_and_insert",
+        linked_audio_clips=[_audio("file:///l.wav", 2.0), _audio("file:///r.wav", 2.0)],
+    )
+    assert result is not None
+    partners = stack.associated_track_ids("V1")
+    assert len(partners) == 2
+    stack.delete_item("c", True)
+    removed = stack.prune_empty_partner_tracks()
+    # "Voice" is a user name: it stays; the created track goes.
+    assert removed == [p for p in partners if p != "Voice"]
+    assert stack.associated_track_ids("V1") == ["Voice"]

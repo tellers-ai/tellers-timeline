@@ -147,9 +147,17 @@ fn audio_group_stems_are_recorded_on_the_group_owner() {
 }
 
 #[test]
-fn plain_audio_is_rejected_on_a_video_group_track() {
+fn plain_audio_is_rejected_on_a_video_group_track_that_holds_its_channels() {
     let mut stack = host_stack(&["A1", "M1"], &["V1"]);
     assert!(stack.associate_tracks("V1", &["A1".into()]));
+    assert!(insert_column(
+        &mut stack,
+        "V1",
+        5.0,
+        "vid",
+        vec![named_audio("left", 2.0)]
+    ));
+    assert_eq!(track_id_of(&stack, "left"), "A1");
     assert!(!insert_plain(
         &mut stack,
         "A1",
@@ -169,12 +177,67 @@ fn plain_audio_is_rejected_on_a_video_group_track() {
         0.0,
         Item::Gap(Gap::make_gap(1.0))
     ));
+    assert_eq!(
+        stack.associated_track_ids("V1").unwrap(),
+        vec!["A1".to_string()]
+    );
+}
+
+#[test]
+fn plain_audio_on_an_empty_partner_track_releases_it_from_the_group() {
+    let mut stack = host_stack(&["A1", "A2"], &["V1"]);
+    assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
+    // A2 is listed but empty: a plain clip is accepted and A2 leaves the group.
+    assert!(insert_plain(
+        &mut stack,
+        "A2",
+        0.0,
+        named_audio("music", 3.0)
+    ));
+    assert_eq!(track_id_of(&stack, "music"), "A2");
+    assert_eq!(
+        stack.associated_track_ids("V1").unwrap(),
+        vec!["A1".to_string()]
+    );
+    assert!(stack.track_is_free(track_index_by_id(&stack, "A2")));
+    // Stems on an empty partner do the same, and the stem group is theirs.
+    assert!(stack
+        .insert_item_at_time_by_id(
+            "A1",
+            0.0,
+            named_audio("stem-a", 2.0),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            Some(vec![named_audio("stem-b", 2.0)]),
+            None,
+        )
+        .is_some());
+    assert!(stack.associated_track_ids("V1").unwrap().is_empty());
+    let b = track_id_of(&stack, "stem-b");
+    assert!(!["A1", "A2", "V1"].contains(&b.as_str()), "got {b}");
+    assert_eq!(stack.associated_track_ids("A1").unwrap(), vec![b]);
+    // A failed insert does not release anything.
+    let mut stack = host_stack(&["A1"], &["V1"]);
+    assert!(stack.associate_tracks("V1", &["A1".into()]));
+    assert!(!insert_plain(
+        &mut stack,
+        "A1",
+        0.0,
+        Item::Clip(clip(0.0, Some("zero")))
+    ));
+    assert_eq!(
+        stack.associated_track_ids("V1").unwrap(),
+        vec!["A1".to_string()]
+    );
 }
 
 #[test]
 fn audio_only_column_is_rejected_on_a_video_group_track() {
     let mut stack = host_stack(&["A1", "A2", "M1", "M2"], &["V1"]);
     assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
+    // A1 holds a channel of V1 (an empty partner would be released instead).
+    assert!(insert_column(&mut stack, "V1", 5.0, "vid", vec![named_audio("left", 2.0)]));
+    assert_eq!(track_id_of(&stack, "left"), "A1");
     let stems = || vec![named_audio("stem-b", 2.0)];
     assert!(stack
         .insert_item_at_time_by_id(
@@ -688,4 +751,57 @@ fn audio_group_main_track_is_the_one_with_most_clips() {
     // Owner on top: M3 above M2 above M1, V1 keeps its place at the top.
     assert_eq!(ids(&stack), vec!["M1", "M2", "M3", "V1"]);
     assert!(!stack.normalize_track_order());
+}
+
+#[test]
+fn prune_removes_only_empty_auto_named_partner_tracks() {
+    let mut stack = host_stack(&["M1", "F1"], &["V1"]);
+    let v1 = track_index_by_id(&stack, "V1");
+    // A column with three channels creates A1, A2, A3 (auto-named).
+    assert!(insert_column(
+        &mut stack,
+        "V1",
+        0.0,
+        "vid",
+        vec![
+            named_audio("c1", 2.0),
+            named_audio("c2", 2.0),
+            named_audio("c3", 2.0)
+        ]
+    ));
+    let _ = v1;
+    let partners = stack.associated_track_ids("V1").unwrap();
+    assert_eq!(partners.len(), 3);
+    // M1 was adopted (free, auto-named "M1" == id); give it a user name.
+    let m1 = track_index_by_id(&stack, "M1");
+    stack.children[m1].name = Some("Voice".into());
+    // Delete the column: every partner is now empty.
+    assert!(!stack.delete_item("vid", true).is_empty());
+    for id in &partners {
+        let track = &stack.children[track_index_by_id(&stack, id)];
+        assert!(
+            track.items.iter().all(|item| matches!(item, Item::Gap(_))),
+            "{id}"
+        );
+    }
+
+    let removed = stack.prune_empty_partner_tracks();
+    // The named partner stays; the two auto-named partners (F1, adopted, and
+    // the created A1) go; the owner V1 is untouched.
+    assert_eq!(removed.len(), 2);
+    assert!(removed.contains(&"F1".to_string()));
+    assert!(!removed.contains(&"M1".to_string()));
+    assert_eq!(
+        stack.associated_track_ids("V1").unwrap(),
+        vec!["M1".to_string()]
+    );
+    assert!(stack.get_track_by_id("V1").is_some());
+    assert_eq!(stack.children.len(), 2);
+    assert!(stack.prune_empty_partner_tracks().is_empty());
+
+    // An empty owner is never pruned, even auto-named.
+    let mut stems = host_stack(&["S1", "S2"], &[]);
+    assert!(stems.associate_tracks("S2", &["S1".into()]));
+    assert_eq!(stems.prune_empty_partner_tracks(), vec!["S1".to_string()]);
+    assert_eq!(ids(&stems), vec!["S2"]);
 }

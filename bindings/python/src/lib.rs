@@ -1129,6 +1129,13 @@ impl PyStack {
     fn normalize_track_order(&mut self) -> bool {
         self.inner.normalize_track_order()
     }
+    /// Remove partner tracks with no clip and no user name (auto-numbered
+    /// tracks the library created). Owners, free tracks and named tracks
+    /// stay. Returns the removed track ids. A separate step, like
+    /// `normalize_track_order`.
+    fn prune_empty_partner_tracks(&mut self) -> Vec<String> {
+        self.inner.prune_empty_partner_tracks()
+    }
     /// Every track group, owners in stack order (bottom to top): the owner,
     /// its kind ("video" or "audio" group), its partners in slot order and
     /// whether the list is stored or derived from sync clips. Tracks in no
@@ -1770,6 +1777,13 @@ impl PyTimeline {
     /// changes track indices. Returns whether the order changed.
     fn normalize_track_order(&mut self) -> bool {
         self.inner.tracks.normalize_track_order()
+    }
+    /// Remove partner tracks with no clip and no user name (auto-numbered
+    /// tracks the library created). Owners, free tracks and named tracks
+    /// stay. Returns the removed track ids. A separate step, like
+    /// `normalize_track_order`.
+    fn prune_empty_partner_tracks(&mut self) -> Vec<String> {
+        self.inner.tracks.prune_empty_partner_tracks()
     }
     /// Every track group, owners in stack order (bottom to top): the owner,
     /// its kind ("video" or "audio" group), its partners in slot order and

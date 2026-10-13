@@ -31,13 +31,19 @@ created past the existing partners and appended to the list.
 
 Rules: a column with a video clip is inserted on a video track (its primary is
 the video); a plain audio clip or an audio-only column never lands on a video
-group's audio track; the audio partner of a video column never leaves its
+group's audio track that holds clips (dropped on an empty partner, they take
+the track out of the group); the audio partner of a video column never leaves its
 video's group: it moves in time, or onto a sibling track where it swaps with
 the channel there (refused when the slot holds anything else), and a drop on
 any other track is refused; the video clip moves the whole column to another
 video track; audio groups and video groups never mix. Deleting a track drops only its channel from the columns.
 Empty tracks are kept. Syncing clips by hand gathers them into one group,
 adopting free tracks and moving clips off other groups onto new partner tracks.
+
+`prune_empty_partner_tracks` removes partner tracks that hold no clip and
+carry no user name (the auto-numbered tracks the library created); owners,
+free tracks and named tracks stay. Like normalization it is a separate step
+the host runs when it wants, e.g. on save.
 
 `normalize_track_order` is the only call that reorders tracks: each group
 becomes contiguous, owner on top with its partners right below in list order.

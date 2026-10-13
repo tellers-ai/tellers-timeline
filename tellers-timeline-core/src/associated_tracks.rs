@@ -404,6 +404,32 @@ impl Stack {
             .is_some_and(|track| track.kind == TrackKind::Video)
     }
 
+    /// Whether `track_index` is an empty partner of a video group: listed by
+    /// a video track and holding no clip. Such a track blocks nothing: a
+    /// plain clip or stems dropped on it take it out of the group (see
+    /// [`Self::release_empty_partner`]).
+    pub fn is_empty_video_partner(&self, track_index: usize) -> bool {
+        let Some(track) = self.children.get(track_index) else {
+            return false;
+        };
+        track.kind == TrackKind::Audio
+            && self.group_owner_of(track_index) != track_index
+            && self.track_in_video_group(track_index)
+            && track.items.iter().all(|item| matches!(item, Item::Gap(_)))
+    }
+
+    /// Take an empty partner track out of its group. Returns whether it was one.
+    pub(crate) fn release_empty_partner(&mut self, track_index: usize) -> bool {
+        if !self.is_empty_video_partner(track_index) {
+            return false;
+        }
+        let Some(id) = self.children[track_index].get_id() else {
+            return false;
+        };
+        let owner = self.group_owner_of(track_index);
+        self.children[owner].remove_associated_track_id(&id)
+    }
+
     /// Whether a column may land with its primary clip on `dest_track_index`.
     ///
     /// On a video track anything but a column that already has a video clip.
@@ -431,7 +457,7 @@ impl Stack {
                 if has_video_partner {
                     in_video_group || self.track_is_free(dest_track_index)
                 } else {
-                    !in_video_group
+                    !in_video_group || self.is_empty_video_partner(dest_track_index)
                 }
             }
             TrackKind::Other => !has_video_partner,
@@ -464,6 +490,44 @@ impl Stack {
                 }
             })
             .collect()
+    }
+
+    /// Remove partner tracks that hold no clip and were never named by a
+    /// user: a track listed by an owner, with gaps only (or nothing), whose
+    /// name is unset or equal to its id (the library's auto-numbered tracks).
+    /// Owners and free tracks are never removed, nor is a track the host
+    /// names. The list entries follow. Returns the removed track ids.
+    ///
+    /// A separate step, like [`Self::normalize_track_order`]: the host runs it
+    /// when it wants the clutter gone, e.g. on save.
+    pub fn prune_empty_partner_tracks(&mut self) -> Vec<String> {
+        let candidates: Vec<String> = self
+            .track_groups()
+            .iter()
+            .flat_map(|group| group.partner_track_indices.iter().copied())
+            .filter(|&index| {
+                let track = &self.children[index];
+                let empty = track.items.iter().all(|item| matches!(item, Item::Gap(_)));
+                let auto_named = match (&track.name, track.get_id()) {
+                    (None, _) => true,
+                    (Some(name), Some(id)) => *name == id,
+                    (Some(_), None) => false,
+                };
+                empty && auto_named
+            })
+            .filter_map(|index| self.children[index].get_id())
+            .collect();
+        let mut removed = Vec::new();
+        for id in candidates {
+            if let Some((index, _)) = self.get_track_by_id(&id) {
+                self.children.remove(index);
+                removed.push(id);
+            }
+        }
+        if !removed.is_empty() {
+            self.prune_associated_track_ids();
+        }
+        removed
     }
 
     /// Reorder the tracks so every group is contiguous: the owner on top
