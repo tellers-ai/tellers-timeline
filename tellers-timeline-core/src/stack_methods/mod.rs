@@ -3648,7 +3648,7 @@ fn replace_track_range_with_item(
     let end = range_end.max(start);
 
     track.split_at_time(start);
-    track.split_at_time(end);
+    let end_split = track.split_at_time(end);
 
     let start_index = track.get_item_at_time(start).unwrap_or(track.items.len());
     let end_index = track.get_item_at_time(end).unwrap_or(track.items.len());
@@ -3657,6 +3657,10 @@ fn replace_track_range_with_item(
         track.items.drain(start_index..end_index);
     }
     track.items.insert(start_index, item);
+    // A clip whose head was cut by the end boundary keeps its id on the tail.
+    if let Some(mut split) = end_split {
+        track.restore_trimmed_head_id(&mut split);
+    }
     track.sanitize_preserving_all_gap_track();
 }
 

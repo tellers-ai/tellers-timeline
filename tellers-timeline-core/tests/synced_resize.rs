@@ -446,8 +446,14 @@ fn resize_audio_synced_item_override_trims_following_group_when_start_is_unchang
         );
         assert_eq!(item.duration(), 3.0);
     }
-    assert!(stack.get_item("second-video").is_none());
-    assert!(stack.get_item(&second_audio_id).is_none());
+    // The second column lost its first second but keeps its ids: a trimmed
+    // clip is the same clip, shorter, with its media offset moved on.
+    for item_id in ["second-video", &second_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 3.0);
+        assert_eq!(item.duration(), 1.0);
+        assert_eq!(source_start(item), 1.0);
+    }
     for track in &stack.children {
         assert_eq!(track.items.len(), 2);
         assert_eq!(track.start_time_of_item(1), 3.0);
@@ -997,9 +1003,10 @@ fn override_resize_that_trims_a_synced_clip_trims_its_partners_too() {
 
     assert!(stack.resize_item("clip2", 2.0, 2.0, OverlapPolicy::Override, false));
 
-    let video = &stack.children[track_index_by_id(&stack, "V1")];
-    let fragment_index = video.get_item_at_time(4.5).expect("clip1 fragment");
-    let fragment = &video.items[fragment_index];
+    // The trimmed clip keeps its id.
+    let (track_index, fragment_index, fragment) = stack.get_item("clip1").expect("clip1 keeps its id");
+    let video = &stack.children[track_index];
+    assert_eq!(video.get_id().as_deref(), Some("V1"));
     assert_eq!(video.start_time_of_item(fragment_index), 4.0);
     assert_eq!(fragment.duration(), 1.5);
     assert_eq!(source_start(fragment), 1.0);
