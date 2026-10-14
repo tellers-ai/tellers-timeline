@@ -3360,11 +3360,31 @@ impl Stack {
         let Some(targets) = self.delete_item_targets(&item_id) else {
             return false;
         };
-        let removed = self.delete_clips_at_indices(targets.clone(), true);
+        // A ripple move along the column's own tracks closes the hole first:
+        // every column track shifts by the same amount, so the drop time
+        // (given on the timeline before the move) just shifts with it. Holding
+        // placeholder gaps through the insert instead lost them whenever the
+        // insert merged or split them, and the column came out misaligned.
+        let ripple_in_place =
+            !replace_with_gap && move_source_track_indices.contains(&dest_track_index);
+        let mut dest_time = dest_time;
+        if ripple_in_place {
+            let moved_duration = selected.item.duration().max(0.0);
+            if dest_time >= move_previous_start + moved_duration - EPS {
+                dest_time -= moved_duration;
+            } else if dest_time > move_previous_start {
+                dest_time = move_previous_start;
+            }
+        }
+        let removed = self.delete_clips_at_indices(targets.clone(), !ripple_in_place);
         if removed.is_empty() {
             return false;
         }
-        let placeholder_gap_ids = self.collect_placeholder_gap_ids(&targets);
+        let placeholder_gap_ids = if ripple_in_place {
+            Vec::new()
+        } else {
+            self.collect_placeholder_gap_ids(&targets)
+        };
 
         let synced_audio_clips = (!synced_audio.is_empty()).then_some(synced_audio);
         if self
@@ -3385,7 +3405,7 @@ impl Stack {
             )
             .is_some()
         {
-            if !replace_with_gap {
+            if !replace_with_gap && !ripple_in_place {
                 self.remove_gaps_by_id(&placeholder_gap_ids);
                 self.realign_moved_partners(&item_id, &partner_ids);
             }

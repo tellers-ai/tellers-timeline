@@ -253,10 +253,15 @@
   });
   // The app editor's move policy (tellers-app grid_clips_edition.dart
   // `_movePolicyForClip`): a plain drag overwrites and leaves a gap; with ⇧
-  // it ripples, unless the range fits inside a gap on the target track.
-  function prodMovePolicy(shift, track, time, dur) {
+  // it ripples, unless the range fits inside a gap on every track the moved
+  // column lands on (the target track and its sync partners' tracks). Checking
+  // the target alone let a ⇧-moved audio clip overwrite clips under its video.
+  function prodMovePolicy(shift, track, time, dur, it) {
     if (!shift) return { overlap_policy: 'override', insert_policy: 'split_and_insert', replace_with_gap: true };
-    const fits = rangeFitsGap(track, time, dur);
+    const partnerTracks = it && it.link_group_id != null
+      ? (S.tracks || []).filter(t => t.id !== track.id && t.items.some(i => i.id !== it.id && i.link_group_id === it.link_group_id))
+      : [];
+    const fits = [track, ...partnerTracks].every(t => rangeFitsGap(t, time, dur));
     return { overlap_policy: fits ? 'override' : 'push', insert_policy: fits ? 'split_and_insert' : 'insert_before_or_after', replace_with_gap: false };
   }
   // Mirrors the app's `range_fits_gap`: [time, time + dur] lies inside one
@@ -560,7 +565,7 @@
       s.time = clampT(snapT(x / pps)); s.index = null;
       el.dropline.style.left = `calc(var(--hdr-w) + ${s.time * pps}px)`;
       el.droptip.textContent = `→ track #${track.index} @ ${fmt(s.time)}s`;
-      if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(shiftDown(e), track, s.time, s.it.duration))}`;
+      if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(shiftDown(e), track, s.time, s.it.duration, s.it))}`;
     }
     el.dropline.style.display = 'block';
     el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
@@ -600,7 +605,7 @@
     if (!lane) return render();
     const dest = trackById(lane.dataset.trackId);
     const o = opts();
-    if (isProd()) Object.assign(o, prodMovePolicy(shiftDown(e), dest, time, it.duration));
+    if (isProd()) Object.assign(o, prodMovePolicy(shiftDown(e), dest, time, it.duration, it));
     if (o.mode === 'index') {
       flashIfRefused(lane, await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy }));
     } else {

@@ -122,7 +122,7 @@ fn reorder_track_moves_only_the_selected_track() {
 }
 
 #[test]
-fn move_unsynced_item_only_moves_selected_item() {
+fn move_unsynced_video_clip_onto_an_audio_track_is_refused() {
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
     video.items.push(Item::Clip(clip(3.0, Some("primary"))));
     let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
@@ -134,7 +134,8 @@ fn move_unsynced_item_only_moves_selected_item() {
     stack.children.push(video);
     stack.children.push(audio);
 
-    assert!(stack.move_item_at_time(
+    let before = serde_json::to_string(&stack).unwrap();
+    assert!(!stack.move_item_at_time(
         "primary",
         "a",
         3.0,
@@ -143,8 +144,7 @@ fn move_unsynced_item_only_moves_selected_item() {
         OverlapPolicy::Override,
     ));
 
-    assert_eq!(stack.get_item("primary").unwrap().0, 1);
-    assert!(stack.get_item("unlinked-audio").is_some());
+    assert_eq!(serde_json::to_string(&stack).unwrap(), before);
 }
 
 #[test]
@@ -832,10 +832,11 @@ fn ripple_move_of_audio_partner_onto_a_video_clip_snaps_on_that_clip() {
 }
 
 #[test]
-fn ripple_move_of_audio_partner_into_free_space_lands_at_the_drop_time() {
-    // Dropping CA at 3.5 leaves the column on free space once lifted (C's own
-    // slot, the gap after it): it lands exactly at 3.5, together with C.
+fn ripple_move_inside_its_own_slot_is_a_no_op() {
+    // Dropping CA at 3.5, inside its own slot [3-5], keeps the clip order: a
+    // ripple move changes nothing (it used to leave the lifted slot's gap).
     let mut stack = audio_partner_move_stack();
+    let before = serde_json::to_string(&stack).unwrap();
     assert!(stack.move_item_at_time(
         "CA",
         "a1",
@@ -844,8 +845,114 @@ fn ripple_move_of_audio_partner_into_free_space_lands_at_the_drop_time() {
         InsertPolicy::InsertBeforeOrAfter,
         OverlapPolicy::Push,
     ));
-    assert_eq!(placement(&stack, "CA"), ("a1".to_string(), 3.5));
-    assert_eq!(placement(&stack, "C"), ("v1".to_string(), 3.5));
-    assert_eq!(placement(&stack, "B"), ("v1".to_string(), 1.0));
-    assert!(stack.children[2].items.is_empty(), "the text track stays empty");
+    assert_eq!(serde_json::to_string(&stack).unwrap(), before);
+}
+
+#[test]
+fn ripple_move_of_a_clip_inside_its_own_slot_leaves_no_gap() {
+    // v1: B[0-2] - C[2-4.5] - A[4.5-5.5]: Shift-dropping C at 2.5 or 3 keeps it.
+    for time in [2.5, 3.0, 4.0] {
+        let mut stack = Stack::default();
+        let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+        video.items.push(Item::Clip(clip(2.0, Some("B"))));
+        video.items.push(Item::Clip(clip(2.5, Some("C"))));
+        video.items.push(Item::Clip(clip(1.0, Some("A"))));
+        stack.children.push(video);
+        let before = serde_json::to_string(&stack).unwrap();
+        assert!(stack.move_item_at_time(
+            "C",
+            "v1",
+            time,
+            false,
+            InsertPolicy::InsertBeforeOrAfter,
+            OverlapPolicy::Push,
+        ));
+        assert_eq!(serde_json::to_string(&stack).unwrap(), before, "drop at {time}");
+    }
+}
+
+/// v1: V[0-2] - gap[2-3] - S[3-5] (sync); a1: gap[0-3] - SA[3-5] (sync) - M[5-6].
+/// `desynced` shifts SA to 0 first so S/SA no longer form an aligned column.
+fn kind_stack(desynced: bool) -> Stack {
+    const GROUP: i64 = 1;
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(Item::Clip(clip(2.0, Some("V"))));
+    video.items.push(Item::Gap(Gap::make_gap(1.0)));
+    video.items.push(synced_clip_item(2.0, "S", GROUP));
+    stack.children.push(video);
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    if desynced {
+        audio.items.push(synced_clip_item(2.0, "SA", GROUP));
+        audio.items.push(Item::Gap(Gap::make_gap(3.0)));
+    } else {
+        audio.items.push(Item::Gap(Gap::make_gap(3.0)));
+        audio.items.push(synced_clip_item(2.0, "SA", GROUP));
+    }
+    audio.items.push(Item::Clip(clip(1.0, Some("M"))));
+    stack.children.push(audio);
+    stack
+}
+
+#[test]
+fn a_move_never_puts_a_clip_on_a_track_of_another_kind() {
+    let cases = [
+        ("V", "a1"),  // unsynced video onto audio
+        ("S", "a1"),  // synced video onto audio
+        ("M", "v1"),  // unsynced audio onto video
+        ("SA", "v1"), // synced audio onto video
+    ];
+    for desynced in [false, true] {
+        for (id, dest) in cases {
+            for (replace_with_gap, insert, overlap) in [
+                (false, InsertPolicy::InsertBeforeOrAfter, OverlapPolicy::Push),
+                (true, InsertPolicy::SplitAndInsert, OverlapPolicy::Override),
+            ] {
+                for time in [0.0, 1.0, 4.0, 10.0] {
+                    let mut stack = kind_stack(desynced);
+                    let before = serde_json::to_string(&stack).unwrap();
+                    assert!(
+                        !stack.move_item_at_time(id, dest, time, replace_with_gap, insert, overlap),
+                        "{id} -> {dest} @ {time} (desynced: {desynced}) must be refused"
+                    );
+                    assert_eq!(serde_json::to_string(&stack).unwrap(), before);
+                }
+                let mut stack = kind_stack(desynced);
+                assert!(
+                    !stack.move_item_at_index(id, dest, 0, replace_with_gap, overlap),
+                    "{id} -> {dest} by index (desynced: {desynced}) must be refused"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn ripple_move_of_an_audio_partner_keeps_the_column_aligned() {
+    // a1: SA[0-2.5] (sync); v1: S[0-2.5] (sync) - B[2.5-3.5] - A[3.5-4.5].
+    // Dropping SA at 3.5 (before A) used to leave S at 1 and SA at 0.
+    const GROUP: i64 = 1;
+    let mut stack = Stack::default();
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(synced_clip_item(2.5, "SA", GROUP));
+    stack.children.push(audio);
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(synced_clip_item(2.5, "S", GROUP));
+    video.items.push(Item::Clip(clip(1.0, Some("B"))));
+    video.items.push(Item::Clip(clip(1.0, Some("A"))));
+    stack.children.push(video);
+
+    assert!(stack.move_item_at_time(
+        "SA",
+        "a1",
+        3.5,
+        false,
+        InsertPolicy::InsertBeforeOrAfter,
+        OverlapPolicy::Push,
+    ));
+    // The column now sits between B and A.
+    assert_eq!(placement(&stack, "B"), ("v1".to_string(), 0.0));
+    assert_eq!(placement(&stack, "S"), ("v1".to_string(), 1.0));
+    assert_eq!(placement(&stack, "SA"), ("a1".to_string(), 1.0));
+    assert_eq!(placement(&stack, "A"), ("v1".to_string(), 3.5));
 }
