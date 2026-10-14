@@ -21,6 +21,7 @@
   button.danger { color: var(--danger); }
   button:disabled { opacity: .4; cursor: default; }
   input[type=number], input[type=text] { width: 80px; }
+  label.opt.off { opacity: .4; }
   label.opt { display: inline-flex; align-items: center; gap: 4px; color: var(--fg2); white-space: nowrap; }
   code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 
@@ -135,8 +136,9 @@
     <button id="btnPrune" title="stack.prune_empty_partner_tracks(): remove empty auto-named partner tracks">Prune</button>
   </div>
   <div class="group">
-    <label class="opt">Overlap <select id="overlap"><option>override</option><option>push</option></select></label>
-    <label class="opt">Insert <select id="insertPolicy"><option>split_and_insert</option><option>insert_before</option><option>insert_after</option><option>insert_before_or_after</option></select></label>
+    <label class="opt" title="prod = the app editor's drag rules: plain drag overwrites and leaves a gap; hold ⇧ while dragging/resizing to ripple (push). manual = the selects below.">Policy <select id="preset"><option value="prod">prod (app editor, ⇧ = ripple)</option><option value="manual">manual</option></select></label>
+    <label class="opt manual-only">Overlap <select id="overlap"><option>override</option><option>push</option></select></label>
+    <label class="opt manual-only">Insert <select id="insertPolicy"><option>split_and_insert</option><option>insert_before</option><option>insert_after</option><option>insert_before_or_after</option></select></label>
     <label class="opt">Drop by <select id="mode"><option value="time">time (move_item_at_time)</option><option value="index">index (move_item_at_index)</option><option value="timeline">time (Timeline.move_item)</option></select></label>
     <label class="opt"><input type="checkbox" id="gapOnMove" checked> leave gap on move/delete</label>
     <label class="opt"><input type="checkbox" id="clamp"> clamp_to_media on resize</label>
@@ -176,7 +178,7 @@
     <button data-tab="sync">Groups</button>
     <button data-tab="json">JSON</button>
     <span class="spacer"></span>
-    <span id="hint">drag = move · edges = resize · dbl-click lane = insert · right-click = menu · ⌘Z undo</span>
+    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu · ⌘Z undo</span>
     <button id="btnPanel" title="collapse">▾</button>
   </div>
   <div class="body">
@@ -240,29 +242,59 @@
     playhead: $('#playhead'), dropline: $('#dropline'), ghost: $('#ghost'), droptip: $('#droptip'),
     status: $('#status'), menu: $('#menu'),
   };
+  const isProd = () => $('#preset').value === 'prod';
+  // In prod mode an insert uses the app's asset-drop policy (push, no split).
   const opts = () => ({
-    overlap_policy: $('#overlap').value,
-    insert_policy: $('#insertPolicy').value,
-    mode: $('#mode').value,
+    overlap_policy: isProd() ? 'push' : $('#overlap').value,
+    insert_policy: isProd() ? 'insert_before_or_after' : $('#insertPolicy').value,
+    mode: isProd() ? 'time' : $('#mode').value,
     replace_with_gap: $('#gapOnMove').checked,
     clamp_to_media: $('#clamp').checked,
   });
+  // The app editor's move policy (tellers-app grid_clips_edition.dart
+  // `_movePolicyForClip`): a plain drag overwrites and leaves a gap; with ⇧
+  // it ripples, unless the range fits inside a gap on the target track.
+  function prodMovePolicy(shift, track, time, dur) {
+    if (!shift) return { overlap_policy: 'override', insert_policy: 'split_and_insert', replace_with_gap: true };
+    const fits = rangeFitsGap(track, time, dur);
+    return { overlap_policy: fits ? 'override' : 'push', insert_policy: fits ? 'split_and_insert' : 'insert_before_or_after', replace_with_gap: false };
+  }
+  // Mirrors the app's `range_fits_gap`: [time, time + dur] lies inside one
+  // gap of the committed track (the dragged clip's own slot is not a gap yet).
+  function rangeFitsGap(track, time, dur) {
+    const eps = 1e-6;
+    if (time < 0) return false;
+    return track.items.some(i => i.kind === 'gap' && time >= i.start - eps && time + dur <= i.start + i.duration + eps);
+  }
+  // The app's `_overlapPolicyForResize`.
+  function prodResizePolicy(shift, it, handle, start, dur) {
+    if (it.kind === 'clip') return shift ? 'push' : 'override';
+    if (handle === 'l' && start > it.start + 1e-6) return 'override';
+    if (handle === 'r' && dur < it.duration - 1e-6) return 'override';
+    return 'push';
+  }
+  const policyTag = p => p.overlap_policy === 'push' ? `ripple (push, ${p.insert_policy})` : `overwrite (${p.replace_with_gap ? 'gap' : 'no gap'})`;
+  function syncPresetUI() {
+    $$('.manual-only').forEach(l => l.classList.toggle('off', isProd()));
+    $('#mode').disabled = isProd();
+  }
   const snapT = t => { const s = parseFloat($('#snap').value); return s ? Math.round(t / s) * s : t; };
   const fmt = t => (Math.round(t * 1000) / 1000).toString();
   const clampT = t => Math.max(0, +t.toFixed(4));
 
   // restore persisted UI prefs
-  for (const id of ['overlap', 'insertPolicy', 'mode', 'snap']) if (cfg[id] != null) $('#' + id).value = cfg[id];
+  for (const id of ['preset', 'overlap', 'insertPolicy', 'mode', 'snap']) if (cfg[id] != null) $('#' + id).value = cfg[id];
   for (const id of ['gapOnMove', 'clamp', 'reverse']) if (cfg[id] != null) $('#' + id).checked = cfg[id];
   if (cfg.zoom) { pps = cfg.zoom; $('#zoom').value = pps; }
   const persist = () => {
     const o = {};
-    for (const id of ['overlap', 'insertPolicy', 'mode', 'snap']) o[id] = $('#' + id).value;
+    for (const id of ['preset', 'overlap', 'insertPolicy', 'mode', 'snap']) o[id] = $('#' + id).value;
     for (const id of ['gapOnMove', 'clamp', 'reverse']) o[id] = $('#' + id).checked;
     o.zoom = pps;
     localStorage.setItem('ttl-ui', JSON.stringify(o));
   };
-  $$('#toolbar select, #toolbar input[type=checkbox]').forEach(i => i.addEventListener('change', () => { persist(); if (i.id === 'reverse') render(); }));
+  $$('#toolbar select, #toolbar input[type=checkbox]').forEach(i => i.addEventListener('change', () => { persist(); if (i.id === 'reverse') render(); if (i.id === 'preset') syncPresetUI(); }));
+  syncPresetUI();
 
   // ------------------------------------------------------------- api
   async function api(op, params = {}) {
@@ -498,6 +530,7 @@
     const s = dragState; if (!s) return;
     if (!s.moved && Math.abs(e.clientX - s.startX) < 4 && Math.abs(e.clientY - s.startY) < 4) return;
     s.moved = true;
+    s.lastEvent = e;
     if (s.handle) return onResizeMove(e);
     if (!el.ghost.firstChild) {
       const g = s.d.cloneNode(true); g.classList.remove('selected'); g.style.width = s.rect.width + 'px';
@@ -513,7 +546,7 @@
     // comes back as `false`: the target track pulses red (see the Result panel).
     lane.classList.add('drop');
     const lrect = lane.getBoundingClientRect();
-    const mode = $('#mode').value;
+    const mode = opts().mode;
     const x = e.clientX - lrect.left - s.grabX;
     if (mode === 'index') {
       const px = e.clientX - lrect.left;
@@ -527,6 +560,7 @@
       s.time = clampT(snapT(x / pps)); s.index = null;
       el.dropline.style.left = `calc(var(--hdr-w) + ${s.time * pps}px)`;
       el.droptip.textContent = `→ track #${track.index} @ ${fmt(s.time)}s`;
+      if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(e.shiftKey, track, s.time, s.it.duration))}`;
     }
     el.dropline.style.display = 'block';
     el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
@@ -540,6 +574,7 @@
     s.time = start; s.dur = dur;
     s.d.style.left = (start * pps) + 'px'; s.d.style.width = Math.max(4, dur * pps - 1) + 'px';
     el.droptip.textContent = `resize → start ${fmt(start)}s, dur ${fmt(dur)}s`;
+    if (isProd()) el.droptip.textContent += ` · ${prodResizePolicy(e.shiftKey, s.it, s.handle, start, dur)}`;
     el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
   }
   async function onPointerUp(e) {
@@ -552,12 +587,15 @@
     setTimeout(() => { dragState = null; }, 0); // let click handler see "moved"
     if (handle) {
       if (time === it.start && dur === it.duration) return render();
-      await api('resize_item', { id: it.id, start: time, duration: dur, ...opts() });
+      const ro = opts();
+      if (isProd()) ro.overlap_policy = prodResizePolicy(e.shiftKey, it, handle, time, dur);
+      await api('resize_item', { id: it.id, start: time, duration: dur, ...ro });
       return;
     }
     if (!lane) return render();
     const dest = trackById(lane.dataset.trackId);
     const o = opts();
+    if (isProd()) Object.assign(o, prodMovePolicy(e.shiftKey, dest, time, it.duration));
     if (o.mode === 'index') {
       flashIfRefused(lane, await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy }));
     } else {
@@ -578,6 +616,13 @@
     el.ghost.innerHTML = ''; el.dropline.style.display = 'none'; el.droptip.style.display = 'none';
     $$('.lane').forEach(l => l.classList.remove('drop', 'reject')); $$('.item.dragging').forEach(d => d.classList.remove('dragging'));
   }
+  // ⇧ pressed/released mid-drag: re-run the move so the tip shows the new policy.
+  for (const type of ['keydown', 'keyup']) document.addEventListener(type, e => {
+    const s = dragState;
+    if (e.key !== 'Shift' || !s || !s.moved || !s.lastEvent) return;
+    const l = s.lastEvent;
+    onPointerMove(new PointerEvent('pointermove', { clientX: l.clientX, clientY: l.clientY, shiftKey: type === 'keydown' }));
+  });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (dragState) { cleanupDrag(); dragState = null; render(); } closePops(); } });
 
   // ------------------------------------------------------------- popovers
