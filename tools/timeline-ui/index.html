@@ -560,7 +560,7 @@
       s.time = clampT(snapT(x / pps)); s.index = null;
       el.dropline.style.left = `calc(var(--hdr-w) + ${s.time * pps}px)`;
       el.droptip.textContent = `→ track #${track.index} @ ${fmt(s.time)}s`;
-      if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(e.shiftKey, track, s.time, s.it.duration))}`;
+      if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(shiftDown(e), track, s.time, s.it.duration))}`;
     }
     el.dropline.style.display = 'block';
     el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
@@ -574,7 +574,7 @@
     s.time = start; s.dur = dur;
     s.d.style.left = (start * pps) + 'px'; s.d.style.width = Math.max(4, dur * pps - 1) + 'px';
     el.droptip.textContent = `resize → start ${fmt(start)}s, dur ${fmt(dur)}s`;
-    if (isProd()) el.droptip.textContent += ` · ${prodResizePolicy(e.shiftKey, s.it, s.handle, start, dur)}`;
+    if (isProd()) el.droptip.textContent += ` · ${prodResizePolicy(shiftDown(e), s.it, s.handle, start, dur)}`;
     el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
   }
   async function onPointerUp(e) {
@@ -588,14 +588,14 @@
     if (handle) {
       if (time === it.start && dur === it.duration) return render();
       const ro = opts();
-      if (isProd()) ro.overlap_policy = prodResizePolicy(e.shiftKey, it, handle, time, dur);
+      if (isProd()) ro.overlap_policy = prodResizePolicy(shiftDown(e), it, handle, time, dur);
       await api('resize_item', { id: it.id, start: time, duration: dur, ...ro });
       return;
     }
     if (!lane) return render();
     const dest = trackById(lane.dataset.trackId);
     const o = opts();
-    if (isProd()) Object.assign(o, prodMovePolicy(e.shiftKey, dest, time, it.duration));
+    if (isProd()) Object.assign(o, prodMovePolicy(shiftDown(e), dest, time, it.duration));
     if (o.mode === 'index') {
       flashIfRefused(lane, await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy }));
     } else {
@@ -616,13 +616,18 @@
     el.ghost.innerHTML = ''; el.dropline.style.display = 'none'; el.droptip.style.display = 'none';
     $$('.lane').forEach(l => l.classList.remove('drop', 'reject')); $$('.item.dragging').forEach(d => d.classList.remove('dragging'));
   }
-  // ⇧ pressed/released mid-drag: re-run the move so the tip shows the new policy.
-  for (const type of ['keydown', 'keyup']) document.addEventListener(type, e => {
+  // ⇧ state is tracked from the key events (like the app's HardwareKeyboard),
+  // not only the pointer event's shiftKey, which some embedded browsers drop.
+  let shiftHeld = false;
+  const shiftDown = e => shiftHeld || !!(e && e.shiftKey);
+  for (const type of ['keydown', 'keyup']) window.addEventListener(type, e => {
+    if (e.key !== 'Shift') return;
+    shiftHeld = type === 'keydown';
+    // Re-run the move so the drop tip shows the new policy.
     const s = dragState;
-    if (e.key !== 'Shift' || !s || !s.moved || !s.lastEvent) return;
-    const l = s.lastEvent;
-    onPointerMove(new PointerEvent('pointermove', { clientX: l.clientX, clientY: l.clientY, shiftKey: type === 'keydown' }));
-  });
+    if (s && s.moved && s.lastEvent) { const l = s.lastEvent; onPointerMove(new PointerEvent('pointermove', { clientX: l.clientX, clientY: l.clientY })); }
+  }, true);
+  window.addEventListener('blur', () => { shiftHeld = false; });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (dragState) { cleanupDrag(); dragState = null; render(); } closePops(); } });
 
   // ------------------------------------------------------------- popovers
