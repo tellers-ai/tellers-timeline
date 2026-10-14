@@ -169,7 +169,13 @@ impl Stack {
                     time,
                     None,
                     selected.item.clone(),
-                    Self::effective_move_overlap_policy(overlap_policy, Some(old_start), time),
+                    Self::effective_move_overlap_policy(
+                        overlap_policy,
+                        Some(old_start),
+                        time,
+                        // Every member is already lifted off the stack.
+                        self.move_landing_is_free(dest, time, selected.item.duration(), &[]),
+                    ),
                     InsertPolicy::SplitAndInsert,
                     (!audio.is_empty()).then_some(audio),
                     video,
@@ -177,7 +183,6 @@ impl Stack {
                     video_track.as_deref(),
                     Some(&audio_tracks),
                     Some(&source_tracks),
-                    Some(old_start),
                 )
                 .is_none()
             {

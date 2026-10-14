@@ -1548,7 +1548,6 @@ impl Stack {
         preferred_video_track_id: Option<&str>,
         preferred_audio_track_indices: Option<&[usize]>,
         move_source_track_indices: Option<&[usize]>,
-        move_previous_start: Option<Seconds>,
     ) -> Option<InsertItemAtTimeResult> {
         let mut primary_item = item;
         primary_item.clamp_to_active_available_range();
@@ -1794,7 +1793,6 @@ impl Stack {
                 modified_duration,
                 &update_refs,
                 &cluster,
-                move_previous_start,
             )
         {
             *self = backup;
@@ -2574,19 +2572,47 @@ impl Stack {
                 .all(|item| cluster.contains(&item.track_index))
     }
 
+    /// Whether `[start, start + duration]` on the track holds no clip other
+    /// than `moving_ids` (the items being moved, still in place).
+    fn move_landing_is_free(
+        &self,
+        track_index: usize,
+        start: Seconds,
+        duration: Seconds,
+        moving_ids: &[String],
+    ) -> bool {
+        let Some(track) = self.children.get(track_index) else {
+            return true;
+        };
+        let end = start + duration.max(0.0);
+        let mut cursor = 0.0;
+        track.items.iter().all(|item| {
+            let (item_start, item_end) = (cursor, cursor + item.duration());
+            cursor = item_end;
+            !matches!(item, Item::Clip(_))
+                || item_end <= start + EPS
+                || item_start >= end - EPS
+                || item.get_id().is_some_and(|id| moving_ids.contains(&id))
+        })
+    }
+
     fn stack_item_start_time(&self, item_id: &str) -> Option<Seconds> {
         let (track_index, item_index, _) = self.get_item(item_id)?;
         Some(self.children[track_index].start_time_of_item(item_index))
     }
 
-    /// Backward moves land earlier on the destination; Push would shove unrelated
-    /// tail content on that track rightward, so use Override for the insert itself.
+    /// Backward moves land earlier on the destination. When they land on free
+    /// space, Push would shove unrelated tail content on that track rightward, so
+    /// use Override for the insert itself. When they land on another clip, keep
+    /// Push: Override would delete that clip instead of rippling it.
     fn effective_move_overlap_policy(
         overlap_policy: OverlapPolicy,
         previous_start: Option<Seconds>,
         dest_time: Seconds,
+        landing_is_free: bool,
     ) -> OverlapPolicy {
         if overlap_policy == OverlapPolicy::Push
+            && landing_is_free
             && previous_start.is_some_and(|previous| dest_time < previous - EPS)
         {
             OverlapPolicy::Override
@@ -2780,6 +2806,12 @@ impl Stack {
             overlap_policy,
             Some(primary_start_time),
             dest_time,
+            backup.move_landing_is_free(
+                dest_track_index,
+                dest_time,
+                item_to_move.duration(),
+                &[item_id.to_string()],
+            ),
         );
         let preferred_cluster_video_id = backup
             .get_track_by_id(dest_track_id)
@@ -2902,7 +2934,6 @@ impl Stack {
                 None::<&str>,
                 None::<&[usize]>,
                 None::<&[usize]>,
-                Some(primary_start_time),
             )
         } else {
             self.insert_synced_item_at_time(
@@ -2919,7 +2950,6 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 None::<&[usize]>,
-                Some(primary_start_time),
             )
         };
         if has_synced_partners {
@@ -3113,7 +3143,6 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 gap_only_exclude,
-                None,
             )
             .is_some()
         {
@@ -3229,10 +3258,20 @@ impl Stack {
         }
         let move_previous_start = backup.children[selected.track_index]
             .start_time_of_item(selected.item_index);
+        let moving_ids: Vec<String> = items_to_move
+            .iter()
+            .filter_map(|item| item.item.get_id())
+            .collect();
         let overlap_policy = Self::effective_move_overlap_policy(
             overlap_policy,
             Some(move_previous_start),
             dest_time,
+            backup.move_landing_is_free(
+                dest_track_index,
+                dest_time,
+                selected.item.duration(),
+                &moving_ids,
+            ),
         );
         let move_source_track_indices: Vec<usize> =
             items_to_move.iter().map(|item| item.track_index).collect();
@@ -3267,7 +3306,6 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 Some(move_source_track_indices.as_slice()),
-                Some(move_previous_start),
             )
             .is_some()
         {

@@ -189,14 +189,8 @@ impl Stack {
         insert_duration: Seconds,
         updates: &[TrackInsertUpdate<'_>],
         cluster: &[usize],
-        move_previous_start: Option<Seconds>,
     ) -> bool {
         if insert_duration <= EPS {
-            return true;
-        }
-        // Backward moves only retime updated tracks; untouched cluster partners
-        // already keep their historical leading layout.
-        if move_previous_start.is_some_and(|previous| insert_start < previous - EPS) {
             return true;
         }
         let updated_tracks = updated_track_set(updates);

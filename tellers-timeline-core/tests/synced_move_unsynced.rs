@@ -659,14 +659,13 @@ fn move_unsynced_earlier_into_leading_gap_does_not_add_spurious_sync_padding() {
 }
 
 #[test]
-fn move_unsynced_backward_onto_synced_clip_does_not_clobber_partner_unsynced_clip() {
-    // Repro for the reported bug:
+fn move_unsynced_backward_onto_synced_clip_ripples_the_cluster() {
     //   v1: C1[0-2] (sync) - gap[2-4] - c2[4-6] (unsynced)
     //   a1: CA1[0-2] (sync) - gap[2-2.5] - c3[2.5-4.5] (unsynced)
-    // C1 and CA1 are synced. Moving c2 backward onto C1 (dest=1) flips Push->Override
-    // and splits C1. The cluster propagation reserves an Override gap of c2's full
-    // duration on the audio partner at the insert point -- which must NOT delete or
-    // shrink the unrelated unsynced c3 sitting on the audio track.
+    // Moving c2 backward onto C1 (dest=1) with Push splits C1 and ripples, the
+    // same as a Push insert there: C1's tail and everything after the insert
+    // point on the cluster (CA1's tail, the unrelated c3) shift right by c2's
+    // duration. Nothing is overwritten.
     const GROUP: i64 = 1;
     let mut stack = Stack::default();
 
@@ -691,32 +690,93 @@ fn move_unsynced_backward_onto_synced_clip_does_not_clobber_partner_unsynced_cli
         OverlapPolicy::Push,
     ));
 
-    // The unrelated unsynced c3 must be completely untouched: same start, same duration.
-    let (c3_track, c3_index, c3) = stack
-        .get_item("c3")
-        .expect("c3 must still exist after moving the unrelated unsynced c2");
-    assert_eq!(c3.duration(), 2.0, "c3 duration must not shrink");
-    assert_eq!(
-        stack.children[c3_track].start_time_of_item(c3_index),
-        2.5,
-        "c3 start must not move"
-    );
+    let start_of = |stack: &Stack, id: &str| {
+        let (ti, ii, item) = stack.get_item(id).unwrap_or_else(|| panic!("{id} must exist"));
+        (stack.children[ti].start_time_of_item(ii), item.duration())
+    };
+    assert_eq!(start_of(&stack, "c2"), (1.0, 2.0), "c2 lands at the drop time");
+    assert_eq!(start_of(&stack, "c3"), (4.5, 2.0), "c3 ripples with the cluster, unclipped");
+    assert_eq!(start_of(&stack, "C1"), (0.0, 1.0), "C1 head stays at 0");
+    assert_eq!(start_of(&stack, "CA1"), (0.0, 1.0), "CA1 head stays aligned with C1");
 
-    // The synced audio partner CA1 is trimmed to stay aligned with C1 on video: C1 was
-    // overwritten down to [0-1], so CA1 keeps only its [0-1] footprint.
-    let (ca1_track, ca1_index, ca1) = stack.get_item("CA1").expect("CA1 must still exist");
-    assert_eq!(
-        stack.children[ca1_track].start_time_of_item(ca1_index),
-        0.0,
-        "CA1 should still start at 0"
-    );
-    assert_eq!(ca1.duration(), 1.0, "CA1 should be trimmed to align with C1");
+    // Both tails resume at 3, still aligned with each other.
+    let tail_starts: Vec<f64> = stack
+        .children
+        .iter()
+        .map(|track| {
+            let index = track
+                .items
+                .iter()
+                .rposition(|item| matches!(item, Item::Clip(_)) && item.duration() == 1.0)
+                .expect("each track keeps a 1s synced tail");
+            track.start_time_of_item(index)
+        })
+        .collect();
+    assert_eq!(tail_starts, vec![3.0, 3.0]);
+}
 
-    let (c1_track, c1_index, c1) = stack.get_item("C1").expect("C1 must still exist");
-    assert_eq!(
-        stack.children[c1_track].start_time_of_item(c1_index),
-        0.0,
-        "C1 should still start at 0"
-    );
-    assert_eq!(c1.duration(), 1.0, "C1 was overwritten down to [0-1]");
+#[test]
+fn move_backward_push_onto_clip_ripples_instead_of_deleting_it() {
+    // v1: gap[0-5] - T[5-7] - A[7-9]. Moving A back onto T with Push (and no
+    // gap left behind) must keep T: A lands first and T follows it.
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(5.0)));
+    video.items.push(Item::Clip(clip(2.0, Some("T"))));
+    video.items.push(Item::Clip(clip(2.0, Some("A"))));
+    stack.children.push(video);
+
+    assert!(stack.move_item_at_time(
+        "A",
+        "v1",
+        4.5,
+        false,
+        InsertPolicy::InsertBeforeOrAfter,
+        OverlapPolicy::Push,
+    ));
+
+    let track = &stack.children[0];
+    let clips: Vec<(String, f64)> = track
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| matches!(item, Item::Clip(_)))
+        .map(|(index, item)| (item.get_id().unwrap(), track.start_time_of_item(index)))
+        .collect();
+    assert_eq!(clips, vec![("A".to_string(), 5.0), ("T".to_string(), 7.0)]);
+}
+
+#[test]
+fn move_backward_push_onto_synced_clip_keeps_its_partner_aligned() {
+    // v1: A[0-2] - gap[2-5] - C[5-7] (sync) - T[7-9]; a1: gap[0-5] - CA[5-7] (sync).
+    // Moving T back onto C with Push ripples C right; CA must follow it.
+    const GROUP: i64 = 1;
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(Item::Clip(clip(2.0, Some("A"))));
+    video.items.push(Item::Gap(Gap::make_gap(3.0)));
+    video.items.push(synced_clip_item(2.0, "C", GROUP));
+    video.items.push(Item::Clip(clip(2.0, Some("T"))));
+    stack.children.push(video);
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(5.0)));
+    audio.items.push(synced_clip_item(2.0, "CA", GROUP));
+    stack.children.push(audio);
+
+    assert!(stack.move_item_at_time(
+        "T",
+        "v1",
+        5.5,
+        false,
+        InsertPolicy::InsertBeforeOrAfter,
+        OverlapPolicy::Push,
+    ));
+
+    let start = |id: &str| {
+        let (ti, ii, _) = stack.get_item(id).unwrap_or_else(|| panic!("{id} must exist"));
+        stack.children[ti].start_time_of_item(ii)
+    };
+    assert_eq!(start("T"), 5.0);
+    assert_eq!(start("C"), 7.0);
+    assert_eq!(start("CA"), 7.0, "the synced audio follows its video");
 }
