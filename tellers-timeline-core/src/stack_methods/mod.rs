@@ -2852,12 +2852,19 @@ impl Stack {
             item_to_move.duration(),
             &[item_id.to_string()],
         );
-        let overlap_policy = Self::effective_move_overlap_policy(
-            overlap_policy,
-            Some(primary_start_time),
-            dest_time,
-            landing_is_free,
-        );
+        // A ripple move closes the source slot, pulling the rest of the track
+        // left, so the drop's free space is gone: Override would cut whatever
+        // slid under the drop. Push reopens the slot instead.
+        let overlap_policy = if replace_with_gap {
+            Self::effective_move_overlap_policy(
+                overlap_policy,
+                Some(primary_start_time),
+                dest_time,
+                landing_is_free,
+            )
+        } else {
+            overlap_policy
+        };
         let insert_policy = Self::effective_move_insert_policy(insert_policy, landing_is_free);
         let preferred_cluster_video_id = backup
             .get_track_by_id(dest_track_id)
@@ -3321,6 +3328,7 @@ impl Stack {
                     &moving_ids,
                 )
             });
+        let requested_overlap_policy = overlap_policy;
         let overlap_policy = Self::effective_move_overlap_policy(
             overlap_policy,
             Some(move_previous_start),
@@ -3376,6 +3384,13 @@ impl Stack {
                 dest_time = move_previous_start;
             }
         }
+        let overlap_policy = if ripple_in_place && requested_overlap_policy == OverlapPolicy::Push {
+            // Closing the hole pulled the rest of the column tracks left onto
+            // the drop: Push reopens the slot, Override would cut them.
+            OverlapPolicy::Push
+        } else {
+            overlap_policy
+        };
         let removed = self.delete_clips_at_indices(targets.clone(), !ripple_in_place);
         if removed.is_empty() {
             return false;

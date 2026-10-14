@@ -618,6 +618,8 @@ fn move_unsynced_earlier_into_leading_gap_does_not_add_spurious_sync_padding() {
     stack.children.push(video);
 
     // Photo starts at LEAD + SYNC_DUR = 7. Move earlier into the leading gap at 2.
+    // A ripple move (Push, no gap) inserts there: the synced column after the
+    // drop is pushed by the photo's duration, never absorbed into the gap.
     assert!(stack.move_item_at_time(
         "unsynced",
         "Main",
@@ -630,8 +632,9 @@ fn move_unsynced_earlier_into_leading_gap_does_not_add_spurious_sync_padding() {
     let (sync_v_track, sync_v_index, sync_v) = stack.get_item("sync-v").unwrap();
     let sync_v_start = stack.children[sync_v_track].start_time_of_item(sync_v_index);
     assert!(
-        (sync_v_start - LEAD).abs() < 1e-6,
-        "synced video should stay at {LEAD}, got {sync_v_start}"
+        (sync_v_start - (LEAD + 1.0)).abs() < 1e-6,
+        "synced video should be pushed to {}, got {sync_v_start}",
+        LEAD + 1.0
     );
     assert_eq!(sync_v.duration(), SYNC_DUR);
 
@@ -646,7 +649,7 @@ fn move_unsynced_earlier_into_leading_gap_does_not_add_spurious_sync_padding() {
     assert_eq!(
         audio_track.items.len(),
         2,
-        "audio must not gain a spurious gap when synced clip was not pushed"
+        "audio must not gain a spurious gap beyond the push"
     );
     assert!(
         matches!(audio_track.items[0], Item::Gap(_)),
