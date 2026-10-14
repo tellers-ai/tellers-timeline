@@ -6,7 +6,7 @@ Every action in the UI is turned into a real call on a `Stack` held in memory,
 so what you see is what the library actually did. No media data is needed:
 clips just carry a placeholder URL.
 
-Run:  python tools/timeline-ui/server.py [--port 8765] [--no-browser]
+Run:  python tools/timeline-ui/server.py [--port 8765] [--no-browser]  (PORT or TIMELINE_UI_PORT sets the default)
 Or:   VS Code -> F5 -> "Timeline test UI"
 """
 
@@ -560,7 +560,11 @@ def _jsonable(value: Any) -> Any:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--port", type=int, default=int(os.environ.get("TIMELINE_UI_PORT", "8765")))
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", os.environ.get("TIMELINE_UI_PORT", "8765"))),
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--sample", action="store_true", help="start with a sample layout")
