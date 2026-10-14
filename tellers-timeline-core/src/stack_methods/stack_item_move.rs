@@ -351,9 +351,39 @@ impl Stack {
             );
         }
 
+        // `dest_index` refers to the track as it is now. Lifting the item from
+        // earlier on the same track shifts the indices after it (its slot goes,
+        // or its gap merges with a neighbour), so anchor the destination on the
+        // start time `items[dest_index]` has once the item is lifted: the same,
+        // or earlier by the item's duration when no gap is left behind. Then
+        // find that boundary again, splitting a merged gap if needed.
+        let source = self.get_item(item_id).map(|(ti, ii, _)| (ti, ii));
+        let anchor_time = match source {
+            Some((ti, ii)) if ti == dest_track_index && ii < dest_index => {
+                let lifted = if replace_with_gap {
+                    0.0
+                } else {
+                    item_to_move.duration()
+                };
+                Some(self.children[ti].start_time_of_item(dest_index) - lifted)
+            }
+            _ => None,
+        };
+
         if self.delete_one_item(item_id, replace_with_gap).is_none() {
             return false;
         }
+
+        let dest_index = match anchor_time {
+            Some(time) => {
+                let track = &mut self.children[dest_track_index];
+                track.split_at_time(time);
+                (0..=track.items.len())
+                    .find(|&index| track.start_time_of_item(index) >= time - super::EPS)
+                    .unwrap_or(track.items.len())
+            }
+            None => dest_index,
+        };
 
         if self
             .insert_item_at_index(

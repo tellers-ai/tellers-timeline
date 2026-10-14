@@ -956,3 +956,74 @@ fn ripple_move_of_an_audio_partner_keeps_the_column_aligned() {
     assert_eq!(placement(&stack, "SA"), ("a1".to_string(), 1.0));
     assert_eq!(placement(&stack, "A"), ("v1".to_string(), 3.5));
 }
+
+/// Moving a track's last clip to the end index (`len`) with a gap left behind
+/// used to panic: the vacated slot is a trailing gap, which the delete drops,
+/// so the track is one item shorter by the time the clip is inserted.
+#[test]
+fn move_last_clip_to_end_index_leaving_a_gap_does_not_panic() {
+    for (id, track) in [("S", "v1"), ("M", "a1")] {
+        let mut stack = kind_stack(false);
+        let len = stack.get_track_by_id(track).unwrap().1.items.len();
+        // The synced path appends; the single-clip path refuses the index and
+        // rolls back. Either way the clip is still last.
+        let moved = stack.move_item_at_index(id, track, len, true, OverlapPolicy::Push);
+        assert_eq!(moved, id == "S", "{id} -> {track}[{len}]");
+        let (_, track) = stack.get_track_by_id(track).unwrap();
+        assert_eq!(
+            track.items.last().and_then(|item| item.get_id()).as_deref(),
+            Some(id)
+        );
+    }
+}
+
+/// V1 = A[0+3] _[3+1] B[4+2] _[6+1] C[7+2]. Moving A later by index puts it
+/// right before `items[index]` of the track as it was, whether A leaves a gap
+/// (which merges with the next one) or not (a plain reorder: every gap keeps
+/// its size and the items A passes move earlier by its duration).
+#[test]
+fn move_later_by_index_lands_before_the_indexed_item() {
+    let stack_with = || {
+        let mut stack = Stack::default();
+        let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+        video.items.push(Item::Clip(clip(3.0, Some("A"))));
+        video.items.push(Item::Gap(Gap::make_gap(1.0)));
+        video.items.push(Item::Clip(clip(2.0, Some("B"))));
+        video.items.push(Item::Gap(Gap::make_gap(1.0)));
+        video.items.push(Item::Clip(clip(2.0, Some("C"))));
+        stack.children.push(video);
+        stack
+    };
+    let starts = |stack: &Stack| -> Vec<(String, f64)> {
+        let track = &stack.children[0];
+        (0..track.items.len())
+            .filter(|&i| matches!(track.items[i], Item::Clip(_)))
+            .filter_map(|i| {
+                track.items[i]
+                    .get_id()
+                    .map(|id| (id, track.start_time_of_item(i)))
+            })
+            .collect()
+    };
+    for (replace_with_gap, index, expected) in [
+        (true, 2, vec![("B", 7.0), ("A", 4.0), ("C", 10.0)]),
+        (true, 3, vec![("B", 4.0), ("A", 6.0), ("C", 10.0)]),
+        (true, 4, vec![("B", 4.0), ("A", 7.0), ("C", 10.0)]),
+        (true, 5, vec![("B", 4.0), ("C", 7.0), ("A", 9.0)]),
+        (false, 2, vec![("A", 1.0), ("B", 4.0), ("C", 7.0)]),
+        (false, 3, vec![("B", 1.0), ("A", 3.0), ("C", 7.0)]),
+        (false, 4, vec![("B", 1.0), ("A", 4.0), ("C", 7.0)]),
+        (false, 5, vec![("B", 1.0), ("C", 4.0), ("A", 6.0)]),
+    ] {
+        let mut stack = stack_with();
+        assert!(stack.move_item_at_index("A", "v1", index, replace_with_gap, OverlapPolicy::Push));
+        let mut got = starts(&stack);
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut want: Vec<(String, f64)> = expected
+            .iter()
+            .map(|(id, t)| (id.to_string(), *t))
+            .collect();
+        want.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(got, want, "A -> index {index} (gap: {replace_with_gap})");
+    }
+}

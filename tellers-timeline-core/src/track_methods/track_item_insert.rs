@@ -74,7 +74,9 @@ impl Track {
 
     pub(crate) fn insert_and_push(&mut self, index: usize, mut item: Item) {
         item.clamp_to_active_available_range();
-        self.items.insert(index, item);
+        // Like `insert_and_override`: an index past the end appends. A move can
+        // shorten the track first (its vacated slot was the trailing gap).
+        self.items.insert(index.min(self.items.len()), item);
     }
 
     pub(crate) fn insert_and_override(&mut self, index: usize, mut item: Item) -> TrackInsertResult {

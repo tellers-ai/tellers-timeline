@@ -252,27 +252,21 @@
     clamp_to_media: $('#clamp').checked,
   });
   // The app editor's move policy (tellers-app grid_clips_edition.dart
-  // `_movePolicyForClip`): a plain drag overwrites and leaves a gap; with ⇧
-  // it ripples, unless the range fits inside a gap on every track the moved
-  // column lands on (the target track and its sync partners' tracks). Checking
-  // the target alone let a ⇧-moved audio clip overwrite clips under its video.
-  // ⇧ never removes another item: the moved clip leaves a gap behind (closing
-  // its slot pulled later clips left, absorbed gaps and could trim clips).
-  function prodMovePolicy(shift, track, time, dur, it) {
-    if (!shift) return { overlap_policy: 'override', insert_policy: 'split_and_insert', replace_with_gap: true };
-    const partnerTracks = it && it.link_group_id != null
-      ? (S.tracks || []).filter(t => t.id !== track.id && t.items.some(i => i.id !== it.id && i.link_group_id === it.link_group_id))
-      : [];
-    const fits = [track, ...partnerTracks].every(t => rangeFitsGap(t, time, dur));
-    return { overlap_policy: fits ? 'override' : 'push', insert_policy: fits ? 'split_and_insert' : 'insert_before_or_after', replace_with_gap: true };
+  // `_movePolicyForClip`): a plain drag overwrites at the drop time and leaves
+  // a gap. ⇧ only changes the clip's index: it comes out of its track and goes
+  // in at the item boundary nearest the pointer, against the item (clip or
+  // gap) before or after it; past the end it goes last. No gap is left behind,
+  // every gap keeps its size, and the items it passes shift by its duration.
+  function prodMovePolicy(shift) {
+    if (!shift) return { mode: 'time', overlap_policy: 'override', insert_policy: 'split_and_insert', replace_with_gap: true };
+    return { mode: 'index', overlap_policy: 'push', replace_with_gap: false };
   }
-  // Mirrors the app's `range_fits_gap`: [time, time + dur] lies inside one
-  // gap of the committed track (the dragged clip's own slot is not a gap yet).
-  function rangeFitsGap(track, time, dur) {
-    const eps = 1e-6;
-    if (time < 0) return false;
-    return track.items.some(i => i.kind === 'gap' && time >= i.start - eps && time + dur <= i.start + i.duration + eps);
-  }
+  // The item boundary nearest `px` on the track: items whose middle is left of
+  // the pointer come before the drop.
+  const indexAt = (track, px) => track.items.filter(i => (i.start + i.duration / 2) * pps < px).length;
+  // Dropping a clip on either edge of its own slot leaves it where it is (a
+  // last clip dropped past the end stays last).
+  const isOwnSlot = (it, t, dest, index) => dest.id === t.id && (index === it.index || index === it.index + 1);
   // The app's `_overlapPolicyForResize`.
   function prodResizePolicy(shift, it, handle, start, dur) {
     if (it.kind === 'clip') return shift ? 'push' : 'override';
@@ -280,7 +274,7 @@
     if (handle === 'r' && dur < it.duration - 1e-6) return 'override';
     return 'push';
   }
-  const policyTag = p => p.overlap_policy === 'push' ? `ripple (push, ${p.insert_policy})` : `overwrite (${p.replace_with_gap ? 'gap' : 'no gap'})`;
+  const policyTag = p => p.mode === 'index' ? 'reorder (index)' : `overwrite (${p.replace_with_gap ? 'gap' : 'no gap'})`;
   function syncPresetUI() {
     $$('.manual-only').forEach(l => l.classList.toggle('off', isProd()));
     $('#mode').disabled = isProd();
@@ -553,21 +547,21 @@
     // comes back as `false`: the target track pulses red (see the Result panel).
     lane.classList.add('drop');
     const lrect = lane.getBoundingClientRect();
-    const mode = opts().mode;
+    const mode = isProd() ? prodMovePolicy(shiftDown(e)).mode : opts().mode;
     const x = e.clientX - lrect.left - s.grabX;
+    // Both are kept: in prod mode ⇧ can still change between here and the drop.
+    s.index = indexAt(track, e.clientX - lrect.left);
+    s.time = clampT(snapT(x / pps));
     if (mode === 'index') {
-      const px = e.clientX - lrect.left;
-      s.index = track.items.filter(i => (i.start + i.duration / 2) * pps < px).length;
       const before = track.items[s.index];
       const linePx = before ? before.start * pps : track.duration * pps;
-      s.time = null;
       el.dropline.style.left = `calc(var(--hdr-w) + ${linePx}px)`;
       el.droptip.textContent = `→ track #${track.index} index ${s.index}`;
+      if (isProd()) el.droptip.textContent += isOwnSlot(s.it, s.t, track, s.index) ? ' · stays' : ` · ${policyTag(prodMovePolicy(true))}`;
     } else {
-      s.time = clampT(snapT(x / pps)); s.index = null;
       el.dropline.style.left = `calc(var(--hdr-w) + ${s.time * pps}px)`;
       el.droptip.textContent = `→ track #${track.index} @ ${fmt(s.time)}s`;
-      if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(shiftDown(e), track, s.time, s.it.duration, s.it))}`;
+      if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(false))}`;
     }
     el.dropline.style.display = 'block';
     el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
@@ -607,8 +601,9 @@
     if (!lane) return render();
     const dest = trackById(lane.dataset.trackId);
     const o = opts();
-    if (isProd()) Object.assign(o, prodMovePolicy(shiftDown(e), dest, time, it.duration, it));
+    if (isProd()) Object.assign(o, prodMovePolicy(shiftDown(e)));
     if (o.mode === 'index') {
+      if (isProd() && isOwnSlot(it, t, dest, index)) return render();
       flashIfRefused(lane, await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy }));
     } else {
       if (dest.id === t.id && time === it.start) return render();

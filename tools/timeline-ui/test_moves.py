@@ -152,48 +152,57 @@ class MoveRegressionTests(unittest.TestCase):
                     for item in track["items"] if item["id"] == "4-200")
         self.assertEqual((item["start"], item["duration"]), (end, LONG_CLIP_DURATION))
 
-    def test_shift_ripple_moves_never_remove_other_items(self):
-        # The app's ⇧-drag (index.html `prodMovePolicy`, non-fitting branch):
-        # push + insert_before_or_after, leaving a gap where the clip was. No
-        # other clip may be lost, trimmed or pulled left, and once a clip is
-        # pushed every later clip on its track is pushed too (no gap absorbed).
+    def test_shift_moves_are_plain_index_changes(self):
+        # The app's ⇧-drag (index.html `prodMovePolicy`): move_item_at_index,
+        # push, no gap left. On the source and destination tracks the result
+        # is the item list with the clip taken out and put back at `index`
+        # (same gaps, adjacent gaps merged). No clip is lost or trimmed and
+        # synced partners stay aligned with their clip.
+        def layout(items):
+            merged, start = [], 0.0
+            for kind, name, duration in items:
+                if kind == "gap" and merged and merged[-1][0] == "gap":
+                    merged[-1] = ("gap", None, merged[-1][2], merged[-1][3] + duration)
+                else:
+                    merged.append((kind, name, start, duration))
+                start += duration
+            return {name: (round(s, 6), d) for kind, name, s, d in merged if kind == "clip"}
+
         base = ui.State()
         base.load_sample()
-        for track_index, track in enumerate(base.view()["tracks"]):
+        tracks = base.view()["tracks"]
+        durations = {i["name"]: i["duration"] for t in tracks for i in t["items"] if i["kind"] == "clip"}
+        for track in tracks:
             for clip in [i for i in track["items"] if i["kind"] == "clip"]:
-                moving = {clip["id"]} | {
-                    i["id"] for t in base.view()["tracks"] for i in t["items"]
-                    if clip["link_group_id"] is not None and i.get("link_group_id") == clip["link_group_id"]}
-                for dest_index in range(len(base.view()["tracks"])):
-                    for time in [t / 2 for t in range(0, 25)]:
+                for dest in tracks:
+                    for index in range(len(dest["items"]) + 1):
+                        if dest["id"] == track["id"] and index in (clip["index"], clip["index"] + 1):
+                            continue  # the UI leaves a clip dropped on its own slot alone
                         state = ui.State()
                         state.restore(base.snapshot())
-                        before = state.view()["tracks"]
                         ok, _ = ui.op_move_item(state, {
-                            "id": clip["id"], "track_id": before[dest_index]["id"], "time": time,
-                            "replace_with_gap": True, "mode": "time",
-                            "insert_policy": "insert_before_or_after", "overlap_policy": "push",
+                            "mode": "index", "id": clip["id"], "track_id": dest["id"], "index": index,
+                            "replace_with_gap": False, "overlap_policy": "push",
                         })
                         if not ok:
                             continue
-                        after = {i["id"]: (t["id"], i["start"], i["duration"])
-                                 for t in state.view()["tracks"] for i in t["items"] if i["kind"] == "clip"}
-                        for t in before:
-                            pushed = False
-                            for item in t["items"]:
-                                if item["kind"] != "clip" or item["id"] in moving:
-                                    continue
-                                with self.subTest(clip=clip["name"], dest=dest_index, time=time, other=item["name"]):
-                                    self.assertIn(item["id"], after)
-                                    track_id, start, duration = after[item["id"]]
-                                    self.assertEqual((track_id, duration), (t["id"], item["duration"]))
-                                    delta = start - item["start"]
-                                    if pushed:
-                                        self.assertAlmostEqual(delta, clip["duration"])
-                                    else:
-                                        self.assertIn(round(delta, 6), (0, clip["duration"]))
-                                    pushed = delta > 1e-6
-
+                        lists = {t["id"]: [(i["kind"], i["name"], i["duration"]) for i in t["items"]] for t in tracks}
+                        moved = lists[track["id"]].pop(clip["index"])
+                        shift = 1 if dest["id"] == track["id"] and clip["index"] < index else 0
+                        lists[dest["id"]].insert(index - shift, moved)
+                        after = state.view()["tracks"]
+                        with self.subTest(clip=clip["name"], dest=dest["name"], index=index):
+                            for t in after:
+                                got = {i["name"]: (round(i["start"], 6), i["duration"]) for i in t["items"] if i["kind"] == "clip"}
+                                if t["id"] in (track["id"], dest["id"]):
+                                    self.assertEqual(got, layout(lists[t["id"]]), t["name"])
+                            clips = [i for t in after for i in t["items"] if i["kind"] == "clip"]
+                            self.assertEqual(sorted((i["name"], i["duration"]) for i in clips), sorted(durations.items()))
+                            starts = {}
+                            for i in clips:
+                                if i.get("link_group_id") is not None:
+                                    starts.setdefault(i["link_group_id"], set()).add(round(i["start"], 6))
+                            self.assertTrue(all(len(s) == 1 for s in starts.values()), starts)
 
 if __name__ == "__main__":
     unittest.main()
