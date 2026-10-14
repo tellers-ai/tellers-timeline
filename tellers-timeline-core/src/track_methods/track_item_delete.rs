@@ -18,9 +18,7 @@ impl Track {
             .is_some_and(|item| matches!(item, Item::Gap(_)));
 
         if previous_gap {
-            let next_duration = next_gap
-                .then(|| self.items[index].duration())
-                .unwrap_or(0.0);
+            let next_duration = if next_gap { self.items[index].duration() } else { 0.0 };
             let previous = match &mut self.items[index - 1] {
                 Item::Gap(gap) => gap,
                 Item::Clip(_) => unreachable!("previous_gap was checked above"),

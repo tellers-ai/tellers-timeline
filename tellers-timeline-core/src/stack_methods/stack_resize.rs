@@ -260,10 +260,7 @@ impl Stack {
             let new_end = new_start + item.duration().max(0.0);
             // Later targets on the same track keep their index only when the
             // item count does not change before them, so re-find the clip.
-            let Some(id) = item.get_id() else {
-                return None;
-            };
-            let item_index = track.get_item_by_id(&id)?.0;
+            let item_index = track.get_item_by_id(&item.get_id()?)?.0;
             if new_end <= span.end + EPS {
                 track.items.remove(item_index);
                 let trailing = span.end - new_end;

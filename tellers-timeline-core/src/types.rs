@@ -833,7 +833,7 @@ impl Clip {
                 }
             }
         }
-        return 1.0;
+        1.0
     }
 
     pub fn set_volume(&mut self, volume: f64) {
