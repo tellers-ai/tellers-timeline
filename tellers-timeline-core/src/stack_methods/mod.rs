@@ -1,10 +1,10 @@
 use crate::metadata::{item_link_group_id, item_tellers_group_id, resolve_tellers_group_id};
 use crate::{
     Clip, Gap, IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, Track, TrackKind,
-    TrackInsertResult,
 };
 use std::collections::{HashMap, HashSet};
 
+mod stack_column_insert;
 mod stack_insert_propagate;
 mod stack_item_delete;
 mod stack_item_get;
@@ -20,6 +20,8 @@ mod stack_snap;
 mod stack_track;
 
 pub use stack_snap::{SnapEdge, SnapMatch, SnapTarget};
+
+use stack_column_insert::ColumnInsert;
 
 use stack_item_split::SyncSplitIdPolicy;
 
@@ -47,9 +49,9 @@ pub struct SyncTrackInfo {
 }
 
 #[derive(Debug, Clone)]
-struct SyncedInputs {
-    audio: Vec<Item>,
-    video: Option<Item>,
+pub(super) struct SyncedInputs {
+    pub(super) audio: Vec<Item>,
+    pub(super) video: Option<Item>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +119,7 @@ fn clamp_insertion_index(len: usize, index: isize) -> usize {
 }
 
 impl Stack {
-    fn collect_timeline_ids(&self) -> HashSet<String> {
+    pub(super) fn collect_timeline_ids(&self) -> HashSet<String> {
         let mut ids = HashSet::new();
         for track in &self.children {
             if let Some(id) = track.get_id() {
@@ -136,7 +138,7 @@ impl Stack {
         ids
     }
 
-    fn ensure_unique_item_id(item: &mut Item, used_ids: &mut HashSet<String>) -> String {
+    pub(super) fn ensure_unique_item_id(item: &mut Item, used_ids: &mut HashSet<String>) -> String {
         let current = item.get_id().filter(|id| !id.is_empty());
         if let Some(id) = current {
             if used_ids.insert(id.clone()) {
@@ -153,7 +155,7 @@ impl Stack {
         }
     }
 
-    fn next_sync_clips_id(&self) -> i64 {
+    pub(super) fn next_sync_clips_id(&self) -> i64 {
         self.children
             .iter()
             .flat_map(|track| track.items.iter())
@@ -947,7 +949,7 @@ impl Stack {
         track
     }
 
-    fn prepare_synced_item(
+    pub(super) fn prepare_synced_item(
         item: Item,
         duration: Seconds,
         sync_clips_id: Option<i64>,
@@ -970,7 +972,7 @@ impl Stack {
         Some((item, id))
     }
 
-    fn prepare_synced_item_preserve_duration(
+    pub(super) fn prepare_synced_item_preserve_duration(
         item: Item,
         sync_clips_id: Option<i64>,
         used_ids: &mut HashSet<String>,
@@ -989,7 +991,7 @@ impl Stack {
         Some((item, id))
     }
 
-    fn synced_insert_column_span(primary_duration: Seconds, inputs: &SyncedInputs) -> Seconds {
+    pub(super) fn synced_insert_column_span(primary_duration: Seconds, inputs: &SyncedInputs) -> Seconds {
         let mut span = primary_duration;
         for item in &inputs.audio {
             if let Some(duration) = Self::sanitized_clip_duration(item) {
@@ -1004,7 +1006,7 @@ impl Stack {
         span
     }
 
-    fn sanitized_clip_duration(item: &Item) -> Option<Seconds> {
+    pub(super) fn sanitized_clip_duration(item: &Item) -> Option<Seconds> {
         let Item::Clip(mut clip) = item.clone() else {
             return None;
         };
@@ -1034,7 +1036,7 @@ impl Stack {
         true
     }
 
-    fn normalize_synced_inputs(
+    pub(super) fn normalize_synced_inputs(
         synced_audio_clips: Option<Vec<Item>>,
         synced_video_clip: Option<Item>,
     ) -> SyncedInputs {
@@ -1301,290 +1303,6 @@ impl Stack {
             }
         }
         track_indices
-    }
-
-    fn insert_synced_item_at_time(
-        &mut self,
-        dest_track_index: usize,
-        dest_time: Seconds,
-        dest_index: Option<usize>,
-        item: Item,
-        overlap_policy: OverlapPolicy,
-        insert_policy: InsertPolicy,
-        synced_audio_clips: Option<Vec<Item>>,
-        synced_video_clip: Option<Item>,
-        column_video_placed_separately: bool,
-        preferred_video_track_id: Option<&str>,
-        preferred_audio_track_indices: Option<&[usize]>,
-        move_source_track_indices: Option<&[usize]>,
-        move_previous_start: Option<Seconds>,
-    ) -> Option<InsertItemAtTimeResult> {
-        let mut primary_item = item;
-        primary_item.clamp_to_active_available_range();
-        let synced_inputs =
-            Self::normalize_synced_inputs(synced_audio_clips, synced_video_clip);
-        let has_synced_clips =
-            !synced_inputs.audio.is_empty() || synced_inputs.video.is_some();
-        if has_synced_clips && !matches!(primary_item, Item::Clip(_)) {
-            return None;
-        }
-        if matches!(synced_inputs.video, Some(Item::Gap(_))) {
-            return None;
-        }
-        if !self.column_may_land_on(
-            dest_track_index,
-            matches!(primary_item, Item::Gap(_)),
-            synced_inputs.video.is_some() || column_video_placed_separately,
-        ) {
-            return None;
-        }
-
-        let modified_duration = primary_item.duration().max(0.0);
-        if modified_duration <= EPS {
-            return None;
-        }
-        let column_span = Self::synced_insert_column_span(modified_duration, &synced_inputs);
-
-        // Resolved start on the primary track; every column member lands here.
-        let start = if let Some(dest_index) = dest_index {
-            self.children[dest_track_index].start_time_of_item(dest_index)
-        } else {
-            insertion_start_or_end_for_policy(
-                &self.children[dest_track_index],
-                dest_time,
-                insert_policy,
-            )?
-        };
-
-        let backup = self.clone();
-        let mut used_ids = self.collect_timeline_ids();
-        let sync_clips_id = has_synced_clips.then(|| self.next_sync_clips_id());
-        let mut created_track_indices = Vec::new();
-
-        // Pick the best sync cluster for the destination: prefer video when inserting
-        // on a video track or supplying a synced video clip, otherwise prefer most tracks.
-        let prefer_cluster_with_video = self.children.get(dest_track_index).is_some_and(|track| {
-            track.kind == TrackKind::Video
-        }) || synced_inputs.video.is_some();
-        let mut dest_track_index = dest_track_index;
-        let mut cluster = self.resolve_insert_cluster(
-            dest_track_index,
-            prefer_cluster_with_video,
-            if synced_inputs.video.is_some() {
-                preferred_video_track_id
-            } else {
-                None
-            },
-        );
-
-        // The video partner first: it owns the column, so the audio slots come
-        // from its association even when an audio clip is the primary (a moved
-        // audio partner).
-        let mut audio_slots: Vec<usize> = Vec::new();
-        let mut synced_video_clip_id = None;
-        let mut column_video = None;
-        // An audio-only column on a partner track of an audio group is recorded
-        // on the group's owner; on a video track or a free track the
-        // destination itself owns the column.
-        let mut owner_track_index = self.group_owner_of(dest_track_index);
-        if let Some(video_item) = synced_inputs.video {
-            let video_span = Self::sanitized_clip_duration(&video_item).unwrap_or(column_span);
-            let track_count_before = self.children.len();
-            let video_track_index = self.pick_video_partner_track(
-                dest_track_index,
-                start,
-                start + video_span,
-                preferred_video_track_id,
-                &[],
-                sync_clips_id,
-                overlap_policy,
-                insert_policy,
-                &mut created_track_indices,
-            );
-            let Some(video_track_index) = video_track_index else {
-                *self = backup;
-                return None;
-            };
-            if self.children.len() > track_count_before {
-                Self::shift_insert_track_indices_after_create(
-                    video_track_index,
-                    &mut dest_track_index,
-                    &mut cluster,
-                    &mut audio_slots,
-                    &mut [],
-                );
-            }
-            let Some((video_item, video_id)) = Self::prepare_synced_item_preserve_duration(
-                video_item,
-                sync_clips_id,
-                &mut used_ids,
-            ) else {
-                *self = backup;
-                return None;
-            };
-            synced_video_clip_id = Some(video_id);
-            column_video = Some((video_track_index, video_item));
-            owner_track_index = video_track_index;
-        }
-
-        // The owner's associated tracks join the working cluster so insert
-        // propagation applies to them even while they are empty.
-        if has_synced_clips {
-            for track_index in self
-                .associated_track_indices(dest_track_index)
-                .into_iter()
-                .chain(self.associated_track_indices(owner_track_index))
-                .chain(std::iter::once(owner_track_index))
-            {
-                if !cluster.contains(&track_index) {
-                    cluster.push(track_index);
-                }
-            }
-            cluster.sort_unstable();
-        }
-
-        // Audio slots: the owner's associated tracks, then created tracks (see
-        // `stack_partner_tracks`). Override replaces whatever sits under the
-        // column on the destination track together with the partners of those
-        // clips; an associated track holding anything else there (unrelated
-        // music, another video track's audio) must not lose it, so it is not a
-        // slot for this column.
-        let audio_durations: Vec<Seconds> = synced_inputs
-            .audio
-            .iter()
-            .map(|item| Self::sanitized_clip_duration(item).unwrap_or(modified_duration))
-            .collect();
-        let column_end = start + column_span;
-        let overridden_sync_ids: HashSet<i64> = if overlap_policy == OverlapPolicy::Override {
-            self.sync_clips_ids_in_range(dest_track_index, start, column_end)
-        } else {
-            HashSet::new()
-        };
-        audio_slots = self.assign_audio_partner_slots(
-            &mut dest_track_index,
-            &mut owner_track_index,
-            &mut cluster,
-            &mut created_track_indices,
-            start,
-            &audio_durations,
-            preferred_audio_track_indices,
-            move_source_track_indices.unwrap_or(&[]),
-            overlap_policy,
-            &overridden_sync_ids,
-        );
-        if let Some((video_track_index, _)) = column_video.as_mut() {
-            // Audio slot creation may have shifted the video track.
-            *video_track_index = owner_track_index;
-        }
-
-        // Primary clip/gap on the destination track.
-        let (primary_item, primary_id) = match primary_item {
-            Item::Clip(_) => Self::prepare_synced_item(
-                primary_item,
-                modified_duration,
-                sync_clips_id,
-                &mut used_ids,
-            )?,
-            Item::Gap(mut gap) => {
-                gap.source_range.duration.set_from_seconds(modified_duration);
-                let mut item = Item::Gap(gap);
-                let id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
-                (item, id)
-            }
-        };
-        let mut column = Vec::new();
-
-        // Audio clips onto their slots, in partner order.
-        let mut audio_clips = Vec::new();
-        for (audio_item, &audio_track_index) in synced_inputs.audio.into_iter().zip(&audio_slots) {
-            let Some((audio_item, audio_id)) = Self::prepare_synced_item_preserve_duration(
-                audio_item,
-                sync_clips_id,
-                &mut used_ids,
-            ) else {
-                *self = backup;
-                return None;
-            };
-            column.push((audio_track_index, audio_item));
-            audio_clips.push((audio_id, audio_track_index));
-        }
-        if let Some(video_placement) = column_video {
-            column.push(video_placement);
-        }
-        column.sort_by_key(|(track_index, _)| *track_index);
-
-        let mut full_column = vec![(dest_track_index, primary_item)];
-        full_column.extend(column);
-        if overlap_policy == OverlapPolicy::Push {
-            full_column.sort_by_key(|(track_index, _)| *track_index);
-        } else {
-            let (mut dest_items, mut partners): (Vec<_>, Vec<_>) = full_column
-                .into_iter()
-                .partition(|(track_index, _)| *track_index == dest_track_index);
-            partners.sort_by_key(|(track_index, _)| *track_index);
-            dest_items.extend(partners);
-            full_column = dest_items;
-        }
-
-        let mut insert_updates: Vec<(usize, TrackInsertResult)> = Vec::new();
-        for (track_index, item) in full_column {
-            let result = self.children[track_index].insert_at_time(
-                start,
-                item,
-                overlap_policy,
-                InsertPolicy::SplitAndInsert,
-            );
-            if !result.success {
-                *self = backup;
-                return None;
-            }
-            insert_updates.push((track_index, result));
-        }
-
-        let update_refs: Vec<_> = insert_updates
-            .iter()
-            .map(|(track_index, result)| (*track_index, result))
-            .collect();
-        if !self.propagate_insert_to_cluster(
-            start,
-            modified_duration,
-            overlap_policy,
-            &update_refs,
-            &cluster,
-            sync_clips_id,
-        ) {
-            *self = backup;
-            return None;
-        }
-        if overlap_policy == OverlapPolicy::Push
-            && !self.propagate_push_to_cluster(
-                start,
-                start + modified_duration,
-                modified_duration,
-                &update_refs,
-                &cluster,
-                move_previous_start,
-            )
-        {
-            *self = backup;
-            return None;
-        }
-
-        self.sanitize_preserving_all_gap_tracks();
-
-        if sync_clips_id.is_some()
-            && matches!(self.get_item(&primary_id), Some((_, _, Item::Clip(_))))
-        {
-            Some(InsertItemAtTimeResult::Synced(SyncedInsertResult {
-                primary_clip_id: primary_id,
-                audio_clips,
-                synced_video_clip_id,
-                sync_clips_id,
-                created_track_indices,
-            }))
-        } else {
-            Some(InsertItemAtTimeResult::ItemId(primary_id))
-        }
     }
 
     pub fn modify_item(
@@ -2321,38 +2039,32 @@ impl Stack {
         let has_synced_partners =
             !linked_audio_items.is_empty() || linked_video_item.is_some();
         let insert_result = if !has_synced_partners {
-            self.insert_synced_item_at_time(
-                dest_track_index,
-                dest_time,
-                None,
-                item_to_move,
-                overlap_policy,
-                insert_policy,
-                None,
-                None,
-                false,
-                None::<&str>,
-                None::<&[usize]>,
-                None::<&[usize]>,
-                Some(primary_start_time),
-            )
+            self.insert_synced_item_at_time(ColumnInsert {
+                move_previous_start: Some(primary_start_time),
+                ..ColumnInsert::new(
+                    dest_track_index,
+                    dest_time,
+                    item_to_move,
+                    overlap_policy,
+                    insert_policy,
+                )
+            })
         } else {
-            self.insert_synced_item_at_time(
-                dest_track_index,
-                dest_time,
-                None,
-                item_to_move,
-                overlap_policy,
-                insert_policy,
-                (!linked_audio_items.is_empty()).then_some(linked_audio_items),
-                None,
-                linked_video_item.is_some(),
-                preferred_cluster_video_id.as_deref(),
-                (!preferred_audio_track_indices.is_empty())
+            self.insert_synced_item_at_time(ColumnInsert {
+                synced_audio_clips: (!linked_audio_items.is_empty()).then_some(linked_audio_items),
+                column_video_placed_separately: linked_video_item.is_some(),
+                preferred_video_track_id: preferred_cluster_video_id.as_deref(),
+                preferred_audio_track_indices: (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
-                None::<&[usize]>,
-                Some(primary_start_time),
-            )
+                move_previous_start: Some(primary_start_time),
+                ..ColumnInsert::new(
+                    dest_track_index,
+                    dest_time,
+                    item_to_move,
+                    overlap_policy,
+                    insert_policy,
+                )
+            })
         };
         if has_synced_partners {
             let Some(insert_result) = insert_result else {
@@ -2531,22 +2243,20 @@ impl Stack {
         let gap_only_exclude = (!gap_only_audio_tracks.is_empty())
             .then_some(gap_only_audio_tracks.as_slice());
         if self
-            .insert_synced_item_at_time(
-                dest_track_index,
-                dest_time,
-                None,
-                primary_item,
-                OverlapPolicy::Override,
-                InsertPolicy::SplitAndInsert,
+            .insert_synced_item_at_time(ColumnInsert {
                 synced_audio_clips,
-                synced_video,
-                false,
-                None,
-                (!preferred_audio_track_indices.is_empty())
+                synced_video_clip: synced_video,
+                preferred_audio_track_indices: (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
-                gap_only_exclude,
-                None,
-            )
+                move_source_track_indices: gap_only_exclude,
+                ..ColumnInsert::new(
+                    dest_track_index,
+                    dest_time,
+                    primary_item,
+                    OverlapPolicy::Override,
+                    InsertPolicy::SplitAndInsert,
+                )
+            })
             .is_some()
         {
             self.remove_gaps_by_id(&placeholder_gap_ids);
@@ -2685,22 +2395,22 @@ impl Stack {
 
         let synced_audio_clips = (!synced_audio.is_empty()).then_some(synced_audio);
         if self
-            .insert_synced_item_at_time(
-                dest_track_index,
-                dest_time,
-                None,
-                primary_item,
-                overlap_policy,
-                insert_policy,
+            .insert_synced_item_at_time(ColumnInsert {
                 synced_audio_clips,
-                synced_video,
-                false,
-                preferred_video_track_id.as_deref(),
-                (!preferred_audio_track_indices.is_empty())
+                synced_video_clip: synced_video,
+                preferred_video_track_id: preferred_video_track_id.as_deref(),
+                preferred_audio_track_indices: (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
-                Some(move_source_track_indices.as_slice()),
-                Some(move_previous_start),
-            )
+                move_source_track_indices: Some(move_source_track_indices.as_slice()),
+                move_previous_start: Some(move_previous_start),
+                ..ColumnInsert::new(
+                    dest_track_index,
+                    dest_time,
+                    primary_item,
+                    overlap_policy,
+                    insert_policy,
+                )
+            })
             .is_some()
         {
             if !replace_with_gap {
@@ -3226,7 +2936,7 @@ pub(super) fn replace_track_range_with_item(
     track.sanitize_preserving_all_gap_track();
 }
 
-fn insertion_start_or_end_for_policy(
+pub(super) fn insertion_start_or_end_for_policy(
     track: &Track,
     insert_time: Seconds,
     insert_policy: InsertPolicy,

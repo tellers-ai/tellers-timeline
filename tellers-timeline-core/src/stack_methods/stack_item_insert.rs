@@ -1,4 +1,4 @@
-use super::InsertItemAtTimeResult;
+use super::{ColumnInsert, InsertItemAtTimeResult};
 use crate::{InsertPolicy, Item, OverlapPolicy, Seconds, Stack};
 
 impl Stack {
@@ -18,21 +18,17 @@ impl Stack {
             // A column with a video clip lands on a video track, as its primary.
             return None;
         }
-        self.insert_synced_item_at_time(
-            dest_track_index,
-            dest_time,
-            None,
-            item,
-            overlap_policy,
-            insert_policy,
+        self.insert_synced_item_at_time(ColumnInsert {
             synced_audio_clips,
             synced_video_clip,
-            false,
-            None::<&str>,
-            None::<&[usize]>,
-            None::<&[usize]>,
-            None,
-        )
+            ..ColumnInsert::new(
+                dest_track_index,
+                dest_time,
+                item,
+                overlap_policy,
+                insert_policy,
+            )
+        })
     }
 
     /// Insert an item at a given time into the track with `dest_track_id`.
@@ -79,20 +75,17 @@ impl Stack {
         if dest_track_index >= self.children.len() || synced_video_clip.is_some() {
             return None;
         }
-        self.insert_synced_item_at_time(
-            dest_track_index,
-            0.0,
-            Some(dest_index),
-            item,
-            overlap_policy,
-            InsertPolicy::InsertBefore,
+        self.insert_synced_item_at_time(ColumnInsert {
+            dest_index: Some(dest_index),
             synced_audio_clips,
             synced_video_clip,
-            false,
-            None::<&str>,
-            None::<&[usize]>,
-            None::<&[usize]>,
-            None,
-        )
+            ..ColumnInsert::new(
+                dest_track_index,
+                0.0,
+                item,
+                overlap_policy,
+                InsertPolicy::InsertBefore,
+            )
+        })
     }
 }
