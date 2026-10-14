@@ -152,6 +152,48 @@ class MoveRegressionTests(unittest.TestCase):
                     for item in track["items"] if item["id"] == "4-200")
         self.assertEqual((item["start"], item["duration"]), (end, LONG_CLIP_DURATION))
 
+    def test_shift_ripple_moves_never_remove_other_items(self):
+        # The app's ⇧-drag (index.html `prodMovePolicy`, non-fitting branch):
+        # push + insert_before_or_after, leaving a gap where the clip was. No
+        # other clip may be lost, trimmed or pulled left, and once a clip is
+        # pushed every later clip on its track is pushed too (no gap absorbed).
+        base = ui.State()
+        base.load_sample()
+        for track_index, track in enumerate(base.view()["tracks"]):
+            for clip in [i for i in track["items"] if i["kind"] == "clip"]:
+                moving = {clip["id"]} | {
+                    i["id"] for t in base.view()["tracks"] for i in t["items"]
+                    if clip["link_group_id"] is not None and i.get("link_group_id") == clip["link_group_id"]}
+                for dest_index in range(len(base.view()["tracks"])):
+                    for time in [t / 2 for t in range(0, 25)]:
+                        state = ui.State()
+                        state.restore(base.snapshot())
+                        before = state.view()["tracks"]
+                        ok, _ = ui.op_move_item(state, {
+                            "id": clip["id"], "track_id": before[dest_index]["id"], "time": time,
+                            "replace_with_gap": True, "mode": "time",
+                            "insert_policy": "insert_before_or_after", "overlap_policy": "push",
+                        })
+                        if not ok:
+                            continue
+                        after = {i["id"]: (t["id"], i["start"], i["duration"])
+                                 for t in state.view()["tracks"] for i in t["items"] if i["kind"] == "clip"}
+                        for t in before:
+                            pushed = False
+                            for item in t["items"]:
+                                if item["kind"] != "clip" or item["id"] in moving:
+                                    continue
+                                with self.subTest(clip=clip["name"], dest=dest_index, time=time, other=item["name"]):
+                                    self.assertIn(item["id"], after)
+                                    track_id, start, duration = after[item["id"]]
+                                    self.assertEqual((track_id, duration), (t["id"], item["duration"]))
+                                    delta = start - item["start"]
+                                    if pushed:
+                                        self.assertAlmostEqual(delta, clip["duration"])
+                                    else:
+                                        self.assertIn(round(delta, 6), (0, clip["duration"]))
+                                    pushed = delta > 1e-6
+
 
 if __name__ == "__main__":
     unittest.main()

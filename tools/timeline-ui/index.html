@@ -256,13 +256,15 @@
   // it ripples, unless the range fits inside a gap on every track the moved
   // column lands on (the target track and its sync partners' tracks). Checking
   // the target alone let a ⇧-moved audio clip overwrite clips under its video.
+  // ⇧ never removes another item: the moved clip leaves a gap behind (closing
+  // its slot pulled later clips left, absorbed gaps and could trim clips).
   function prodMovePolicy(shift, track, time, dur, it) {
     if (!shift) return { overlap_policy: 'override', insert_policy: 'split_and_insert', replace_with_gap: true };
     const partnerTracks = it && it.link_group_id != null
       ? (S.tracks || []).filter(t => t.id !== track.id && t.items.some(i => i.id !== it.id && i.link_group_id === it.link_group_id))
       : [];
     const fits = [track, ...partnerTracks].every(t => rangeFitsGap(t, time, dur));
-    return { overlap_policy: fits ? 'override' : 'push', insert_policy: fits ? 'split_and_insert' : 'insert_before_or_after', replace_with_gap: false };
+    return { overlap_policy: fits ? 'override' : 'push', insert_policy: fits ? 'split_and_insert' : 'insert_before_or_after', replace_with_gap: true };
   }
   // Mirrors the app's `range_fits_gap`: [time, time + dur] lies inside one
   // gap of the committed track (the dragged clip's own slot is not a gap yet).
