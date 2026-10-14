@@ -3,7 +3,7 @@ use crate::{Item, Seconds, Stack};
 const EPS: Seconds = super::EPS;
 
 #[derive(Copy, Clone)]
-pub(super) enum SyncSplitIdPolicy {
+pub(crate) enum SyncSplitIdPolicy {
     KeepShared,
     AssignNewIdToRight,
 }

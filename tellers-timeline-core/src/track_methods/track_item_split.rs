@@ -7,9 +7,7 @@ impl Track {
     pub(crate) fn split_at_time(&mut self, split_time: Seconds) -> Option<SplitClipInfo> {
         const EPS: Seconds = 1e-9;
 
-        let Some(item_index) = self.get_item_at_time(split_time) else {
-            return None;
-        };
+        let item_index = self.get_item_at_time(split_time)?;
 
         // Compute the offset from the start of the item
         let item_start_time = self.start_time_of_item(item_index);

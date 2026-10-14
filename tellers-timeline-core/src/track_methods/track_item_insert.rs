@@ -121,7 +121,7 @@ impl Track {
         // After splitting at start and end, remove the exact range of items fully inside [insert_start, insert_end).
         let end_index = self
             .get_item_at_time(insert_end)
-            .unwrap_or_else(|| self.items.len());
+            .unwrap_or(self.items.len());
         if end_index > insert_index {
             let remove_count = end_index - insert_index;
             for _ in 0..remove_count {

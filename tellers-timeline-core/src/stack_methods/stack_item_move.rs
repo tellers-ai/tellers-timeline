@@ -1,3 +1,4 @@
+use super::ColumnInsert;
 use crate::{IdMetadataExt, InsertPolicy, OverlapPolicy, Seconds, Stack, TrackKind};
 
 impl Stack {
@@ -164,21 +165,21 @@ impl Stack {
             let old_start =
                 snapshot.children[selected.track_index].start_time_of_item(selected.item_index);
             if self
-                .insert_synced_item_at_time(
-                    dest,
-                    time,
-                    None,
-                    selected.item.clone(),
-                    Self::effective_move_overlap_policy(overlap_policy, Some(old_start), time),
-                    InsertPolicy::SplitAndInsert,
-                    (!audio.is_empty()).then_some(audio),
-                    video,
-                    false,
-                    video_track.as_deref(),
-                    Some(&audio_tracks),
-                    Some(&source_tracks),
-                    Some(old_start),
-                )
+                .insert_synced_item_at_time(ColumnInsert {
+                    synced_audio_clips: (!audio.is_empty()).then_some(audio),
+                    synced_video_clip: video,
+                    preferred_video_track_id: video_track.as_deref(),
+                    preferred_audio_track_indices: Some(&audio_tracks),
+                    move_source_track_indices: Some(&source_tracks),
+                    move_previous_start: Some(old_start),
+                    ..ColumnInsert::new(
+                        dest,
+                        time,
+                        selected.item.clone(),
+                        Self::effective_move_overlap_policy(overlap_policy, Some(old_start), time),
+                        InsertPolicy::SplitAndInsert,
+                    )
+                })
                 .is_none()
             {
                 return false;
