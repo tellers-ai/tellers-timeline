@@ -2601,10 +2601,54 @@ impl Stack {
         Some(self.children[track_index].start_time_of_item(item_index))
     }
 
-    /// Backward moves land earlier on the destination. When they land on free
-    /// space, Push would shove unrelated tail content on that track rightward, so
-    /// use Override for the insert itself. When they land on another clip, keep
-    /// Push: Override would delete that clip instead of rippling it.
+    /// Where `insert_policy` puts a drop at `time` relative to the clip (other
+    /// than `moving_ids`) that strictly contains it on the track, or `None`
+    /// when no such clip exists or the policy splits it.
+    fn move_snap_to_clip_at(
+        &self,
+        track_index: usize,
+        time: Seconds,
+        insert_policy: InsertPolicy,
+        moving_ids: &[String],
+    ) -> Option<Seconds> {
+        let track = self.children.get(track_index)?;
+        let mut cursor = 0.0;
+        track.items.iter().find_map(|item| {
+            let (start, end) = (cursor, cursor + item.duration());
+            cursor = end;
+            let contains = matches!(item, Item::Clip(_))
+                && start + EPS < time
+                && time < end - EPS
+                && !item.get_id().is_some_and(|id| moving_ids.contains(&id));
+            if !contains {
+                return None;
+            }
+            match insert_policy {
+                InsertPolicy::SplitAndInsert => None,
+                InsertPolicy::InsertBefore => Some(start),
+                InsertPolicy::InsertAfter => Some(end),
+                InsertPolicy::InsertBeforeOrAfter => {
+                    Some(if time - start <= end - time { start } else { end })
+                }
+            }
+        })
+    }
+
+    /// A move that lands on free space (only gaps once the moved items are
+    /// lifted) goes exactly where it was dropped. Snapping to an item boundary
+    /// would snap to the edge of the gap the lifted items leave behind.
+    fn effective_move_insert_policy(insert_policy: InsertPolicy, landing_is_free: bool) -> InsertPolicy {
+        if landing_is_free {
+            InsertPolicy::SplitAndInsert
+        } else {
+            insert_policy
+        }
+    }
+
+    /// A move that lands on free space has nothing to push: Push would shove
+    /// unrelated tail content on that track rightward, so use Override for the
+    /// insert itself. When it lands on another clip, keep Push: Override would
+    /// delete that clip instead of rippling it.
     fn effective_move_overlap_policy(
         overlap_policy: OverlapPolicy,
         previous_start: Option<Seconds>,
@@ -2613,7 +2657,7 @@ impl Stack {
     ) -> OverlapPolicy {
         if overlap_policy == OverlapPolicy::Push
             && landing_is_free
-            && previous_start.is_some_and(|previous| dest_time < previous - EPS)
+            && previous_start.is_some_and(|previous| (dest_time - previous).abs() > EPS)
         {
             OverlapPolicy::Override
         } else {
@@ -2802,17 +2846,19 @@ impl Stack {
         let primary_start_time = backup
             .stack_item_start_time(item_id)
             .unwrap_or(dest_time);
+        let landing_is_free = backup.move_landing_is_free(
+            dest_track_index,
+            dest_time,
+            item_to_move.duration(),
+            &[item_id.to_string()],
+        );
         let overlap_policy = Self::effective_move_overlap_policy(
             overlap_policy,
             Some(primary_start_time),
             dest_time,
-            backup.move_landing_is_free(
-                dest_track_index,
-                dest_time,
-                item_to_move.duration(),
-                &[item_id.to_string()],
-            ),
+            landing_is_free,
         );
+        let insert_policy = Self::effective_move_insert_policy(insert_policy, landing_is_free);
         let preferred_cluster_video_id = backup
             .get_track_by_id(dest_track_id)
             .map(|(dest_track_index, _)| dest_track_index)
@@ -3262,17 +3308,47 @@ impl Stack {
             .iter()
             .filter_map(|item| item.item.get_id())
             .collect();
+        // The whole column must land on free space: the selected item on the
+        // destination, its partners on their own tracks.
+        let column_tracks: Vec<usize> = std::iter::once(dest_track_index)
+            .chain(items_to_move.iter().filter(|item| !item.is_selected).map(|item| item.track_index))
+            .collect();
+        let landing_is_free = column_tracks.iter().all(|&track_index| {
+                backup.move_landing_is_free(
+                    track_index,
+                    dest_time,
+                    selected.item.duration(),
+                    &moving_ids,
+                )
+            });
         let overlap_policy = Self::effective_move_overlap_policy(
             overlap_policy,
             Some(move_previous_start),
             dest_time,
-            backup.move_landing_is_free(
-                dest_track_index,
-                dest_time,
-                selected.item.duration(),
-                &moving_ids,
-            ),
+            landing_is_free,
         );
+        // Snap to the clip the column lands on, on whichever column track holds
+        // it. The lifted source leaves only a gap on its own track, so snapping
+        // there would jump to that gap's edge and strand the partners.
+        let dest_time = if landing_is_free {
+            dest_time
+        } else {
+            column_tracks
+                .iter()
+                .find_map(|&track_index| {
+                    backup.move_snap_to_clip_at(track_index, dest_time, insert_policy, &moving_ids)
+                })
+                .unwrap_or(dest_time)
+        };
+        if dest_track_index == selected.track_index && (dest_time - move_previous_start).abs() <= EPS {
+            // Snapped back onto its own slot: nothing moves.
+            return true;
+        }
+        let insert_policy = if landing_is_free || insert_policy != InsertPolicy::SplitAndInsert {
+            InsertPolicy::SplitAndInsert
+        } else {
+            insert_policy
+        };
         let move_source_track_indices: Vec<usize> =
             items_to_move.iter().map(|item| item.track_index).collect();
         let partner_ids: Vec<String> = items_to_move

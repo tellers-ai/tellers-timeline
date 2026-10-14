@@ -780,3 +780,72 @@ fn move_backward_push_onto_synced_clip_keeps_its_partner_aligned() {
     assert_eq!(start("C"), 7.0);
     assert_eq!(start("CA"), 7.0, "the synced audio follows its video");
 }
+
+/// v1: gap[0-1] - B[1-3] - C[3-5] (sync) - gap[5-6] - A[6-7]; a1: gap[0-3] - CA[3-5] (sync);
+/// plus an empty video track "text".
+fn audio_partner_move_stack() -> Stack {
+    const GROUP: i64 = 1;
+    let mut stack = Stack::default();
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(Item::Gap(Gap::make_gap(3.0)));
+    audio.items.push(synced_clip_item(2.0, "CA", GROUP));
+    stack.children.push(audio);
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(Item::Gap(Gap::make_gap(1.0)));
+    video.items.push(Item::Clip(clip(2.0, Some("B"))));
+    video.items.push(synced_clip_item(2.0, "C", GROUP));
+    video.items.push(Item::Gap(Gap::make_gap(1.0)));
+    video.items.push(Item::Clip(clip(1.0, Some("A"))));
+    stack.children.push(video);
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("text".to_string())));
+    stack
+}
+
+fn placement(stack: &Stack, id: &str) -> (String, f64) {
+    let (ti, ii, _) = stack.get_item(id).unwrap_or_else(|| panic!("{id} must exist"));
+    (
+        stack.children[ti].get_id().unwrap(),
+        stack.children[ti].start_time_of_item(ii),
+    )
+}
+
+#[test]
+fn ripple_move_of_audio_partner_onto_a_video_clip_snaps_on_that_clip() {
+    // Dropping CA at 2.5 lands its video C on B: the column snaps to B's
+    // nearer edge (3), not to the edge of the gap the lifted CA leaves on a1,
+    // and C stays on v1 instead of jumping to the empty "text" track.
+    let mut stack = audio_partner_move_stack();
+    assert!(stack.move_item_at_time(
+        "CA",
+        "a1",
+        2.5,
+        false,
+        InsertPolicy::InsertBeforeOrAfter,
+        OverlapPolicy::Push,
+    ));
+    assert_eq!(placement(&stack, "CA"), ("a1".to_string(), 3.0));
+    assert_eq!(placement(&stack, "C"), ("v1".to_string(), 3.0));
+    assert_eq!(placement(&stack, "B"), ("v1".to_string(), 1.0));
+    assert!(stack.children[2].items.is_empty(), "the text track stays empty");
+}
+
+#[test]
+fn ripple_move_of_audio_partner_into_free_space_lands_at_the_drop_time() {
+    // Dropping CA at 3.5 leaves the column on free space once lifted (C's own
+    // slot, the gap after it): it lands exactly at 3.5, together with C.
+    let mut stack = audio_partner_move_stack();
+    assert!(stack.move_item_at_time(
+        "CA",
+        "a1",
+        3.5,
+        false,
+        InsertPolicy::InsertBeforeOrAfter,
+        OverlapPolicy::Push,
+    ));
+    assert_eq!(placement(&stack, "CA"), ("a1".to_string(), 3.5));
+    assert_eq!(placement(&stack, "C"), ("v1".to_string(), 3.5));
+    assert_eq!(placement(&stack, "B"), ("v1".to_string(), 1.0));
+    assert!(stack.children[2].items.is_empty(), "the text track stays empty");
+}

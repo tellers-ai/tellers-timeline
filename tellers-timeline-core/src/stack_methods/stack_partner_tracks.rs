@@ -387,10 +387,18 @@ impl Stack {
             }
         }
 
+        // The preferred track is the column's own video track on a move. Push
+        // makes room on it, so a clip sitting there does not send the video to
+        // another track (the lifted column no longer proves the association).
         let mut chosen = preferred_video_track_id
             .and_then(|id| self.get_track_by_id(id))
             .map(|(index, _)| index)
-            .filter(|&index| reusable(self, index));
+            .filter(|&index| {
+                (overlap_policy == OverlapPolicy::Push
+                    && self.children[index].kind == TrackKind::Video
+                    && !used_video.contains(&index))
+                    || reusable(self, index)
+            });
         if chosen.is_none() {
             chosen = associated
                 .iter()
