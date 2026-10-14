@@ -14,6 +14,8 @@ mod stack_item_move;
 mod stack_item_replace;
 mod stack_item_split;
 mod stack_partner_tracks;
+mod stack_resize;
+mod stack_resize_propagate;
 mod stack_snap;
 mod stack_track;
 
@@ -21,7 +23,7 @@ pub use stack_snap::{SnapEdge, SnapMatch, SnapTarget};
 
 use stack_item_split::SyncSplitIdPolicy;
 
-const EPS: Seconds = 1e-9;
+pub(super) const EPS: Seconds = 1e-9;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyncedInsertResult {
@@ -60,12 +62,12 @@ struct SyncedMoveItem {
 }
 
 #[derive(Debug, Clone)]
-struct SyncedClipState {
-    track_index: usize,
-    start: Seconds,
-    duration: Seconds,
-    source_start: Seconds,
-    sync_clips_id: i64,
+pub(super) struct SyncedClipState {
+    pub(super) track_index: usize,
+    pub(super) start: Seconds,
+    pub(super) duration: Seconds,
+    pub(super) source_start: Seconds,
+    pub(super) sync_clips_id: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -669,7 +671,7 @@ impl Stack {
         matches!(item, Item::Clip(_)).then_some((track_index, item_index))
     }
 
-    fn synced_clips_targets(&self, sync_clips_id: i64) -> Vec<(usize, usize)> {
+    pub(super) fn synced_clips_targets(&self, sync_clips_id: i64) -> Vec<(usize, usize)> {
         let mut targets = Vec::new();
         for (ti, track) in self.children.iter().enumerate() {
             for (ii, item) in track.items.iter().enumerate() {
@@ -858,7 +860,7 @@ impl Stack {
         true
     }
 
-    fn synced_clip_states(&self) -> HashMap<String, SyncedClipState> {
+    pub(super) fn synced_clip_states(&self) -> HashMap<String, SyncedClipState> {
         let mut states = HashMap::new();
         for (track_index, track) in self.children.iter().enumerate() {
             for (item_index, item) in track.items.iter().enumerate() {
@@ -1301,239 +1303,6 @@ impl Stack {
         track_indices
     }
 
-    /// After a resize on `modified_track_indices`, make every sync column that
-    /// changed there carry the same change on its partner tracks. The change
-    /// is read from the clip itself (or its surviving fragment), never from
-    /// the overlap policy, so partners mirror what actually happened:
-    ///
-    /// - a clip that moved by `start_delta` with its length kept (it was
-    ///   pushed, or pulled back) ripples its partner tracks by the same delta
-    ///   at its position, once per track and position, so unrelated content
-    ///   after it on the partner track moves along as it did on the primary;
-    /// - a clip that got shorter inside its old span (trimmed at either end)
-    ///   is trimmed in place on the partners, gaps filling what it left and
-    ///   the media offset following a head trim;
-    /// - a clip that grew past its old end overrides what follows on the
-    ///   partners, as it did on the primary.
-    fn sync_changed_groups_after_resize(
-        &mut self,
-        before_states: &HashMap<String, SyncedClipState>,
-        modified_track_indices: &[usize],
-        excluded_ids: &HashSet<String>,
-        _overlap_policy: OverlapPolicy,
-    ) -> bool {
-        struct GroupChange {
-            sync_clips_id: i64,
-            primary_start: Seconds,
-            start_delta: Seconds,
-            old_duration: Seconds,
-            new_duration: Seconds,
-            source_delta: Seconds,
-        }
-        let mut seen = HashSet::new();
-        let mut changes: Vec<GroupChange> = Vec::new();
-        let mut removed_groups: Vec<i64> = Vec::new();
-        for (id, before) in before_states {
-            if excluded_ids.contains(id) || !modified_track_indices.contains(&before.track_index) {
-                continue;
-            }
-            let Some((track_index, item_index, item)) = self
-                .get_item(id)
-                .or_else(|| self.surviving_sync_fragment(before))
-            else {
-                // The clip was wiped out entirely: its column goes with it.
-                if seen.insert(before.sync_clips_id) {
-                    removed_groups.push(before.sync_clips_id);
-                }
-                continue;
-            };
-            let start = self.children[track_index].start_time_of_item(item_index);
-            let duration = item.duration().max(0.0);
-            let start_delta = start - before.start;
-            if (start_delta.abs() > EPS || (duration - before.duration).abs() > EPS)
-                && seen.insert(before.sync_clips_id)
-            {
-                changes.push(GroupChange {
-                    sync_clips_id: before.sync_clips_id,
-                    primary_start: before.start,
-                    start_delta,
-                    old_duration: before.duration,
-                    new_duration: duration,
-                    source_delta: item_source_start(item) - before.source_start,
-                });
-            }
-        }
-        changes.sort_by(|a, b| a.primary_start.total_cmp(&b.primary_start));
-
-        // Partners of a removed column leave a gap where they were, as the
-        // overridden clip did on the primary track.
-        for sync_clips_id in removed_groups {
-            let partner_ids: Vec<String> = before_states
-                .iter()
-                .filter(|(_, state)| {
-                    state.sync_clips_id == sync_clips_id
-                        && !modified_track_indices.contains(&state.track_index)
-                })
-                .map(|(id, _)| id.clone())
-                .collect();
-            for partner_id in partner_ids {
-                let Some((track_index, item_index, _)) = self.get_item(&partner_id) else {
-                    continue;
-                };
-                self.children[track_index].delete_clip(item_index, true);
-                self.children[track_index].sanitize_preserving_all_gap_track();
-            }
-        }
-
-        // Ripple already applied on a partner track: (from time, delta).
-        let mut applied: HashMap<usize, Vec<(Seconds, Seconds)>> = HashMap::new();
-        for change in changes {
-            let partners: Vec<(String, SyncedClipState)> = before_states
-                .iter()
-                .filter(|(_, state)| {
-                    state.sync_clips_id == change.sync_clips_id
-                        && !modified_track_indices.contains(&state.track_index)
-                })
-                .map(|(id, state)| (id.clone(), state.clone()))
-                .collect();
-            for (partner_id, before) in partners {
-                let Some((track_index, _, _)) = self.get_item(&partner_id) else {
-                    continue;
-                };
-                let old_start = before.start
-                    + applied
-                        .get(&track_index)
-                        .map(|gaps| {
-                            gaps.iter()
-                                .filter(|(from, _)| *from <= before.start + EPS)
-                                .map(|(_, delta)| *delta)
-                                .sum::<Seconds>()
-                        })
-                        .unwrap_or(0.0);
-                let old_end = old_start + before.duration;
-                let new_end_rel = change.start_delta + change.new_duration;
-                let trimmed_in_place = change.start_delta >= -EPS
-                    && new_end_rel <= change.old_duration + EPS
-                    && change.new_duration < change.old_duration - EPS;
-
-                if trimmed_in_place {
-                    let Some((_, item_index, _)) = self.get_item(&partner_id) else {
-                        continue;
-                    };
-                    if change.start_delta > EPS {
-                        self.resize_synced_clips_with_leading_gap(
-                            vec![(track_index, item_index)],
-                            change.start_delta,
-                            change.new_duration,
-                        );
-                        // The leading gap moved the clip one slot to the right.
-                        let trailing = change.old_duration - new_end_rel;
-                        if trailing > EPS {
-                            self.resize_synced_clips_with_trailing_gap(
-                                vec![(track_index, item_index + 1)],
-                                change.new_duration,
-                            );
-                            // resize_synced_clips_with_trailing_gap adds the gap
-                            // for whatever the clip exceeds `duration`; the clip
-                            // is already at `new_duration`, so add it directly.
-                            self.children[track_index]
-                                .items
-                                .insert(item_index + 2, Item::Gap(Gap::make_gap(trailing)));
-                        }
-                    } else {
-                        self.resize_synced_clips_with_trailing_gap(
-                            vec![(track_index, item_index)],
-                            change.new_duration,
-                        );
-                    }
-                    if change.source_delta.abs() > EPS && change.start_delta <= EPS {
-                        let Some((t, i, _)) = self.get_item(&partner_id) else {
-                            continue;
-                        };
-                        let shifted = item_source_start(&self.children[t].items[i]) + change.source_delta;
-                        set_item_source_start(&mut self.children[t].items[i], shifted);
-                    }
-                    self.children[track_index].sanitize_preserving_all_gap_track();
-                    continue;
-                }
-
-                // Ripple: the whole column moved (pushed or pulled); unrelated
-                // content after it on the partner track follows, once per track.
-                if change.start_delta.abs() > EPS {
-                    let delta = change.start_delta;
-                    let track = &mut self.children[track_index];
-                    if delta > 0.0 {
-                        track.insert_at_time(
-                            old_start,
-                            Item::Gap(Gap::make_gap(delta)),
-                            OverlapPolicy::Push,
-                            InsertPolicy::SplitAndInsert,
-                        );
-                    } else {
-                        let from = (old_start + delta).max(0.0);
-                        track.delete_range(from, old_start, false);
-                    }
-                    applied
-                        .entry(track_index)
-                        .or_default()
-                        .push((before.start, delta));
-                }
-
-                // Length: shorter fills with a gap in place, longer overrides what follows.
-                let Some((t, i, item)) = self.get_item(&partner_id) else {
-                    continue;
-                };
-                let current_start = self.children[t].start_time_of_item(i);
-                if change.new_duration < change.old_duration - EPS {
-                    self.resize_synced_clips_with_trailing_gap(vec![(t, i)], change.new_duration);
-                } else if change.new_duration > change.old_duration + EPS {
-                    let mut item = item.clone();
-                    item.set_duration(change.new_duration);
-                    replace_track_range_with_item(
-                        &mut self.children[t],
-                        current_start,
-                        current_start + change.new_duration,
-                        item,
-                    );
-                }
-                if change.source_delta.abs() > EPS {
-                    let Some((t, i, _)) = self.get_item(&partner_id) else {
-                        continue;
-                    };
-                    let shifted = item_source_start(&self.children[t].items[i]) + change.source_delta;
-                    set_item_source_start(&mut self.children[t].items[i], shifted);
-                }
-                let _ = old_end;
-                self.children[track_index].sanitize_preserving_all_gap_track();
-            }
-        }
-        true
-    }
-
-    /// The fragment that survived an edit of a synced clip whose id is gone:
-    /// a clip on the same track with the same sync id overlapping the clip's
-    /// former range.
-    fn surviving_sync_fragment(&self, before: &SyncedClipState) -> Option<(usize, usize, &Item)> {
-        let track = self.children.get(before.track_index)?;
-        let old_end = before.start + before.duration;
-        let mut position: Seconds = 0.0;
-        for (item_index, item) in track.items.iter().enumerate() {
-            let item_start = position;
-            let item_end = position + item.duration().max(0.0);
-            position = item_end;
-            let Item::Clip(clip) = item else {
-                continue;
-            };
-            if resolve_sync_clips_id(&clip.metadata) != Some(before.sync_clips_id) {
-                continue;
-            }
-            if item_end > before.start + EPS && item_start < old_end - EPS {
-                return Some((before.track_index, item_index, item));
-            }
-        }
-        None
-    }
-
     fn insert_synced_item_at_time(
         &mut self,
         dest_track_index: usize,
@@ -1818,333 +1587,6 @@ impl Stack {
         }
     }
 
-    pub fn resize_item(
-        &mut self,
-        item_id: &str,
-        new_start_time: Seconds,
-        new_duration: Seconds,
-        overlap_policy: OverlapPolicy,
-        clamp_to_media: bool,
-    ) -> bool {
-        let Some((selected_track_index, selected_item_index, selected_item)) =
-            self.get_item(item_id)
-        else {
-            return false;
-        };
-        let before_states = self.synced_clip_states();
-        let target_ids: Vec<String> = match selected_item {
-            Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata)
-                .map(|sync_clips_id| {
-                    self.synced_clips_targets(sync_clips_id)
-                        .into_iter()
-                        .filter_map(|(track_index, item_index)| {
-                            self.children
-                                .get(track_index)
-                                .and_then(|track| track.items.get(item_index))
-                                .and_then(Item::get_id)
-                        })
-                        .collect()
-                })
-                .filter(|ids: &Vec<String>| ids.len() > 1)
-                .unwrap_or_else(|| vec![item_id.to_string()]),
-            Item::Gap(_) => vec![item_id.to_string()],
-        };
-        if target_ids.is_empty() {
-            return false;
-        }
-        if matches!(selected_item, Item::Gap(_)) {
-            let backup = self.clone();
-            let Some(track) = self.children.get_mut(selected_track_index) else {
-                return false;
-            };
-            let Some(item) = track.items.get_mut(selected_item_index) else {
-                return false;
-            };
-            item.set_duration(new_duration.max(0.0));
-            track.sanitize_preserving_all_gap_track();
-            if !self.sync_changed_groups_after_resize(
-                &before_states,
-                &[selected_track_index],
-                &HashSet::new(),
-                overlap_policy,
-            ) {
-                *self = backup;
-                return false;
-            }
-            self.sanitize_preserving_all_gap_tracks();
-            return true;
-        }
-        let excluded_ids: HashSet<_> = target_ids.iter().cloned().collect();
-        let selected_start =
-            self.children[selected_track_index].start_time_of_item(selected_item_index);
-        let start_delta = new_start_time - selected_start;
-
-        let effective_duration = target_ids
-            .iter()
-            .filter_map(|id| {
-                self.get_item(id).map(|(_, _, item)| {
-                    resize_effective_duration(item, new_duration, clamp_to_media)
-                })
-            })
-            .fold(new_duration.max(0.0), Seconds::min);
-
-        let backup = self.clone();
-        if start_delta.abs() <= EPS {
-            if overlap_policy != OverlapPolicy::Push {
-                let mut resized_items = Vec::new();
-                let mut modified_track_indices = Vec::new();
-
-                for id in &target_ids {
-                    let Some((track_index, item_index, item)) = self.get_item(id) else {
-                        *self = backup;
-                        return false;
-                    };
-                    if matches!(item, Item::Gap(_)) {
-                        resized_items.clear();
-                        modified_track_indices.clear();
-                        break;
-                    }
-
-                    let old_start = self.children[track_index].start_time_of_item(item_index);
-                    let old_duration = item.duration().max(0.0);
-                    if effective_duration <= old_duration + EPS {
-                        resized_items.clear();
-                        modified_track_indices.clear();
-                        break;
-                    }
-
-                    let mut item = item.clone();
-                    item.set_duration(effective_duration);
-                    if clamp_to_media {
-                        item.clamp_to_active_available_range();
-                    }
-                    resized_items.push((
-                        track_index,
-                        old_start,
-                        old_start + effective_duration,
-                        item,
-                    ));
-                    modified_track_indices.push(track_index);
-                }
-
-                if !resized_items.is_empty() {
-                    for (track_index, range_start, range_end, item) in resized_items {
-                        let Some(track) = self.children.get_mut(track_index) else {
-                            *self = backup;
-                            return false;
-                        };
-                        replace_track_range_with_item(track, range_start, range_end, item);
-                    }
-                    modified_track_indices.sort_unstable();
-                    modified_track_indices.dedup();
-                    if !self.sync_changed_groups_after_resize(
-                        &before_states,
-                        &modified_track_indices,
-                        &excluded_ids,
-                        overlap_policy,
-                    ) {
-                        *self = backup;
-                        return false;
-                    }
-                    self.sanitize_preserving_all_gap_tracks();
-                    return true;
-                }
-            }
-
-            let mut modified_track_indices = Vec::new();
-            for id in &target_ids {
-                let Some((track_index, item_index, _)) = self.get_item(id) else {
-                    *self = backup;
-                    return false;
-                };
-                let Some(track) = self.children.get_mut(track_index) else {
-                    *self = backup;
-                    return false;
-                };
-                let Some(item) = track.items.get_mut(item_index) else {
-                    *self = backup;
-                    return false;
-                };
-                item.set_duration(effective_duration);
-                if clamp_to_media {
-                    item.clamp_to_active_available_range();
-                }
-                track.sanitize_preserving_all_gap_track();
-                modified_track_indices.push(track_index);
-            }
-            modified_track_indices.sort_unstable();
-            modified_track_indices.dedup();
-            if !self.sync_changed_groups_after_resize(
-                &before_states,
-                &modified_track_indices,
-                &excluded_ids,
-                overlap_policy,
-            ) {
-                *self = backup;
-                return false;
-            }
-            self.sanitize_preserving_all_gap_tracks();
-            return true;
-        }
-
-        if start_delta < -EPS {
-            let mut resized_items = Vec::new();
-            let mut modified_track_indices = Vec::new();
-
-            for id in &target_ids {
-                let Some((track_index, item_index, item)) = self.get_item(id) else {
-                    *self = backup;
-                    return false;
-                };
-                let old_start = self.children[track_index].start_time_of_item(item_index);
-                let target_start = old_start + start_delta;
-                let old_duration = item.duration().max(0.0);
-                let old_end = old_start + old_duration;
-
-                modified_track_indices.push(track_index);
-                let mut item = item.clone();
-                item.set_duration(effective_duration);
-                if clamp_to_media {
-                    item.clamp_to_active_available_range();
-                }
-                resized_items.push((
-                    track_index,
-                    item_index,
-                    target_start,
-                    old_duration,
-                    old_end,
-                    item,
-                ));
-            }
-
-            let mut removals = resized_items
-                .iter()
-                .map(|(track_index, item_index, _, old_duration, _, _)| {
-                    (*track_index, *item_index, *old_duration)
-                })
-                .collect::<Vec<_>>();
-            removals.sort_unstable_by(|a, b| (b.0, b.1).cmp(&(a.0, a.1)));
-
-            for (track_index, item_index, old_duration) in removals {
-                let Some(track) = self.children.get_mut(track_index) else {
-                    *self = backup;
-                    return false;
-                };
-                if item_index >= track.items.len() {
-                    *self = backup;
-                    return false;
-                }
-                track.items.remove(item_index);
-                track
-                    .items
-                    .insert(item_index, Item::Gap(Gap::make_gap(old_duration)));
-            }
-
-            for (track_index, _, target_start, _, old_end, item) in resized_items {
-                let Some(track) = self.children.get_mut(track_index) else {
-                    *self = backup;
-                    return false;
-                };
-                replace_track_range_with_item(track, target_start, old_end, item);
-            }
-            modified_track_indices.sort_unstable();
-            modified_track_indices.dedup();
-            if !self.sync_changed_groups_after_resize(
-                &before_states,
-                &modified_track_indices,
-                &excluded_ids,
-                overlap_policy,
-            ) {
-                *self = backup;
-                return false;
-            }
-            self.sanitize_preserving_all_gap_tracks();
-            return true;
-        }
-
-        // start_delta > 0: the clip starts later. Within its old span (a trim
-        // from the left) it is replaced in place: a gap, the shorter clip, and
-        // a gap for whatever is left at the end; nothing else moves. Past its
-        // old end it is lifted (a gap keeps the positions) and lands with the
-        // overlap policy: Override cuts into what follows, Push moves it.
-        let mut resized_items = Vec::new();
-        let mut modified_track_indices = Vec::new();
-        for id in &target_ids {
-            let Some((track_index, item_index, item)) = self.get_item(id) else {
-                *self = backup;
-                return false;
-            };
-            modified_track_indices.push(track_index);
-            let old_start = self.children[track_index].start_time_of_item(item_index);
-            let old_end = old_start + item.duration().max(0.0);
-            let target_start = old_start + start_delta;
-            let mut item = item.clone();
-            item.set_duration(effective_duration);
-            if clamp_to_media {
-                item.clamp_to_active_available_range();
-            }
-            resized_items.push((track_index, old_start, old_end, target_start, item));
-        }
-
-        for (track_index, old_start, old_end, target_start, item) in resized_items {
-            let Some(id) = item.get_id() else {
-                *self = backup;
-                return false;
-            };
-            let Some((_, item_index, _)) = self.get_item(&id) else {
-                *self = backup;
-                return false;
-            };
-            let new_end = target_start + item.duration().max(0.0);
-            let Some(track) = self.children.get_mut(track_index) else {
-                *self = backup;
-                return false;
-            };
-            if new_end <= old_end + EPS {
-                track.items.remove(item_index);
-                let trailing = old_end - new_end;
-                if trailing > EPS {
-                    track
-                        .items
-                        .insert(item_index, Item::Gap(Gap::make_gap(trailing)));
-                }
-                track.items.insert(item_index, item);
-                track
-                    .items
-                    .insert(item_index, Item::Gap(Gap::make_gap(start_delta)));
-                track.sanitize_preserving_all_gap_track();
-            } else if overlap_policy == OverlapPolicy::Override {
-                track.items.remove(item_index);
-                track
-                    .items
-                    .insert(item_index, Item::Gap(Gap::make_gap(old_end - old_start)));
-                replace_track_range_with_item(track, target_start, new_end, item);
-            } else {
-                track.items.remove(item_index);
-                track.sanitize_preserving_all_gap_track();
-                track.insert_at_time(
-                    target_start,
-                    item,
-                    overlap_policy,
-                    InsertPolicy::SplitAndInsert,
-                );
-            }
-        }
-        modified_track_indices.sort_unstable();
-        modified_track_indices.dedup();
-        if !self.sync_changed_groups_after_resize(
-            &before_states,
-            &modified_track_indices,
-            &excluded_ids,
-            overlap_policy,
-        ) {
-            *self = backup;
-            return false;
-        }
-        self.sanitize_preserving_all_gap_tracks();
-        true
-    }
-
     pub fn modify_item(
         &mut self,
         item_id: &str,
@@ -2219,16 +1661,10 @@ impl Stack {
                 return false;
             }
             self.sanitize_preserving_all_gap_tracks();
-            let overlap_policy = if effective_push_following {
-                OverlapPolicy::Push
-            } else {
-                OverlapPolicy::Override
-            };
             if !self.sync_changed_groups_after_resize(
                 &before_states,
                 &cluster,
                 &HashSet::new(),
-                overlap_policy,
             ) {
                 *self = backup;
                 return false;
@@ -2244,9 +1680,7 @@ impl Stack {
             if !self.sync_changed_groups_after_resize(
                 &before_states,
                 &[track_index],
-                &HashSet::new(),
-                OverlapPolicy::Push,
-            ) {
+                &HashSet::new(),) {
                 *self = backup;
                 return false;
             }
@@ -2324,7 +1758,7 @@ impl Stack {
         )
     }
 
-    fn resize_synced_clips_with_leading_gap(
+    pub(super) fn resize_synced_clips_with_leading_gap(
         &mut self,
         mut targets: Vec<(usize, usize)>,
         source_delta: Seconds,
@@ -2347,7 +1781,7 @@ impl Stack {
         }
     }
 
-    fn resize_synced_clips_with_trailing_gap(
+    pub(super) fn resize_synced_clips_with_trailing_gap(
         &mut self,
         mut targets: Vec<(usize, usize)>,
         duration: Seconds,
@@ -2419,9 +1853,7 @@ impl Stack {
                     if !self.sync_changed_groups_after_resize(
                         &before_states,
                         &[ti],
-                        &excluded_ids,
-                        OverlapPolicy::Override,
-                    ) {
+                        &excluded_ids,) {
                         *self = backup;
                         return None;
                     }
@@ -3731,7 +3163,7 @@ fn clamp_clip_to_active_available_range(clip: &mut Clip) {
     clip.clamp_to_active_available_range();
 }
 
-fn resize_effective_duration(
+pub(super) fn resize_effective_duration(
     item: &Item,
     requested_duration: Seconds,
     clamp_to_media: bool,
@@ -3746,14 +3178,14 @@ fn resize_effective_duration(
     item.duration().max(0.0)
 }
 
-fn item_source_start(item: &Item) -> Seconds {
+pub(super) fn item_source_start(item: &Item) -> Seconds {
     match item {
         Item::Clip(clip) => clip.source_range.start_time.to_seconds(),
         Item::Gap(gap) => gap.source_range.start_time.to_seconds(),
     }
 }
 
-fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
+pub(super) fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
     match item {
         Item::Clip(clip) => {
             clip.source_range
@@ -3768,7 +3200,7 @@ fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
     }
 }
 
-fn replace_track_range_with_item(
+pub(super) fn replace_track_range_with_item(
     track: &mut Track,
     range_start: Seconds,
     range_end: Seconds,
@@ -3833,7 +3265,7 @@ fn insertion_start_or_end_for_policy(
     Some(start)
 }
 
-fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
+pub(super) fn resolve_sync_clips_id(metadata: &serde_json::Value) -> Option<i64> {
     Clip::resolve_otio_i64(metadata, "Link Group ID")
 }
 
