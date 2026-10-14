@@ -1588,14 +1588,6 @@ impl Stack {
         };
 
         let backup = self.clone();
-        // A plain clip or an audio-only column on an empty partner of a video
-        // group takes the track out of that group (restored if the insert fails).
-        if synced_inputs.video.is_none()
-            && !column_video_placed_separately
-            && matches!(primary_item, Item::Clip(_))
-        {
-            self.release_empty_partner(dest_track_index);
-        }
         let mut used_ids = self.collect_timeline_ids();
         let sync_clips_id = has_synced_clips.then(|| self.next_sync_clips_id());
         let mut created_track_indices = Vec::new();
@@ -2563,10 +2555,8 @@ impl Stack {
             // it moves in time, or swaps with a sibling, never to another track.
             return false;
         }
-        // An audio-only column never joins a video group, but an empty partner
-        // is released on landing.
+        // An audio-only column never joins a video group.
         !self.track_in_video_group(dest_track_index)
-            || self.is_empty_video_partner(dest_track_index)
     }
 
     fn is_intra_cluster_sync_move(
@@ -3229,7 +3219,13 @@ impl Stack {
         }
         for item in audio_partners {
             synced_audio.push(item.item.clone());
-            preferred_audio_track_indices.push(item.track_index);
+            // A swap: the channel sitting on the destination takes the moved
+            // channel's old track.
+            preferred_audio_track_indices.push(if item.track_index == dest_track_index {
+                selected.track_index
+            } else {
+                item.track_index
+            });
         }
         let move_previous_start = backup.children[selected.track_index]
             .start_time_of_item(selected.item_index);
@@ -3496,7 +3492,13 @@ impl Stack {
                             start: moved_start,
                             end: moved_end,
                             used: &used_audio_track_indices,
-                            preferred: Some(move_item.track_index),
+                            // A swap: the channel sitting on the destination
+                            // takes the moved channel's old track.
+                            preferred: Some(if move_item.track_index == dest_track_index {
+                                selected_source_track_index
+                            } else {
+                                move_item.track_index
+                            }),
                             horizontal,
                             exclude_fallback: &source_track_indices,
                         },

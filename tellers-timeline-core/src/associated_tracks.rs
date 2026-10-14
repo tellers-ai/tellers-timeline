@@ -1,44 +1,41 @@
-//! Associated tracks: where a track's sync partners go by preference.
+//! Associated tracks: where a track's sync partners go.
 //!
 //! A clip inserted with sync partners (a video with its audio channels, or an
 //! audio clip with other audio clips synced to it) lands as a column across
 //! several tracks. The track receiving the primary clip is the *primary track*;
 //! the tracks receiving its partners are its *associated tracks*.
 //!
-//! The association is stored on the primary track, as an ordered list of
-//! track ids at `metadata["tellers.ai"]["associated_track_ids"]`. The order is
-//! the slot order: the first partner of a column goes to the first associated
-//! track that is free over the column, the second to the next, and so on. When
-//! the associated tracks cannot take every partner a new track is created
-//! right below them and appended to the list, so the next column reuses it.
+//! Nothing is stored for this: the association is computed from the sync
+//! clips (the Resolve "Link Group ID" on clips) every time it is needed, so
+//! the saved document is plain OTIO and never drifts from the clips.
 //!
-//! The association is kind-agnostic: a video track lists its audio tracks, an
-//! audio track that receives audio-only sync groups lists the audio tracks its
-//! partners go to. The main track of an audio group, its owner once
-//! normalized, is the member with the most clips (highest index on a tie). A track with no stored list falls back to the association
-//! implied by the sync clips already on it (Resolve imports, timelines edited
-//! before this metadata existed), see [`Stack::derived_associated_track_indices`].
+//! Every sync column has an owner track: its video track, or, for an
+//! audio-only column, the member track holding the most clips (highest index
+//! on a tie). The owner's associated tracks are the tracks holding the other
+//! clips of its columns, nearest to the owner first. A track belongs to one
+//! owner: when two owners share a track it goes to the one it shares the
+//! most columns with. A track holding no sync clip belongs to nobody: it is
+//! *free*, and any column may adopt it.
 //!
-//! Associated tracks are reserved: a clip that is not part of a sync column
-//! (plain audio, music) prefers a track nobody lists as a partner, so a video's
-//! channels keep their slots. [`Stack::free_audio_track_for`] implements that
-//! preference for hosts that let the library pick the track.
+//! Slot order follows: the first partner of a column goes to the nearest
+//! associated track that is free over the column, the second to the next,
+//! and so on; when there is no room a new track is created past the existing
+//! partners, so after [`Stack::normalize_track_order`] the slot order is also
+//! the stack order below the owner. Associated tracks are reserved for their
+//! owner's columns; [`Stack::free_audio_track_for`] picks a track for a plain
+//! audio clip accordingly.
 
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 
 use crate::{IdMetadataExt, Item, Seconds, Stack, Track, TrackKind};
-
-/// Metadata key, under the `tellers.ai` namespace, holding the ordered list
-/// of associated track ids.
-pub const ASSOCIATED_TRACK_IDS_KEY: &str = "associated_track_ids";
 
 /// One track group: an owner with its partners in slot order. A track in no
 /// group is reported as a group of one. Hosts use this to draw or collapse a
 /// group as one unit.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TrackGroup {
-    /// Index of the owner track (the video track of a video group, the
-    /// highest audio track of an audio group).
+    /// Index of the owner track (the video track of a video group, the main
+    /// track of an audio group).
     pub owner_track_index: usize,
     /// Id of the owner track, when it has one.
     pub owner_track_id: Option<String>,
@@ -49,152 +46,27 @@ pub struct TrackGroup {
     pub partner_track_indices: Vec<usize>,
     /// Partner track ids in slot order.
     pub partner_track_ids: Vec<Option<String>>,
-    /// Whether the owner stores its list, or it is derived from sync clips.
-    pub stored: bool,
-}
-
-fn tellers_namespace_mut(
-    metadata: &mut serde_json::Value,
-) -> &mut serde_json::Map<String, serde_json::Value> {
-    if metadata.as_object().is_none() {
-        *metadata = serde_json::Value::Object(serde_json::Map::new());
-    }
-    let map = metadata.as_object_mut().unwrap();
-    let entry = map
-        .entry("tellers.ai".to_string())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    if entry.as_object().is_none() {
-        *entry = serde_json::Value::Object(serde_json::Map::new());
-    }
-    entry.as_object_mut().unwrap()
-}
-
-impl Track {
-    /// The stored associated track ids, in slot order, or `None` when the
-    /// track has no stored list (as opposed to an empty one).
-    pub fn stored_associated_track_ids(&self) -> Option<Vec<String>> {
-        let raw = self
-            .metadata
-            .get("tellers.ai")
-            .and_then(|v| v.get(ASSOCIATED_TRACK_IDS_KEY))?;
-        let list = raw.as_array()?;
-        let mut ids = Vec::with_capacity(list.len());
-        for value in list {
-            if let Some(id) = value.as_str() {
-                if !id.is_empty() && !ids.iter().any(|known: &String| known == id) {
-                    ids.push(id.to_string());
-                }
-            }
-        }
-        Some(ids)
-    }
-
-    /// The stored associated track ids, in slot order (empty when none).
-    pub fn associated_track_ids(&self) -> Vec<String> {
-        self.stored_associated_track_ids().unwrap_or_default()
-    }
-
-    /// Replace the associated track list. Duplicates and empty ids are dropped;
-    /// the track's own id is never listed.
-    pub fn set_associated_track_ids(&mut self, ids: Vec<String>) {
-        let own_id = self.get_id();
-        let mut unique: Vec<String> = Vec::with_capacity(ids.len());
-        for id in ids {
-            if id.is_empty() || own_id.as_deref() == Some(id.as_str()) || unique.contains(&id) {
-                continue;
-            }
-            unique.push(id);
-        }
-        let values = unique.into_iter().map(serde_json::Value::String).collect();
-        tellers_namespace_mut(&mut self.metadata).insert(
-            ASSOCIATED_TRACK_IDS_KEY.to_string(),
-            serde_json::Value::Array(values),
-        );
-    }
-
-    /// Remove the stored list entirely (the track falls back to the derived
-    /// association). Returns whether a list was present.
-    pub fn clear_associated_track_ids(&mut self) -> bool {
-        let Some(ai) = self
-            .metadata
-            .get_mut("tellers.ai")
-            .and_then(|value| value.as_object_mut())
-        else {
-            return false;
-        };
-        ai.remove(ASSOCIATED_TRACK_IDS_KEY).is_some()
-    }
-
-    /// Append `id` to the list unless already present. Returns whether it was added.
-    pub fn push_associated_track_id(&mut self, id: &str) -> bool {
-        let mut ids = self.associated_track_ids();
-        if id.is_empty() || ids.iter().any(|known| known == id) {
-            return false;
-        }
-        if self.get_id().as_deref() == Some(id) {
-            return false;
-        }
-        ids.push(id.to_string());
-        self.set_associated_track_ids(ids);
-        true
-    }
-
-    /// Remove `id` from the list. Returns whether it was present.
-    pub fn remove_associated_track_id(&mut self, id: &str) -> bool {
-        let Some(ids) = self.stored_associated_track_ids() else {
-            return false;
-        };
-        if !ids.iter().any(|known| known == id) {
-            return false;
-        }
-        let remaining = ids.into_iter().filter(|known| known != id).collect();
-        self.set_associated_track_ids(remaining);
-        true
-    }
 }
 
 impl Stack {
-    /// The sync ids on `track_index`, in order of first appearance.
-    fn ordered_sync_clips_ids(&self, track_index: usize) -> Vec<i64> {
-        let mut ids = Vec::new();
-        let Some(track) = self.children.get(track_index) else {
-            return ids;
-        };
-        for item in &track.items {
-            if let Item::Clip(clip) = item {
-                if let Some(id) = clip.sync_clips_id() {
-                    if !ids.contains(&id) {
-                        ids.push(id);
-                    }
+    /// Sync id -> member track indices, groups in order of first appearance.
+    fn sync_group_members(&self) -> BTreeMap<i64, Vec<usize>> {
+        let mut members: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
+        for (track_index, track) in self.children.iter().enumerate() {
+            for item in &track.items {
+                let Item::Clip(clip) = item else {
+                    continue;
+                };
+                let Some(sync_clips_id) = clip.sync_clips_id() else {
+                    continue;
+                };
+                let tracks = members.entry(sync_clips_id).or_default();
+                if !tracks.contains(&track_index) {
+                    tracks.push(track_index);
                 }
             }
         }
-        ids
-    }
-
-    fn tracks_holding_sync_clips(&self, sync_clips_id: i64) -> Vec<usize> {
-        self.children
-            .iter()
-            .enumerate()
-            .filter(|(_, track)| {
-                track.items.iter().any(|item| match item {
-                    Item::Clip(clip) => clip.sync_clips_id() == Some(sync_clips_id),
-                    Item::Gap(_) => false,
-                })
-            })
-            .map(|(index, _)| index)
-            .collect()
-    }
-
-    /// The track that owns a sync group: its highest video track, or, for an
-    /// audio-only group, its highest track.
-    fn sync_group_primary_track(&self, member_track_indices: &[usize]) -> Option<usize> {
-        member_track_indices
-            .iter()
-            .copied()
-            .filter(|&index| self.children[index].kind == TrackKind::Video)
-            .max()
-            .or_else(|| self.audio_group_main_track(member_track_indices))
+        members
     }
 
     /// Number of clips (not gaps) on a track.
@@ -212,8 +84,8 @@ impl Stack {
     }
 
     /// The main track of an audio group: the member holding the most clips,
-    /// the highest index on a tie. It owns the list and sits on top of the
-    /// group once normalized.
+    /// the highest index on a tie. It owns the group and sits on top of it
+    /// once normalized.
     pub fn audio_group_main_track(&self, member_track_indices: &[usize]) -> Option<usize> {
         member_track_indices
             .iter()
@@ -221,126 +93,75 @@ impl Stack {
             .max_by_key(|&index| (self.track_clip_count(index), index))
     }
 
-    /// Move each stored audio group's list to its main track (the member with
-    /// the most clips) when another member holds it. Partners keep their
-    /// slot order; the former owner takes the main track's former slot.
-    /// Returns whether any list moved. Run by [`Self::normalize_track_order`].
-    pub fn rehome_audio_groups(&mut self) -> bool {
-        let mut changed = false;
-        for group in self.track_groups() {
-            if group.kind != TrackKind::Audio
-                || !group.stored
-                || group.partner_track_indices.is_empty()
-            {
-                continue;
-            }
-            let mut members = vec![group.owner_track_index];
-            members.extend(group.partner_track_indices.iter().copied());
-            let Some(main) = self.audio_group_main_track(&members) else {
-                continue;
-            };
-            if main == group.owner_track_index {
-                continue;
-            }
-            // The former owner steps into the main track's slot.
-            let partners: Vec<String> = members
-                .iter()
-                .map(|&index| {
-                    if index == main {
-                        group.owner_track_index
-                    } else {
-                        index
-                    }
-                })
-                .skip(1)
-                .filter_map(|index| self.children[index].get_id())
-                .collect();
-            self.children[group.owner_track_index].clear_associated_track_ids();
-            self.children[main].set_associated_track_ids(partners);
-            changed = true;
-        }
-        changed
+    /// The owner of a sync column spread over `member_track_indices`: its
+    /// highest video track, else the audio group's main track.
+    fn sync_group_owner(&self, member_track_indices: &[usize]) -> Option<usize> {
+        member_track_indices
+            .iter()
+            .copied()
+            .filter(|&index| self.children[index].kind == TrackKind::Video)
+            .max()
+            .or_else(|| self.audio_group_main_track(member_track_indices))
     }
 
-    /// The association implied by the sync clips, for every track at once:
-    /// for each sync group, its primary track (highest video, else the audio
-    /// member with the most clips) lists the other member tracks nearest first. Membership is
-    /// exclusive: a track that would be listed by two primaries stays with
-    /// the one it shares the most sync groups with (ties to the lower index).
-    pub fn derived_association_map(&self) -> Vec<Vec<usize>> {
+    /// The association for every track at once: `map[owner]` lists the
+    /// owner's partner tracks nearest first. Computed from the sync clips, see
+    /// the module docs for the owner and exclusivity rules.
+    pub fn association_map(&self) -> Vec<Vec<usize>> {
         let len = self.children.len();
-        let mut lists: Vec<Vec<(usize, usize)>> = vec![Vec::new(); len];
-        for (owner, owner_list) in lists.iter_mut().enumerate() {
-            for sync_clips_id in self.ordered_sync_clips_ids(owner) {
-                let members = self.tracks_holding_sync_clips(sync_clips_id);
-                if self.sync_group_primary_track(&members) != Some(owner) {
-                    continue;
-                }
-                let mut group_partners: Vec<usize> = members
-                    .into_iter()
-                    .filter(|&index| index != owner)
-                    .collect();
-                group_partners.sort_by_key(|&index| (index.abs_diff(owner), index));
-                for partner in group_partners {
-                    match owner_list.iter_mut().find(|(index, _)| *index == partner) {
-                        Some((_, count)) => *count += 1,
-                        None => owner_list.push((partner, 1)),
-                    }
+        // (partner, owner) -> how many columns they share.
+        let mut shared: Vec<Vec<(usize, usize)>> = vec![Vec::new(); len];
+        for members in self.sync_group_members().values() {
+            if members.len() < 2 {
+                continue;
+            }
+            let Some(owner) = self.sync_group_owner(members) else {
+                continue;
+            };
+            for &partner in members.iter().filter(|&&index| index != owner) {
+                match shared[owner]
+                    .iter_mut()
+                    .find(|(index, _)| *index == partner)
+                {
+                    Some((_, count)) => *count += 1,
+                    None => shared[owner].push((partner, 1)),
                 }
             }
         }
+        // Exclusive membership: the owner sharing the most columns wins,
+        // the lower index on a tie.
         let mut best_owner: Vec<Option<(usize, usize)>> = vec![None; len];
-        for (owner, list) in lists.iter().enumerate() {
+        for (owner, list) in shared.iter().enumerate() {
             for &(partner, count) in list {
-                let better = match best_owner[partner] {
-                    None => true,
-                    Some((_, best)) => count > best,
-                };
-                if better {
+                if best_owner[partner].is_none_or(|(_, best)| count > best) {
                     best_owner[partner] = Some((owner, count));
                 }
             }
         }
-        lists
+        shared
             .into_iter()
             .enumerate()
             .map(|(owner, list)| {
-                list.into_iter()
+                let mut partners: Vec<usize> = list
+                    .into_iter()
                     .filter(|&(partner, _)| best_owner[partner].map(|(o, _)| o) == Some(owner))
                     .map(|(partner, _)| partner)
-                    .collect()
+                    .collect();
+                partners.sort_by_key(|&index| (index.abs_diff(owner), index));
+                partners
             })
             .collect()
     }
 
-    /// The association implied by the sync clips on `track_index` (see
-    /// [`Self::derived_association_map`]). Used when the track has no stored
-    /// list, e.g. right after a Resolve import.
-    pub fn derived_associated_track_indices(&self, track_index: usize) -> Vec<usize> {
-        self.derived_association_map()
+    /// The associated tracks of `track_index`, nearest first.
+    pub fn associated_track_indices(&self, track_index: usize) -> Vec<usize> {
+        self.association_map()
             .into_iter()
             .nth(track_index)
             .unwrap_or_default()
     }
 
-    /// The associated tracks of `track_index` as indices, in slot order: the
-    /// stored list resolved by id (ids of tracks no longer in the stack are
-    /// skipped), or the derived association when no list is stored.
-    pub fn associated_track_indices(&self, track_index: usize) -> Vec<usize> {
-        let Some(track) = self.children.get(track_index) else {
-            return Vec::new();
-        };
-        match track.stored_associated_track_ids() {
-            Some(ids) => ids
-                .iter()
-                .filter_map(|id| self.get_track_by_id(id).map(|(index, _)| index))
-                .filter(|&index| index != track_index)
-                .collect(),
-            None => self.derived_associated_track_indices(track_index),
-        }
-    }
-
-    /// The associated track ids of the track with `track_id`, stored or derived.
+    /// The associated track ids of the track with `track_id`, nearest first.
     pub fn associated_track_ids(&self, track_id: &str) -> Option<Vec<String>> {
         let (track_index, _) = self.get_track_by_id(track_id)?;
         Some(
@@ -351,38 +172,23 @@ impl Stack {
         )
     }
 
-    /// Store `partner_ids` as the associated tracks of `track_id`, in that
-    /// order. Ids that are not tracks of this stack are dropped. Returns false
-    /// when `track_id` is unknown.
-    pub fn associate_tracks(&mut self, track_id: &str, partner_ids: &[String]) -> bool {
-        let Some((track_index, _)) = self.get_track_by_id(track_id) else {
-            return false;
-        };
-        let known: Vec<String> = partner_ids
+    /// Indices of the tracks whose association contains `track_index`.
+    pub fn tracks_associating(&self, track_index: usize) -> Vec<usize> {
+        self.association_map()
             .iter()
-            .filter(|id| self.get_track_by_id(id).is_some())
-            .cloned()
-            .collect();
-        self.children[track_index].set_associated_track_ids(known.clone());
-        self.release_partners_from_other_owners(track_index, &known);
-        true
+            .enumerate()
+            .filter(|(owner, partners)| *owner != track_index && partners.contains(&track_index))
+            .map(|(owner, _)| owner)
+            .collect()
     }
 
-    /// A track belongs to one group: drop `partner_ids` from the stored list
-    /// of every track other than `owner_index`.
-    fn release_partners_from_other_owners(&mut self, owner_index: usize, partner_ids: &[String]) {
-        for (index, track) in self.children.iter_mut().enumerate() {
-            if index == owner_index || track.stored_associated_track_ids().is_none() {
-                continue;
-            }
-            for id in partner_ids {
-                track.remove_associated_track_id(id);
-            }
-        }
+    /// Whether some other track has `track_index` as an associated track.
+    pub fn is_associated_partner(&self, track_index: usize) -> bool {
+        !self.tracks_associating(track_index).is_empty()
     }
 
-    /// The owner of the group `track_index` belongs to: the track listing it,
-    /// or itself when no track does (an owner, or a track in no group).
+    /// The owner of the group `track_index` belongs to: the track it is a
+    /// partner of, or itself (an owner, or a track in no group).
     pub fn group_owner_of(&self, track_index: usize) -> usize {
         self.tracks_associating(track_index)
             .into_iter()
@@ -390,8 +196,8 @@ impl Stack {
             .unwrap_or(track_index)
     }
 
-    /// Whether `track_index` is in no group at all: nobody lists it and it
-    /// lists nothing. Such a track can be adopted by any group.
+    /// Whether `track_index` is in no group at all: neither a partner nor an
+    /// owner. Such a track can be adopted by any column.
     pub fn track_is_free(&self, track_index: usize) -> bool {
         !self.is_associated_partner(track_index)
             && self.associated_track_indices(track_index).is_empty()
@@ -404,32 +210,6 @@ impl Stack {
             .is_some_and(|track| track.kind == TrackKind::Video)
     }
 
-    /// Whether `track_index` is an empty partner of a video group: listed by
-    /// a video track and holding no clip. Such a track blocks nothing: a
-    /// plain clip or stems dropped on it take it out of the group (see
-    /// [`Self::release_empty_partner`]).
-    pub fn is_empty_video_partner(&self, track_index: usize) -> bool {
-        let Some(track) = self.children.get(track_index) else {
-            return false;
-        };
-        track.kind == TrackKind::Audio
-            && self.group_owner_of(track_index) != track_index
-            && self.track_in_video_group(track_index)
-            && track.items.iter().all(|item| matches!(item, Item::Gap(_)))
-    }
-
-    /// Take an empty partner track out of its group. Returns whether it was one.
-    pub(crate) fn release_empty_partner(&mut self, track_index: usize) -> bool {
-        if !self.is_empty_video_partner(track_index) {
-            return false;
-        }
-        let Some(id) = self.children[track_index].get_id() else {
-            return false;
-        };
-        let owner = self.group_owner_of(track_index);
-        self.children[owner].remove_associated_track_id(&id)
-    }
-
     /// Whether a column may land with its primary clip on `dest_track_index`.
     ///
     /// On a video track anything but a column that already has a video clip.
@@ -437,7 +217,8 @@ impl Stack {
     /// a track of a video group (its own, for a swap, or another one, moving
     /// the whole column) or on a free track (adopted), never on an audio
     /// group; a plain audio clip or an audio-only column never on a video
-    /// group's track.
+    /// group's track. A track holding no sync clip is free, so an empty
+    /// track never blocks anything.
     pub(crate) fn column_may_land_on(
         &self,
         dest_track_index: usize,
@@ -457,7 +238,7 @@ impl Stack {
                 if has_video_partner {
                     in_video_group || self.track_is_free(dest_track_index)
                 } else {
-                    !in_video_group || self.is_empty_video_partner(dest_track_index)
+                    !in_video_group
                 }
             }
             TrackKind::Other => !has_video_partner,
@@ -467,15 +248,21 @@ impl Stack {
     /// Every track group, owners in stack order (bottom to top). Tracks in no
     /// group come back as groups of one, so every track appears exactly once.
     pub fn track_groups(&self) -> Vec<TrackGroup> {
+        let map = self.association_map();
         let len = self.children.len();
-        let owner_of: Vec<usize> = (0..len).map(|index| self.group_owner_of(index)).collect();
+        let mut owner_of: Vec<usize> = (0..len).collect();
+        for (owner, partners) in map.iter().enumerate() {
+            for &partner in partners {
+                owner_of[partner] = owner;
+            }
+        }
         (0..len)
             .filter(|&owner| owner_of[owner] == owner)
             .map(|owner| {
-                let partner_track_indices: Vec<usize> = self
-                    .associated_track_indices(owner)
-                    .into_iter()
-                    .filter(|&partner| partner != owner && owner_of[partner] == owner)
+                let partner_track_indices: Vec<usize> = map[owner]
+                    .iter()
+                    .copied()
+                    .filter(|&partner| owner_of[partner] == owner)
                     .collect();
                 TrackGroup {
                     owner_track_index: owner,
@@ -486,36 +273,47 @@ impl Stack {
                         .map(|&partner| self.children[partner].get_id())
                         .collect(),
                     partner_track_indices,
-                    stored: self.children[owner].stored_associated_track_ids().is_some(),
                 }
             })
             .collect()
     }
 
-    /// Remove partner tracks that hold no clip and were never named by a
-    /// user: a track listed by an owner, with gaps only (or nothing), whose
-    /// name is unset or equal to its id (the library's auto-numbered tracks).
-    /// Owners and free tracks are never removed, nor is a track the host
-    /// names. The list entries follow. Returns the removed track ids.
+    /// The track that owns a column spread over `member_track_indices`: the
+    /// member with the most of the others as associated tracks; ties go to a
+    /// video track, then to the highest index. Partner slots of the column
+    /// are resolved from this track whichever member is moved.
+    pub(crate) fn column_owner_track_index(&self, member_track_indices: &[usize]) -> Option<usize> {
+        let map = self.association_map();
+        member_track_indices
+            .iter()
+            .copied()
+            .filter(|&index| index < self.children.len())
+            .max_by_key(|&index| {
+                let listed = map[index]
+                    .iter()
+                    .filter(|partner| member_track_indices.contains(partner))
+                    .count();
+                (listed, self.children[index].kind == TrackKind::Video, index)
+            })
+    }
+
+    /// Remove the audio tracks the library created that hold no clip any
+    /// more: tracks named like their id (the auto-numbered `A3` pattern) with
+    /// gaps only, or nothing. Tracks the host named or left unnamed stay, as
+    /// do all tracks holding a clip. Returns the removed track ids.
     ///
     /// A separate step, like [`Self::normalize_track_order`]: the host runs it
     /// when it wants the clutter gone, e.g. on save.
     pub fn prune_empty_partner_tracks(&mut self) -> Vec<String> {
         let candidates: Vec<String> = self
-            .track_groups()
+            .children
             .iter()
-            .flat_map(|group| group.partner_track_indices.iter().copied())
-            .filter(|&index| {
-                let track = &self.children[index];
-                let empty = track.items.iter().all(|item| matches!(item, Item::Gap(_)));
-                let auto_named = match (&track.name, track.get_id()) {
-                    (None, _) => true,
-                    (Some(name), Some(id)) => *name == id,
-                    (Some(_), None) => false,
-                };
-                empty && auto_named
+            .filter(|track| {
+                track.kind == TrackKind::Audio
+                    && track.items.iter().all(|item| matches!(item, Item::Gap(_)))
+                    && matches!((&track.name, track.get_id()), (Some(name), Some(id)) if *name == id)
             })
-            .filter_map(|index| self.children[index].get_id())
+            .filter_map(|track| track.get_id())
             .collect();
         let mut removed = Vec::new();
         for id in candidates {
@@ -524,35 +322,22 @@ impl Stack {
                 removed.push(id);
             }
         }
-        if !removed.is_empty() {
-            self.prune_associated_track_ids();
-        }
         removed
     }
 
     /// Reorder the tracks so every group is contiguous: the owner on top
-    /// (highest index of the group) with its partners right below it in list
+    /// (highest index of the group) with its partners right below it in slot
     /// order. Groups keep the relative order of their owners; tracks in no
     /// group keep their place among them. Returns whether the order changed.
     ///
     /// This is a separate step the host runs once per request, after its
     /// edits: every index it holds across library calls stays valid until then.
     pub fn normalize_track_order(&mut self) -> bool {
-        let rehomed = self.rehome_audio_groups();
         let len = self.children.len();
-        let owner_of: Vec<usize> = (0..len).map(|index| self.group_owner_of(index)).collect();
         let mut order: Vec<usize> = Vec::with_capacity(len);
-        for owner in 0..len {
-            if owner_of[owner] != owner {
-                continue;
-            }
-            let partners: Vec<usize> = self
-                .associated_track_indices(owner)
-                .into_iter()
-                .filter(|&partner| owner_of[partner] == owner && partner != owner)
-                .collect();
-            order.extend(partners.iter().rev());
-            order.push(owner);
+        for group in self.track_groups() {
+            order.extend(group.partner_track_indices.iter().rev());
+            order.push(group.owner_track_index);
         }
         for index in 0..len {
             if !order.contains(&index) {
@@ -564,7 +349,7 @@ impl Stack {
             .enumerate()
             .all(|(position, &index)| position == index)
         {
-            return rehomed;
+            return false;
         }
         let mut tracks: Vec<Option<Track>> = self.children.drain(..).map(Some).collect();
         self.children = order
@@ -574,115 +359,11 @@ impl Stack {
         true
     }
 
-    /// After a manual reorder of `track_index`, make its owner's stored list
-    /// follow the physical order (partners nearest the owner first), so the
-    /// next normalization keeps the user's layout instead of undoing it.
-    pub(crate) fn sync_list_with_physical_order(&mut self, track_index: usize) {
-        let owner = self.group_owner_of(track_index);
-        let Some(ids) = self.children[owner].stored_associated_track_ids() else {
-            return;
-        };
-        let mut indexed: Vec<(usize, String)> = ids
-            .into_iter()
-            .filter_map(|id| self.get_track_by_id(&id).map(|(index, _)| (index, id)))
-            .collect();
-        indexed.sort_by_key(|&(index, _)| (index.abs_diff(owner), std::cmp::Reverse(index)));
-        self.children[owner]
-            .set_associated_track_ids(indexed.into_iter().map(|(_, id)| id).collect());
-    }
-
-    /// Make sure `track_index` lists every track in `partner_indices`,
-    /// materializing the derived association first when nothing is stored yet.
-    pub(crate) fn record_associated_tracks(
-        &mut self,
-        track_index: usize,
-        partner_indices: &[usize],
-    ) {
-        let mut ids: Vec<String> = self
-            .associated_track_indices(track_index)
-            .into_iter()
-            .filter_map(|index| self.children.get(index).and_then(|track| track.get_id()))
-            .collect();
-        for &partner in partner_indices {
-            if partner == track_index {
-                continue;
-            }
-            let Some(id) = self.children.get(partner).and_then(|track| track.get_id()) else {
-                continue;
-            };
-            if !ids.contains(&id) {
-                ids.push(id);
-            }
-        }
-        if let Some(track) = self.children.get_mut(track_index) {
-            track.set_associated_track_ids(ids.clone());
-        }
-        self.release_partners_from_other_owners(track_index, &ids);
-    }
-
-    /// The track that owns a column spread over `member_track_indices`: the
-    /// member listing the most other members as associated tracks; ties go
-    /// to a video track, then to the highest index. Partner slots of the
-    /// column are resolved from this track's list whichever member is moved.
-    pub(crate) fn column_owner_track_index(&self, member_track_indices: &[usize]) -> Option<usize> {
-        member_track_indices
-            .iter()
-            .copied()
-            .filter(|&index| index < self.children.len())
-            .max_by_key(|&index| {
-                let listed = self
-                    .associated_track_indices(index)
-                    .iter()
-                    .filter(|partner| member_track_indices.contains(partner))
-                    .count();
-                (listed, self.children[index].kind == TrackKind::Video, index)
-            })
-    }
-
-    /// Indices of the tracks whose stored or derived list contains `track_index`.
-    pub fn tracks_associating(&self, track_index: usize) -> Vec<usize> {
-        (0..self.children.len())
-            .filter(|&primary| {
-                primary != track_index
-                    && self
-                        .associated_track_indices(primary)
-                        .contains(&track_index)
-            })
-            .collect()
-    }
-
-    /// Whether some other track lists `track_index` as an associated track.
-    pub fn is_associated_partner(&self, track_index: usize) -> bool {
-        !self.tracks_associating(track_index).is_empty()
-    }
-
-    /// Drop every stored association id that no longer names a track of this stack.
-    pub(crate) fn prune_associated_track_ids(&mut self) {
-        let existing: HashSet<String> = self
-            .children
-            .iter()
-            .filter_map(|track| track.get_id())
-            .collect();
-        for track in &mut self.children {
-            let Some(ids) = track.stored_associated_track_ids() else {
-                continue;
-            };
-            let kept: Vec<String> = ids
-                .iter()
-                .filter(|id| existing.contains(*id))
-                .cloned()
-                .collect();
-            if kept.len() != ids.len() {
-                track.set_associated_track_ids(kept);
-            }
-        }
-    }
-
     /// Pick an existing audio track for a clip that has no sync partners,
     /// free over `[start, start + duration]`, never a video group's audio
     /// track (a plain clip is refused there). Tracks in no group come first,
-    /// then audio-group tracks, lowest index first. `None` when no audio track is free there; the
-    /// caller then adds a track.
+    /// then audio-group tracks, lowest index first. `None` when no audio
+    /// track is free there; the caller then adds a track.
     pub fn free_audio_track_for(&self, start: Seconds, duration: Seconds) -> Option<String> {
         let end = start + duration.max(0.0);
         let mut candidates: Vec<usize> = self

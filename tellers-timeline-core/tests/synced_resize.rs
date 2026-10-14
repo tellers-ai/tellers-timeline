@@ -981,7 +981,6 @@ fn override_resize_that_trims_a_synced_clip_trims_its_partners_too() {
         stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
     }
     stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
-    assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
     let v1 = track_index_by_id(&stack, "V1");
     assert!(stack
         .insert_item_at_time(
@@ -1039,7 +1038,6 @@ fn plain_clip_between_two_columns() -> Stack {
         stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
     }
     stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
-    assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
     let v1 = track_index_by_id(&stack, "V1");
     let column = |name: &str, duration: f64| -> Vec<Item> {
         (1..=2)
@@ -1144,7 +1142,6 @@ fn extending_over_a_whole_sync_fragment_removes_its_partners() {
         stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
     }
     stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
-    assert!(stack.associate_tracks("V1", &["A1".into(), "A2".into()]));
     let v1 = track_index_by_id(&stack, "V1");
     let column: Vec<Item> = (1..=2)
         .map(|i| {

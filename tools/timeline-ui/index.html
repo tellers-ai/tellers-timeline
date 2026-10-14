@@ -335,12 +335,12 @@
 
   // Collapsed group owners (track ids); partners of a collapsed owner are hidden.
   const collapsed = new Set();
-  // Map track id → { owner, partners, stored, kind } from stack.track_groups().
+  // Map track id → { owner, partners, kind } from stack.track_groups().
   function groupsByTrack() {
     const map = new Map();
     for (const g of (S.track_groups || [])) {
       if (g.error || !g.owner_track_id || !(g.partner_track_ids || []).length) continue;
-      const info = { owner: g.owner_track_id, partners: g.partner_track_ids, stored: g.stored, kind: g.kind };
+      const info = { owner: g.owner_track_id, partners: g.partner_track_ids, kind: g.kind };
       map.set(g.owner_track_id, info);
       for (const id of g.partner_track_ids) if (id) map.set(id, info);
     }
@@ -358,7 +358,7 @@
       ? `<button class="fold" data-act="fold" title="Collapse / expand this group's partner tracks (stack.track_groups)">${collapsed.has(t.id) ? '▸' : '▾'}</button>`
       : '';
     const grp = isOwner
-      ? `<span class="grp" title="${g.stored ? 'stored list' : 'derived from sync clips'}">${g.kind} group · ${g.partners.length} partner${g.partners.length > 1 ? 's' : ''}${g.stored ? '' : ' (derived)'}</span>`
+      ? `<span class="grp" title="computed from the sync clips">${g.kind} group · ${g.partners.length} partner${g.partners.length > 1 ? 's' : ''}</span>`
       : (g ? `<span class="grp" title="partner of ${esc(g.owner)}">↳ slot ${g.partners.indexOf(t.id) + 1} of ${esc(trackById(g.owner)?.name || g.owner)}</span>` : '');
     hdr.innerHTML = `
       <div class="line1">${fold}<span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
@@ -466,7 +466,7 @@
     $('#tab-validation').innerHTML = v.length ? v.map(x => `<div class="err">${esc(x)}</div>`).join('') : '<span style="color:var(--ok)">validate() → no errors</span>';
     $('#tab-sync').innerHTML = '<div style="color:var(--fg2)">stack.track_groups()</div>' + (S.track_groups || []).map(g =>
       g.error ? `<div class="err">${esc(g.error)}</div>` :
-      `<div>${g.kind} group · owner #${g.owner_track_index} ${esc(g.owner_track_id)} → partners [${(g.partner_track_ids || []).map(x => esc(x || 'None')).join(', ')}]${g.stored ? '' : ' (derived)'}</div>`).join('')
+      `<div>${g.kind} group · owner #${g.owner_track_index} ${esc(g.owner_track_id)} → partners [${(g.partner_track_ids || []).map(x => esc(x || 'None')).join(', ')}]</div>`).join('')
       + '<div style="color:var(--fg2);margin-top:8px">stack.sync_track_info()</div>' + (S.sync_track_info || []).map(g =>
       `<div>tracks [${g.track_indices.join(', ')}] → ids [${(g.track_ids || []).map(x => x || 'None').join(', ')}]</div>`).join('');
     $('#tab-log').innerHTML = [...(S.log || [])].reverse().map(l =>

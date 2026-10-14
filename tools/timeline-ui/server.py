@@ -303,13 +303,6 @@ def op_prune_tracks(state: State, p: dict):
     return removed, "stack.prune_empty_partner_tracks()"
 
 
-@op("associate_tracks")
-def op_associate_tracks(state: State, p: dict):
-    ids = [x for x in (p.get("partner_ids") or []) if x]
-    ok = state.stack.associate_tracks(p["id"], ids)
-    return ok, f"stack.associate_tracks({_fmt(p['id'])}, {_fmt(ids)})"
-
-
 @op("add_track")
 def op_add_track(state: State, p: dict):
     kind = p.get("kind") or "video"

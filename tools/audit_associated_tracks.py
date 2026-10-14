@@ -84,7 +84,6 @@ def audit_one(data: dict[str, Any]) -> dict[str, Any]:
         "audio_only_columns_on_video_group_track": 0,
         "interleaved": False,
         "normalize_reorders": False,
-        "stored_lists": 0,
         "parse_error": None,
     }
     # Interleaving: an audio track above (after) a video track in the list.
@@ -125,7 +124,6 @@ def audit_one(data: dict[str, Any]) -> dict[str, Any]:
     try:
         timeline = Timeline.parse_json(json.dumps(data))
         stack = timeline.get_stack()
-        report["stored_lists"] = sum(1 for t in stack.tracks() if t.get_associated_track_ids())
         report["normalize_reorders"] = stack.normalize_track_order()
     except Exception as error:  # noqa: BLE001 - report, don't stop
         report["parse_error"] = str(error)[:200]
@@ -153,7 +151,6 @@ def main() -> int:
         )
         totals["interleaved"] += report["interleaved"]
         totals["normalize_would_reorder"] += report["normalize_reorders"]
-        totals["with_stored_lists"] += report["stored_lists"] > 0
         totals["parse_errors"] += report["parse_error"] is not None
         if (
             report["shared_track_conflicts"]

@@ -13,13 +13,14 @@
 //!    (partners are reserved for their owner, and an audio group's owner
 //!    belongs to its stems);
 //! 4. for a move, the partner's source track when it is usable and the
-//!    destination has no partner of that kind at all (one shared audio track
-//!    serves both videos rather than a new track per video);
+//!    destination has no partner of that kind at all, this column's earlier
+//!    slots included (one shared audio track serves both videos rather than
+//!    a new track per video);
 //! 5. a new track, created on the far side of the primary's existing partners
 //!    of that kind (right below the primary when it has none).
 //!
-//! Each chosen track is recorded on the primary at once, so the next slot of
-//! the same column and the next column find it in the list.
+//! Nothing is recorded: the next column finds the same tracks through the
+//! sync clips this one leaves behind.
 
 use super::{range_is_gap_backed, track_is_empty_boundary};
 use crate::{InsertPolicy, OverlapPolicy, Seconds, Stack, TrackKind};
@@ -105,11 +106,13 @@ impl Stack {
         &self,
         primary_track_index: usize,
         kind: TrackKind,
+        also_past: &[usize],
     ) -> usize {
         let associated_of_kind: Vec<usize> = self
             .associated_track_indices(primary_track_index)
             .into_iter()
-            .filter(|&index| self.children[index].kind == kind)
+            .chain(also_past.iter().copied())
+            .filter(|&index| index != primary_track_index && self.children[index].kind == kind)
             .collect();
         if let (Some(&lowest), Some(&highest)) = (
             associated_of_kind.iter().min(),
@@ -140,9 +143,10 @@ impl Stack {
         &mut self,
         primary_track_index: usize,
         kind: TrackKind,
+        also_past: &[usize],
         created_track_indices: &mut Vec<usize>,
     ) -> usize {
-        let insert_at = self.partner_create_index(primary_track_index, kind.clone());
+        let insert_at = self.partner_create_index(primary_track_index, kind.clone(), also_past);
         let track = self.new_numbered_track(kind);
         self.children.insert(insert_at, track);
         for index in created_track_indices.iter_mut() {
@@ -215,16 +219,24 @@ impl Stack {
         {
             return index;
         }
+        // The source track, only while the owner has no partner at all, this
+        // column's earlier slots included.
         if let Some(preferred) = request.preferred {
             let kind_matches = self
                 .children
                 .get(preferred)
                 .is_some_and(|track| track.kind == request.kind);
-            if kind_matches && associated.is_empty() && available(self, preferred) {
+            if kind_matches
+                && associated.is_empty()
+                && request.used.is_empty()
+                && available(self, preferred)
+            {
                 return preferred;
             }
         }
-        self.create_partner_track(owner, request.kind.clone(), created_track_indices)
+        // Past the partners already chosen for this column too, so slot order
+        // stays the stack order (nearest the owner first) after normalization.
+        self.create_partner_track(owner, request.kind.clone(), request.used, created_track_indices)
     }
 
     /// Resolve every audio slot of a column on `dest_track_index`, one per
@@ -316,7 +328,6 @@ impl Stack {
                 }
             }
             slots.push(track_index);
-            self.record_associated_tracks(*owner_track_index, &[track_index]);
         }
 
         for &slot in &slots {
@@ -390,6 +401,7 @@ impl Stack {
             chosen = Some(self.create_partner_track(
                 audio_track_index,
                 TrackKind::Video,
+                &[],
                 created_track_indices,
             ));
         }
@@ -418,14 +430,6 @@ impl Stack {
                 index
             }
         };
-        // The video owns the column: it adopts the audio track as a partner.
-        let audio_track_index =
-            if self.children.len() > track_count_before && track_index <= audio_track_index {
-                audio_track_index + 1
-            } else {
-                audio_track_index
-            };
-        self.record_associated_tracks(track_index, &[audio_track_index]);
         Some(track_index)
     }
 }

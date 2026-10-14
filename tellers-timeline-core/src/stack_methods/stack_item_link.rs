@@ -201,7 +201,6 @@ impl Stack {
         };
         let owner_id = self.children[owner_index].get_id()?;
 
-        let mut adopted_ids: Vec<String> = Vec::new();
         for clip_id in &clip_ids {
             let (track_index, item_index) = self.clip_target(clip_id)?;
             let (owner_index, _) = self.get_track_by_id(&owner_id)?;
@@ -209,7 +208,6 @@ impl Stack {
                 continue;
             }
             if self.track_is_free(track_index) {
-                adopted_ids.push(self.children[track_index].get_id()?);
                 continue;
             }
             // Move the clip to a new partner track of the owner, at the same time.
@@ -217,7 +215,7 @@ impl Stack {
             let item = self.children[track_index].delete_clip(item_index, true)?;
             let kind = self.children[track_index].kind.clone();
             let mut created = Vec::new();
-            let new_index = self.create_partner_track(owner_index, kind, &mut created);
+            let new_index = self.create_partner_track(owner_index, kind, &[], &mut created);
             let inserted = self.children[new_index].insert_at_time(
                 start,
                 item,
@@ -227,17 +225,8 @@ impl Stack {
             if !inserted.success {
                 return None;
             }
-            let (owner_index, _) = self.get_track_by_id(&owner_id)?;
-            self.record_associated_tracks(owner_index, &[new_index]);
         }
-        let (owner_index, _) = self.get_track_by_id(&owner_id)?;
-        let adopted: Vec<usize> = adopted_ids
-            .iter()
-            .filter_map(|id| self.get_track_by_id(id).map(|(index, _)| index))
-            .collect();
-        if !adopted.is_empty() {
-            self.record_associated_tracks(owner_index, &adopted);
-        }
+        // Free tracks are adopted by the sync id itself; nothing to record.
         clip_ids.iter().map(|id| self.clip_target(id)).collect()
     }
 }

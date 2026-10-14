@@ -218,7 +218,6 @@ fn stems_on_a_new_audio_track_make_their_own_group() {
         .find(|g| g.owner_track_id.as_deref() == Some("M1"))
         .unwrap();
     assert_eq!(m1.kind, TrackKind::Audio);
-    assert!(m1.stored);
 
     // The stem column moves in time as one.
     assert!(mv(&mut stack, "Clip 10", "M1", 7.5));
@@ -254,10 +253,9 @@ fn a_column_follows_its_video_clip_to_another_video_group() {
         (text_partners[0].clone(), 3.0, 2.5, 0.0)
     );
     assert_eq!(clip_count(&stack, "A1"), 0, "A1 keeps nothing of C");
-    assert_eq!(
-        stack.associated_track_ids("V1").unwrap(),
-        vec!["A1".to_string()]
-    );
+    // V1 has no column left, so A1 belongs to nobody now.
+    assert!(stack.associated_track_ids("V1").unwrap().is_empty());
+    assert!(stack.track_is_free(track_index_by_id(&stack, "A1")));
     assert_sync_clips_track_aligned(&stack, "column moved to another group");
 
     // Its audio cannot be dragged to Text's second slot from the video clip.
@@ -316,10 +314,15 @@ fn a_plain_clip_on_the_stem_owner_trims_then_removes_the_stems_as_it_grows() {
         assert_eq!(clip_count(&stack, partner), 0, "{partner}");
     }
     assert_eq!(span(&stack, "Clip 12"), ("M1".into(), 5.0, 5.0, 0.0));
-    // The empty partners stay until the host prunes them.
-    assert_eq!(stack.associated_track_ids("M1").unwrap(), partners);
-    assert_eq!(stack.prune_empty_partner_tracks(), partners);
+    // With no stems left the created tracks belong to nobody; they stay
+    // until the host prunes them.
     assert!(stack.associated_track_ids("M1").unwrap().is_empty());
+    let mut pruned = stack.prune_empty_partner_tracks();
+    pruned.sort();
+    let mut expected = partners.clone();
+    expected.sort();
+    assert_eq!(pruned, expected);
+    assert!(stack.get_track_by_id("M1").is_some());
 }
 
 #[test]
@@ -348,7 +351,9 @@ fn a_stem_partner_swaps_with_the_owner_channel_inside_its_group() {
         assert_eq!(span(&stack, id).1, 7.5, "{id}");
     }
     assert_sync_clips_track_aligned(&stack, "stem swap");
-    // A plain clip on a stem partner track is accepted too (audio group).
+    // A plain clip on a stem partner track is accepted too (audio group). It
+    // now holds the most clips, so it becomes the group's main track; the
+    // members are unchanged.
     assert!(insert(
         &mut stack,
         &partners[1],
@@ -356,7 +361,21 @@ fn a_stem_partner_swaps_with_the_owner_channel_inside_its_group() {
         named_audio("fx", 1.0),
         None
     ));
-    assert_eq!(stack.associated_track_ids("M1").unwrap(), partners);
+    let group = stack
+        .track_groups()
+        .into_iter()
+        .find(|g| g.owner_track_id.as_deref() == Some(partners[1].as_str()))
+        .expect("the stem group");
+    let mut members: Vec<String> = group
+        .partner_track_ids
+        .iter()
+        .map(|id| id.clone().unwrap())
+        .collect();
+    members.push(partners[1].clone());
+    members.sort();
+    let mut expected = vec!["M1".to_string(), partners[0].clone(), partners[1].clone()];
+    expected.sort();
+    assert_eq!(members, expected);
 }
 
 #[test]

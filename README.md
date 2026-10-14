@@ -13,49 +13,46 @@ Open-source, cross-language library for reading, writing, validating, and editin
 - IDs are optional UUIDs (may be omitted/null for portability)
 
 #### Associated tracks (sync partners)
-Tracks form groups. A *video group* is a video track (the owner) with zero or
-more audio tracks; an *audio group* is audio tracks only, owned by its main
-track, the member with the most clips (highest index on a tie); normalization
-moves a stored list to the main track when another member holds it. The owner stores, in
-`metadata["tellers.ai"]["associated_track_ids"]`, the ordered tracks its sync
-partners go to; a track belongs to one group. Tracks with no stored list derive
-it from their sync clips (Resolve imports), and the first column inserted stores
-it. A track nobody lists and that lists nothing is *free* and can be adopted by
-any group.
+Which tracks a clip's sync partners go to is computed from the sync clips
+(the Resolve `Link Group ID` on clips), never stored: the saved document is
+plain OTIO. Every sync column has an owner, its video track, or for an
+audio-only column the member track holding the most clips (highest on a tie).
+The owner's *associated tracks* are the tracks holding the other clips of its
+columns, nearest first; a track belongs to one owner (the one it shares the
+most columns with), and a track holding no sync clip is *free*. A *video
+group* is a video track with its audio tracks; an *audio group* is audio
+tracks only.
 
-Placement of a column's partners, in order: on a horizontal move or replace the
-partner's own track; the first listed track that is free over the column (the
-owner itself counts for audio groups); the nearest free unlisted track; on a
-move onto a track with no partners, the source track; otherwise a new track
-created past the existing partners and appended to the list.
+Placement of a column's partners, in order: on a horizontal move or replace
+the partner's own track; the nearest associated track that is free over the
+column (the owner itself counts for audio groups); the nearest free track in
+no group; on a move onto a track with no partners, the source track; otherwise
+a new track created past the existing partners (and the slots already used
+by the column), so slot order is also stack order once normalized.
 
 Rules: a column with a video clip is inserted on a video track (its primary is
 the video); a plain audio clip or an audio-only column never lands on a video
-group's audio track that holds clips (dropped on an empty partner, they take
-the track out of the group); the audio partner of a video column never leaves its
-video's group: it moves in time, or onto a sibling track where it swaps with
-the channel there (refused when the slot holds anything else), and a drop on
-any other track is refused; the video clip moves the whole column to another
-video track; audio groups and video groups never mix. Deleting a track drops only its channel from the columns.
-Empty tracks are kept. Syncing clips by hand gathers them into one group,
-adopting free tracks and moving clips off other groups onto new partner tracks.
-
-`prune_empty_partner_tracks` removes partner tracks that hold no clip and
-carry no user name (the auto-numbered tracks the library created); owners,
-free tracks and named tracks stay. Like normalization it is a separate step
-the host runs when it wants, e.g. on save.
+group's audio track (a track with no sync clip is free and always accepts
+them); the audio partner of a video column never leaves its video's group: it
+moves in time, or onto a sibling track where it swaps with the channel there
+(refused when the slot holds anything else), and a drop on any other track is
+refused; the video clip moves the whole column to another video track; audio
+groups and video groups never mix. Deleting a track drops only its channel.
+Resizes mirror on the partners what happened on the primary track, and a
+clip whose head is trimmed keeps its id. Syncing clips by hand gathers them
+into one group, moving clips off other groups onto new partner tracks.
 
 `normalize_track_order` is the only call that reorders tracks: each group
-becomes contiguous, owner on top with its partners right below in list order.
-Call it once at the end of a request; a manual `reorder_track` inside a group
-updates the list so the layout survives normalization.
+becomes contiguous, owner on top with its partners right below in slot order.
+`prune_empty_partner_tracks` removes the auto-numbered audio tracks the
+library created once they hold no clip. Both are separate steps the host runs
+when it wants, e.g. once per request or on save.
 
-API: `Track.get/set/clear_associated_track_ids`,
-`Stack.associated_track_ids(track_id)`, `Stack.associate_tracks(track_id, ids)`,
-`Stack.free_audio_track_for(start, duration)`, `Stack.normalize_track_order()`,
-`Stack.insert_item_at_time_by_id(...)`, `Stack.track_groups()` (every group as
-one object: owner, kind, partners in slot order, stored or derived; tracks in
-no group are groups of one), in Rust and Python.
+API: `Stack.associated_track_ids(track_id)`, `Stack.track_groups()` (every
+group as one object: owner, kind, partners in slot order; tracks in no group
+are groups of one), `Stack.free_audio_track_for(start, duration)`,
+`Stack.normalize_track_order()`, `Stack.prune_empty_partner_tracks()`,
+`Stack.insert_item_at_time_by_id(...)`, in Rust and Python.
 `tools/audit_associated_tracks.py` reports what these rules see in a set of
 project documents.
 

@@ -39,7 +39,6 @@ impl Stack {
             dest_index
         };
         self.children.insert(adjusted_dest_index, track);
-        self.sync_list_with_physical_order(adjusted_dest_index);
         self.sanitize();
         true
     }
@@ -68,7 +67,6 @@ impl Stack {
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         let (i, _) = self.get_track_by_id(id)?;
         let removed = self.children.remove(i);
-        self.prune_associated_track_ids();
         self.sanitize_preserving_all_gap_tracks();
         Some(removed)
     }
