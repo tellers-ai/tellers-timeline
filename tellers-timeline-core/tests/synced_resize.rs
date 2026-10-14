@@ -276,9 +276,12 @@ fn resize_item_moves_selected_split_synced_clips_by_selected_delta() {
         );
         assert_eq!(item.duration(), 1.0);
     }
+    // Trimming the left fragment from the left happens in place: the right
+    // fragments do not move or shrink.
     for item_id in [&right_video_id, &right_audio_id] {
-        let (_, _, item) = stack.get_item(item_id).unwrap();
-        assert_eq!(item.duration(), 1.0);
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 2.0);
+        assert_eq!(item.duration(), 2.0);
         assert_eq!(sync_clips_id(item), right_sync_clips_id);
     }
 }
@@ -446,8 +449,14 @@ fn resize_audio_synced_item_override_trims_following_group_when_start_is_unchang
         );
         assert_eq!(item.duration(), 3.0);
     }
-    assert!(stack.get_item("second-video").is_none());
-    assert!(stack.get_item(&second_audio_id).is_none());
+    // The second column lost its first second but keeps its ids: a trimmed
+    // clip is the same clip, shorter, with its media offset moved on.
+    for item_id in ["second-video", &second_audio_id] {
+        let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 3.0);
+        assert_eq!(item.duration(), 1.0);
+        assert_eq!(source_start(item), 1.0);
+    }
     for track in &stack.children {
         assert_eq!(track.items.len(), 2);
         assert_eq!(track.start_time_of_item(1), 3.0);
@@ -558,13 +567,16 @@ fn resize_synced_item_override_updates_synced_assets_of_trimmed_group() {
         );
         assert_eq!(item.duration(), 2.0);
     }
+    // The first column moved right by 1 and overrode the head of the second:
+    // the second keeps its place and ids, 1s shorter, media offset moved on.
     for item_id in ["second-video", &second_audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
         assert_eq!(
             stack.children[track_index].start_time_of_item(item_index),
-            0.0
+            3.0
         );
         assert_eq!(item.duration(), 1.0);
+        assert_eq!(source_start(item), 1.0);
     }
 }
 
@@ -708,13 +720,16 @@ fn resize_audio_synced_item_override_updates_video_and_trims_following_group() {
         );
         assert_eq!(item.duration(), 2.0);
     }
+    // The first column moved right by 1 and overrode the head of the second:
+    // the second keeps its place and ids, 1s shorter, media offset moved on.
     for item_id in ["second-video", &second_audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
         assert_eq!(
             stack.children[track_index].start_time_of_item(item_index),
-            0.0
+            3.0
         );
         assert_eq!(item.duration(), 1.0);
+        assert_eq!(source_start(item), 1.0);
     }
 }
 
@@ -953,4 +968,224 @@ fn modify_item_negative_duration_deletes_synced_clips() {
         .children
         .iter()
         .all(|track| track.items.iter().all(|item| matches!(item, Item::Gap(_)))));
+}
+
+#[test]
+fn override_resize_that_trims_a_synced_clip_trims_its_partners_too() {
+    // V1 owns A1 and A2. Clip 2 (plain, 2..3) sits right before a synced column
+    // (clip1 + two audio, 3..5.5). Extending Clip 2 to 2..4 with Override cuts
+    // the head of clip1: the audio partners must follow (start 4, 1.5s, media
+    // offset +1s), not keep their old place.
+    let mut stack = Stack::default();
+    for id in ["A2", "A1"] {
+        stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
+    }
+    stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
+    let v1 = track_index_by_id(&stack, "V1");
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            2.0,
+            Item::Clip(clip(1.0, Some("clip2"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            None,
+            None,
+        )
+        .is_some());
+    let mut left = audio_clip(2.5, "file:///left.wav", None);
+    left.set_id(Some("left".into()));
+    let mut right = audio_clip(2.5, "file:///right.wav", None);
+    right.set_id(Some("right".into()));
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            3.0,
+            Item::Clip(clip(2.5, Some("clip1"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            Some(vec![left, right]),
+            None,
+        )
+        .is_some());
+
+    assert!(stack.resize_item("clip2", 2.0, 2.0, OverlapPolicy::Override, false));
+
+    // The trimmed clip keeps its id.
+    let (track_index, fragment_index, fragment) = stack.get_item("clip1").expect("clip1 keeps its id");
+    let video = &stack.children[track_index];
+    assert_eq!(video.get_id().as_deref(), Some("V1"));
+    assert_eq!(video.start_time_of_item(fragment_index), 4.0);
+    assert_eq!(fragment.duration(), 1.5);
+    assert_eq!(source_start(fragment), 1.0);
+    let group = sync_clips_id(fragment);
+    assert!(group.is_some());
+    for id in ["left", "right"] {
+        let (track_index, item_index, item) = stack.get_item(id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 4.0, "{id}");
+        assert_eq!(item.duration(), 1.5, "{id}");
+        assert_eq!(source_start(item), 1.0, "{id} media offset follows the trim");
+        assert_eq!(sync_clips_id(item), group, "{id}");
+    }
+    assert_sync_clips_track_aligned(&stack, "override resize trims the column");
+}
+
+/// V1 owns A1 and A2. Column C at 0..2, plain clip2 at 2..3, column clip1 at
+/// 3..4.5 (the layout of the left-handle bug report).
+fn plain_clip_between_two_columns() -> Stack {
+    let mut stack = Stack::default();
+    for id in ["A2", "A1"] {
+        stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
+    }
+    stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
+    let v1 = track_index_by_id(&stack, "V1");
+    let column = |name: &str, duration: f64| -> Vec<Item> {
+        (1..=2)
+            .map(|i| {
+                let mut item = audio_clip(duration, &format!("file:///{name}{i}.wav"), None);
+                item.set_id(Some(format!("{name}-a{i}")));
+                item
+            })
+            .collect()
+    };
+    for (time, id, duration, audio) in [
+        (0.0, "C", 2.0, Some(column("C", 2.0))),
+        (2.0, "clip2", 1.0, None),
+        (3.0, "clip1", 1.5, Some(column("clip1", 1.5))),
+    ] {
+        assert!(stack
+            .insert_item_at_time(
+                v1,
+                time,
+                Item::Clip(clip(duration, Some(id))),
+                OverlapPolicy::Override,
+                InsertPolicy::SplitAndInsert,
+                audio,
+                None,
+            )
+            .is_some());
+    }
+    stack
+}
+
+fn span(stack: &Stack, id: &str) -> (String, f64, f64, f64) {
+    let (track_index, item_index, item) = stack.get_item(id).unwrap();
+    (
+        stack.children[track_index].get_id().unwrap(),
+        stack.children[track_index].start_time_of_item(item_index),
+        item.duration(),
+        source_start(item),
+    )
+}
+
+#[test]
+fn left_handle_growth_of_a_plain_clip_trims_the_previous_column_on_every_track() {
+    for policy in [OverlapPolicy::Override, OverlapPolicy::Push] {
+        let mut stack = plain_clip_between_two_columns();
+        assert!(stack.resize_item("clip2", 1.5, 1.5, policy, false));
+        assert_eq!(span(&stack, "clip2"), ("V1".into(), 1.5, 1.5, 0.0), "{policy:?}");
+        // C is cut to 1.5s on V1 and on both partner tracks.
+        for id in ["C", "C-a1", "C-a2"] {
+            let (_, start, duration, _) = span(&stack, id);
+            assert_eq!((start, duration), (0.0, 1.5), "{id} {policy:?}");
+        }
+        // clip1 and its partners did not move.
+        for id in ["clip1", "clip1-a1", "clip1-a2"] {
+            let (_, start, duration, _) = span(&stack, id);
+            assert_eq!((start, duration), (3.0, 1.5), "{id} {policy:?}");
+        }
+        assert_sync_clips_track_aligned(&stack, "left-handle growth");
+    }
+}
+
+#[test]
+fn left_handle_shrink_of_a_plain_clip_changes_nothing_else() {
+    let mut stack = plain_clip_between_two_columns();
+    assert!(stack.resize_item("clip2", 2.5, 0.5, OverlapPolicy::Override, false));
+    assert_eq!(span(&stack, "clip2"), ("V1".into(), 2.5, 0.5, 0.0));
+    for id in ["C", "C-a1", "C-a2"] {
+        let (_, start, duration, _) = span(&stack, id);
+        assert_eq!((start, duration), (0.0, 2.0), "{id}");
+    }
+    for id in ["clip1", "clip1-a1", "clip1-a2"] {
+        let (_, start, duration, _) = span(&stack, id);
+        assert_eq!((start, duration), (3.0, 1.5), "{id}");
+    }
+    let v1 = &stack.children[track_index_by_id(&stack, "V1")];
+    assert!(matches!(v1.items[v1.get_item_at_time(2.2).unwrap()], Item::Gap(_)));
+    assert_sync_clips_track_aligned(&stack, "left-handle shrink");
+}
+
+#[test]
+fn right_handle_growth_with_push_moves_the_next_column_on_every_track() {
+    let mut stack = plain_clip_between_two_columns();
+    assert!(stack.resize_item("clip2", 2.0, 2.0, OverlapPolicy::Push, false));
+    assert_eq!(span(&stack, "clip2"), ("V1".into(), 2.0, 2.0, 0.0));
+    for id in ["clip1", "clip1-a1", "clip1-a2"] {
+        let (_, start, duration, _) = span(&stack, id);
+        assert_eq!((start, duration), (4.0, 1.5), "{id}");
+    }
+    for id in ["C", "C-a1", "C-a2"] {
+        let (_, start, duration, _) = span(&stack, id);
+        assert_eq!((start, duration), (0.0, 2.0), "{id}");
+    }
+    assert_sync_clips_track_aligned(&stack, "right-handle push");
+}
+
+#[test]
+fn extending_over_a_whole_sync_fragment_removes_its_partners() {
+    // Column clip1 at 3.5..6.5 split at 6 (right fragment has its own sync
+    // id), plain clip2 at 6.5. Pulling clip2's left edge to 5 with Override
+    // trims the left fragment and wipes the right one: its audio must go too.
+    let mut stack = Stack::default();
+    for id in ["A2", "A1"] {
+        stack.children.push(Track::new(TrackKind::Audio, Some(id.into())));
+    }
+    stack.children.push(Track::new(TrackKind::Video, Some("V1".into())));
+    let v1 = track_index_by_id(&stack, "V1");
+    let column: Vec<Item> = (1..=2)
+        .map(|i| {
+            let mut item = audio_clip(3.0, &format!("file:///c{i}.wav"), None);
+            item.set_id(Some(format!("clip1-a{i}")));
+            item
+        })
+        .collect();
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            3.5,
+            Item::Clip(clip(3.0, Some("clip1"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            Some(column),
+            None,
+        )
+        .is_some());
+    assert!(stack
+        .insert_item_at_time(
+            v1,
+            6.5,
+            Item::Clip(clip(2.0, Some("clip2"))),
+            OverlapPolicy::Override,
+            InsertPolicy::SplitAndInsert,
+            None,
+            None,
+        )
+        .is_some());
+    assert!(stack.split_item_at_time("clip1", 6.0));
+
+    assert!(stack.resize_item("clip2", 5.0, 3.5, OverlapPolicy::Override, false));
+
+    for id in ["clip1", "clip1-a1", "clip1-a2"] {
+        let (track_index, item_index, item) = stack.get_item(id).unwrap();
+        assert_eq!(stack.children[track_index].start_time_of_item(item_index), 3.5, "{id}");
+        assert_eq!(item.duration(), 1.5, "{id}");
+    }
+    for id in ["A1", "A2"] {
+        let track = &stack.children[track_index_by_id(&stack, id)];
+        let clips = track.items.iter().filter(|item| matches!(item, Item::Clip(_))).count();
+        assert_eq!(clips, 1, "{id} keeps only the trimmed partner");
+        assert!(track.total_duration() <= 5.0 + 1e-9, "{id} has nothing after 5s");
+    }
+    assert_sync_clips_track_aligned(&stack, "override wipes a fragment");
 }

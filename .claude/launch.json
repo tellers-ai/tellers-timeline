@@ -4,8 +4,11 @@
     {
       "name": "timeline-ui",
       "runtimeExecutable": "tools/timeline-ui/run.sh",
-      "runtimeArgs": ["--no-browser", "--port", "8765"],
-      "port": 8765
+      "runtimeArgs": [
+        "--no-browser"
+      ],
+      "port": 8765,
+      "autoPort": true
     }
   ]
 }

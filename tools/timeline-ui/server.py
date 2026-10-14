@@ -6,7 +6,7 @@ Every action in the UI is turned into a real call on a `Stack` held in memory,
 so what you see is what the library actually did. No media data is needed:
 clips just carry a placeholder URL.
 
-Run:  python tools/timeline-ui/server.py [--port 8765] [--no-browser]
+Run:  python tools/timeline-ui/server.py [--port 8765] [--no-browser]  (PORT or TIMELINE_UI_PORT sets the default)
 Or:   VS Code -> F5 -> "Timeline test UI"
 """
 
@@ -184,11 +184,16 @@ class State:
             sync_info = self.stack.sync_track_info()
         except Exception as exc:  # pragma: no cover - defensive
             sync_info = [{"error": str(exc)}]
+        try:
+            track_groups = self.stack.track_groups()
+        except Exception as exc:  # pragma: no cover - defensive
+            track_groups = [{"error": str(exc)}]
         return {
             "tracks": tracks,
             "timeline": json.loads(timeline.to_json()),
             "validation": timeline.validate(),
             "sync_track_info": sync_info,
+            "track_groups": track_groups,
             "result": result,
             "call": call,
             "error": error,
@@ -284,6 +289,18 @@ def op_undo(state: State, p: dict):
 def op_sanitize(state: State, p: dict):
     state.stack.sanitize()
     return True, "stack.sanitize()"
+
+
+@op("normalize_tracks")
+def op_normalize_tracks(state: State, p: dict):
+    changed = state.stack.normalize_track_order()
+    return changed, "stack.normalize_track_order()"
+
+
+@op("prune_tracks")
+def op_prune_tracks(state: State, p: dict):
+    removed = state.stack.prune_empty_partner_tracks()
+    return removed, "stack.prune_empty_partner_tracks()"
 
 
 @op("add_track")
@@ -536,7 +553,11 @@ def _jsonable(value: Any) -> Any:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--port", type=int, default=int(os.environ.get("TIMELINE_UI_PORT", "8765")))
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PORT", os.environ.get("TIMELINE_UI_PORT", "8765"))),
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--sample", action="store_true", help="start with a sample layout")

@@ -123,7 +123,7 @@ def test_insert_item_at_index_translates_to_synced_result_dict():
     assert len(result["audio_clips"]) == 1
 
 
-def test_insert_with_linked_video_translates_to_synced_result_dict():
+def test_insert_with_linked_video_on_audio_track_is_rejected():
     stack = Stack(
         [
             Track(kind="audio", id="a", children=[Item.from_gap(Gap(10.0))]),
@@ -142,12 +142,10 @@ def test_insert_with_linked_video_translates_to_synced_result_dict():
         linked_video_clip=video,
     )
 
-    assert isinstance(result, dict)
-    assert result["primary_clip_id"] == "audio"
-    assert result["linked_video_clip_id"] == "video"
-    assert result["audio_clips"] == []
-    assert result["link_group_id"] is not None
-    assert stack.get_item("video") is not None
+    # A column with a video clip must be inserted on a video track with the
+    # video as its primary: an audio-track destination is refused.
+    assert result is None
+    assert stack.get_item("video") is None
 
 
 def test_linked_audio_clips_require_clip_item():

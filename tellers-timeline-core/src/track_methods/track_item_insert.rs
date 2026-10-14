@@ -113,10 +113,9 @@ impl Track {
         }
 
         // Split at end boundary if it falls inside an item
+        let mut end_split: Option<SplitClipInfo> = None;
         if self.get_item_at_time(insert_end).is_some() {
-            if let Some(split) = self.split_at_time(insert_end) {
-                result.split_clips.push(split);
-            }
+            end_split = self.split_at_time(insert_end);
         }
 
         // After splitting at start and end, remove the exact range of items fully inside [insert_start, insert_end).
@@ -127,18 +126,55 @@ impl Track {
             let remove_count = end_index - insert_index;
             for _ in 0..remove_count {
                 if let Item::Clip(clip) = &self.items[insert_index] {
-                    result.deleted_clips.push(DeletedClipInfo {
-                        clip_id: clip.get_id().unwrap_or_default(),
-                        sync_clips_id: clip.sync_clips_id(),
-                    });
+                    let clip_id = clip.get_id().unwrap_or_default();
+                    // The head of a clip cut by the end boundary is not a
+                    // deletion: its tail survives and keeps the clip's id.
+                    let is_trimmed_head = end_split
+                        .as_ref()
+                        .is_some_and(|split| split.old_clip_id == clip_id);
+                    if !is_trimmed_head {
+                        result.deleted_clips.push(DeletedClipInfo {
+                            clip_id,
+                            sync_clips_id: clip.sync_clips_id(),
+                        });
+                    }
                 }
                 self.items.remove(insert_index);
             }
         }
 
         self.items.insert(insert_index, item);
+        if let Some(mut split) = end_split {
+            self.restore_trimmed_head_id(&mut split);
+            result.split_clips.push(split);
+        }
         self.sanitize_preserving_all_gap_track();
         result
+    }
+
+    /// After a split whose left piece was removed, the right piece is the
+    /// trimmed clip itself: give it the original id back and record the
+    /// split as a head trim (no left piece).
+    pub(crate) fn restore_trimmed_head_id(&mut self, split: &mut SplitClipInfo) {
+        let left_alive = self
+            .items
+            .iter()
+            .any(|item| item.get_id().as_deref() == Some(split.old_clip_id.as_str()));
+        if left_alive {
+            return;
+        }
+        let Some(right_id) = split.right_clip_id.clone() else {
+            return;
+        };
+        if let Some(right) = self
+            .items
+            .iter_mut()
+            .find(|item| item.get_id().as_deref() == Some(right_id.as_str()))
+        {
+            right.set_id(Some(split.old_clip_id.clone()));
+            split.left_clip_id = None;
+            split.right_clip_id = Some(split.old_clip_id.clone());
+        }
     }
 
     /// Insert an item at a timeline time, controlling how overlaps are handled

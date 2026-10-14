@@ -5,9 +5,9 @@
 #![allow(dead_code, unused_imports)]
 
 pub use tellers_timeline_core::{
-    Clip, Gap, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, SyncedInsertResult,
-    MediaReference, OverlapPolicy, RationalTime, Stack, SyncTrackInfo, TimeRange, Timeline, Track,
-    TrackKind,
+    Clip, Gap, IdMetadataExt, InsertItemAtTimeResult, InsertPolicy, Item, MediaReference,
+    OverlapPolicy, RationalTime, Stack, SyncTrackInfo, SyncedInsertResult, TimeRange, Timeline,
+    Track, TrackKind,
 };
 
 pub fn range(duration: f64) -> TimeRange {
@@ -64,7 +64,10 @@ pub fn clip_with_references(duration: f64, active_key: Option<&str>, id: Option<
     );
     refs.insert(
         "DEFAULT_MEDIA".to_string(),
-        media_ref("file:///replacement-default.mov", Some("replacement-default")),
+        media_ref(
+            "file:///replacement-default.mov",
+            Some("replacement-default"),
+        ),
     );
     Clip::new(
         range(duration),
@@ -84,7 +87,11 @@ pub fn audio_clip(duration: f64, url: &str, media_id: Option<&str>) -> Item {
     ))
 }
 
-pub fn audio_clip_with_available_duration(duration: f64, url: &str, available_duration: f64) -> Item {
+pub fn audio_clip_with_available_duration(
+    duration: f64,
+    url: &str,
+    available_duration: f64,
+) -> Item {
     Item::Clip(Clip::new_single_media_reference(
         range(duration),
         MediaReference::ExternalReference {
@@ -212,7 +219,7 @@ pub fn insert_with_audio(
         OverlapPolicy::Override,
         InsertPolicy::InsertBefore,
         Some(synced_audio_clips),
-    None,
+        None,
     ) {
         Some(InsertItemAtTimeResult::Synced(result)) => Some(result),
         _ => None,
@@ -222,7 +229,9 @@ pub fn insert_with_audio(
 pub fn stack_with_synced_audio_below_video() -> Stack {
     let mut video = Track::new(TrackKind::Video, Some("v".to_string()));
     video.items.push(Item::Gap(Gap::make_gap(2.0)));
-    video.items.push(Item::Clip(clip(2.0, Some("linked-video"))));
+    video
+        .items
+        .push(Item::Clip(clip(2.0, Some("linked-video"))));
     let mut audio = Track::new(TrackKind::Audio, Some("a".to_string()));
     audio.items.push(Item::Gap(Gap::make_gap(2.0)));
     audio
@@ -331,7 +340,12 @@ pub fn fixture_path(name: &str) -> std::path::PathBuf {
         .join(name)
 }
 
-pub fn assert_item_span(track: &Track, item_index: usize, expected_start: f64, expected_duration: f64) {
+pub fn assert_item_span(
+    track: &Track,
+    item_index: usize,
+    expected_start: f64,
+    expected_duration: f64,
+) {
     let start = track.start_time_of_item(item_index);
     let duration = track.items[item_index].duration();
     assert!(
@@ -368,8 +382,12 @@ pub fn two_synced_clips() -> Stack {
     let mut stack = Stack::default();
     stack.children.push(audio);
     stack.children.push(video);
-    stack.sync_item(&["vA".to_string(), "aA".to_string()]).unwrap();
-    stack.sync_item(&["vB".to_string(), "aB".to_string()]).unwrap();
+    stack
+        .sync_item(&["vA".to_string(), "aA".to_string()])
+        .unwrap();
+    stack
+        .sync_item(&["vB".to_string(), "aB".to_string()])
+        .unwrap();
     stack
 }
 
@@ -433,7 +451,13 @@ pub fn push_sync_set(stack: &mut Stack, prefix: &str, dur: f64, audio_count: usi
         stack.children.push(audio);
         ids.push(format!("{prefix}-aud{i}"));
     }
-    stack.sync_item(&ids.iter().map(String::as_str).map(str::to_string).collect::<Vec<_>>())
+    stack
+        .sync_item(
+            &ids.iter()
+                .map(String::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+        )
         .unwrap();
 }
 

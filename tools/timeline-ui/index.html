@@ -49,7 +49,15 @@
   .lane { position: relative; flex: 1; min-width: 100px; background-image: linear-gradient(to right, var(--line) 1px, transparent 1px); background-size: var(--sec) 100%; }
   .lane.drop { background-color: rgba(79,140,255,.12); }
   .lane.reject { background-color: rgba(239,83,80,.12); }
+  @keyframes refused-pulse { 0%, 100% { background-color: transparent; } 25%, 75% { background-color: rgba(239,83,80,.35); } }
+  .row.refused .lane, .row.refused .hdr { animation: refused-pulse .9s ease-in-out 2; }
   .lane.disabled { opacity: .5; }
+  .row.owner .hdr { border-left: 3px solid var(--acc, #4f8cff); }
+  .row.partner .hdr { border-left: 3px solid var(--acc, #4f8cff); opacity: .92; }
+  .row.partner .hdr .line1 { padding-left: 10px; }
+  .hdr .grp { font-size: 10px; color: var(--fg2); margin-left: 4px; }
+  .hdr button.fold { min-width: 18px; padding: 0 3px; }
+  .row.owner.collapsed .hdr { background: rgba(79,140,255,.08); }
   #ruler { position: relative; flex: 1; cursor: pointer; }
   #ruler .tick { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--line); padding-left: 3px; font-size: 10px; color: var(--fg2); pointer-events: none; }
   #playhead { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--danger); z-index: 15; pointer-events: none; }
@@ -123,6 +131,8 @@
     <button id="btnReset" title="Empty stack with one video track">Reset</button>
     <button id="btnUndo" title="Undo last op (⌘Z)">Undo</button>
     <button id="btnSanitize" title="stack.sanitize()">Sanitize</button>
+    <button id="btnNormalize" title="stack.normalize_track_order(): make every group contiguous, owner on top">Normalize</button>
+    <button id="btnPrune" title="stack.prune_empty_partner_tracks(): remove empty auto-named partner tracks">Prune</button>
   </div>
   <div class="group">
     <label class="opt">Overlap <select id="overlap"><option>override</option><option>push</option></select></label>
@@ -163,7 +173,7 @@
     <button data-tab="result" class="active">Result</button>
     <button data-tab="log">Log</button>
     <button data-tab="validation">Validation <span class="cnt zero" id="valCnt">0</span></button>
-    <button data-tab="sync">Sync tracks</button>
+    <button data-tab="sync">Groups</button>
     <button data-tab="json">JSON</button>
     <span class="spacer"></span>
     <span id="hint">drag = move · edges = resize · dbl-click lane = insert · right-click = menu · ⌘Z undo</span>
@@ -186,6 +196,7 @@
   <div class="frow"><label>Type</label><select id="piType"><option value="clip">Clip</option><option value="gap">Gap</option><option value="text">Text clip (rich text)</option><option value="linked">Clip + linked audio</option><option value="linkedvideo">Audio clip + linked video</option></select></div>
   <div class="frow"><label>Name</label><input type="text" id="piName" style="width:130px"></div>
   <div class="frow"><label>Duration (s)</label><input type="number" id="piDur" step="0.5" min="0.1" value="2"></div>
+  <div class="frow" id="piAudioRow"><label>Sync audio clips</label><input type="number" id="piAudioN" step="1" min="1" max="4" value="2" title="How many linked audio clips go with the video clip (one per partner track)"></div>
   <div class="frow" id="piMediaRow"><label>Media duration (s)</label><input type="number" id="piMedia" step="0.5" min="0" placeholder="unbounded"></div>
   <div class="frow" id="piSourceRow"><label>Media start (s)</label><input type="number" id="piSource" step="0.5" min="0" placeholder="0"></div>
   <div class="frow" id="piTimeRow"><label>At time (s)</label><input type="number" id="piTime" step="0.1" min="0" value="0"></div>
@@ -291,7 +302,12 @@
     const order = [...S.tracks];
     if ($('#reverse').checked) order.reverse();
     el.tracks.innerHTML = '';
-    for (const t of order) el.tracks.appendChild(renderTrack(t, width));
+    const groups = groupsByTrack();
+    for (const t of order) {
+      const g = groups.get(t.id);
+      if (g && g.owner !== t.id && collapsed.has(g.owner)) continue;
+      el.tracks.appendChild(renderTrack(t, width, g));
+    }
     if (!S.tracks.length) {
       const d = document.createElement('div');
       d.style.cssText = 'padding:30px;color:var(--fg2)';
@@ -317,17 +333,38 @@
     }
   }
 
-  function renderTrack(t, width) {
+  // Collapsed group owners (track ids); partners of a collapsed owner are hidden.
+  const collapsed = new Set();
+  // Map track id → { owner, partners, kind } from stack.track_groups().
+  function groupsByTrack() {
+    const map = new Map();
+    for (const g of (S.track_groups || [])) {
+      if (g.error || !g.owner_track_id || !(g.partner_track_ids || []).length) continue;
+      const info = { owner: g.owner_track_id, partners: g.partner_track_ids, kind: g.kind };
+      map.set(g.owner_track_id, info);
+      for (const id of g.partner_track_ids) if (id) map.set(id, info);
+    }
+    return map;
+  }
+
+  function renderTrack(t, width, g) {
     const row = document.createElement('div');
-    row.className = 'row';
+    const isOwner = g && g.owner === t.id;
+    row.className = 'row' + (isOwner ? ' owner' + (collapsed.has(t.id) ? ' collapsed' : '') : (g ? ' partner' : ''));
     row.dataset.trackId = t.id;
     const hdr = document.createElement('div');
     hdr.className = 'hdr';
+    const fold = isOwner
+      ? `<button class="fold" data-act="fold" title="Collapse / expand this group's partner tracks (stack.track_groups)">${collapsed.has(t.id) ? '▸' : '▾'}</button>`
+      : '';
+    const grp = isOwner
+      ? `<span class="grp" title="computed from the sync clips">${g.kind} group · ${g.partners.length} partner${g.partners.length > 1 ? 's' : ''}</span>`
+      : (g ? `<span class="grp" title="partner of ${esc(g.owner)}">↳ slot ${g.partners.indexOf(t.id) + 1} of ${esc(trackById(g.owner)?.name || g.owner)}</span>` : '');
     hdr.innerHTML = `
-      <div class="line1"><span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
-        <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span></div>
+      <div class="line1">${fold}<span class="idx">#${t.index}</span><span class="kind ${t.kind}">${t.kind}</span>
+        <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span>${grp}</div>
       <div class="line2">
-        <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>
+        <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>${t.kind === 'video' ? '<button class="primary" data-act="add2" title="Insert a 2s video clip with 2 sync audio clips at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}${t.kind === 'audio' ? '<button class="primary" data-act="add2" title="Insert a 2s audio clip with 2 sync audio clips (stems) at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}
         <button data-act="up" title="reorder_track: move toward end of list (top layer)">▲</button>
         <button data-act="down" title="reorder_track: move toward start of list (bottom layer)">▼</button>
         <button data-act="del" class="danger" title="delete_track">×</button>
@@ -341,6 +378,8 @@
       const act = e.target.dataset.act;
       if (!act) return;
       if (act === 'add') openItemPopover(e.target, t);
+      if (act === 'add2') insertQuickSynced(t, snapT(playhead), 2);
+      if (act === 'fold') { collapsed.has(t.id) ? collapsed.delete(t.id) : collapsed.add(t.id); render(); return; }
       if (act === 'up') api('reorder_track', { id: t.id, index: t.index + 2 });
       if (act === 'down') api('reorder_track', { id: t.id, index: Math.max(0, t.index - 1) });
       if (act === 'del') api('delete_track', { id: t.id });
@@ -366,6 +405,7 @@
       openMenu(e, [
         { label: `Insert clip here (${fmt(snapT(time))}s)`, run: () => openItemPopover(null, t, snapT(time), e) },
         { label: 'Insert gap here', run: () => insertQuick(t, 'gap', snapT(time)) },
+        ...(t.kind !== 'other' ? [{ label: `Insert ${t.kind} clip + 2 sync audio here`, run: () => insertQuickSynced(t, snapT(time), 2) }] : []),
         { label: 'Set playhead here', run: () => setPlayhead(time) },
       ]);
     });
@@ -424,7 +464,10 @@
     const v = S.validation || [];
     const cnt = $('#valCnt'); cnt.textContent = v.length; cnt.classList.toggle('zero', !v.length);
     $('#tab-validation').innerHTML = v.length ? v.map(x => `<div class="err">${esc(x)}</div>`).join('') : '<span style="color:var(--ok)">validate() → no errors</span>';
-    $('#tab-sync').innerHTML = '<div style="color:var(--fg2)">stack.sync_track_info()</div>' + (S.sync_track_info || []).map(g =>
+    $('#tab-sync').innerHTML = '<div style="color:var(--fg2)">stack.track_groups()</div>' + (S.track_groups || []).map(g =>
+      g.error ? `<div class="err">${esc(g.error)}</div>` :
+      `<div>${g.kind} group · owner #${g.owner_track_index} ${esc(g.owner_track_id)} → partners [${(g.partner_track_ids || []).map(x => esc(x || 'None')).join(', ')}]</div>`).join('')
+      + '<div style="color:var(--fg2);margin-top:8px">stack.sync_track_info()</div>' + (S.sync_track_info || []).map(g =>
       `<div>tracks [${g.track_indices.join(', ')}] → ids [${(g.track_ids || []).map(x => x || 'None').join(', ')}]</div>`).join('');
     $('#tab-log').innerHTML = [...(S.log || [])].reverse().map(l =>
       `<div class="logline"><span class="call">${esc(l.call)}</span> <span class="r">→ ${esc(l.error ? l.error : JSON.stringify(l.result))}</span></div>`).join('');
@@ -466,17 +509,8 @@
     s.lane = lane || null;
     if (!lane) { el.dropline.style.display = 'none'; el.droptip.style.display = 'none'; return; }
     const track = trackById(lane.dataset.trackId);
-    // Clips retain the media kind of their source track. Gaps and "other"
-    // tracks stay flexible so the UI can still test generic timeline edits.
-    const incompatible = s.it.kind === 'clip' && s.t.kind !== 'other' && track.kind !== 'other' && s.t.kind !== track.kind;
-    if (incompatible) {
-      lane.classList.add('reject');
-      s.lane = null;
-      el.dropline.style.display = 'none';
-      el.droptip.textContent = `${s.t.kind} clips cannot move to a ${track.kind} track`;
-      el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
-      return;
-    }
+    // No pre-check here: every drop is sent to the library, and a refused move
+    // comes back as `false`: the target track pulses red (see the Result panel).
     lane.classList.add('drop');
     const lrect = lane.getBoundingClientRect();
     const mode = $('#mode').value;
@@ -525,11 +559,19 @@
     const dest = trackById(lane.dataset.trackId);
     const o = opts();
     if (o.mode === 'index') {
-      await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy });
+      flashIfRefused(lane, await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy }));
     } else {
       if (dest.id === t.id && time === it.start) return render();
-      await api('move_item', { mode: o.mode, id: it.id, track_id: dest.id, time, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
+      flashIfRefused(lane, await api('move_item', { mode: o.mode, id: it.id, track_id: dest.id, time, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy, insert_policy: o.insert_policy }));
     }
+  }
+  // A move the library refused comes back as `result: false`: flash the
+  // target lane red and say so in the status, nothing else changed.
+  function flashIfRefused(lane, state) {
+    if (!state || state.error || state.result !== false) return;
+    el.status.textContent = 'refused by the library';
+    const row = lane && lane.dataset ? $(`.row[data-track-id="${lane.dataset.trackId}"]`) : null;
+    if (row) { row.classList.add('refused'); setTimeout(() => row.classList.remove('refused'), 1900); }
   }
   function cancelDrag() { if (dragState && dragState.moved) { cleanupDrag(); render(); } dragState = null; }
   function cleanupDrag() {
@@ -567,6 +609,7 @@
     const type = $('#piType').value, mode = $('#piMode').value;
     $('#piMediaRow').style.display = (type === 'gap' || type === 'text') ? 'none' : '';
     $('#piSourceRow').style.display = (type === 'gap' || type === 'text') ? 'none' : '';
+    $('#piAudioRow').style.display = type === 'linked' ? '' : 'none';
     $('#piTimeRow').style.display = mode === 'time' ? '' : 'none';
     $('#piIndexRow').style.display = mode === 'index' ? '' : 'none';
     if (type === 'gap' && $('#piName').value.startsWith('Clip ')) $('#piName').value = '';
@@ -590,7 +633,7 @@
     let item, linked_audio = null, linked_video = null;
     if (type === 'gap') item = itemSpec('gap', name, dur);
     else if (type === 'text') item = itemSpec('clip', name, dur, { text: true, text_html: `<p>${esc(name || 'Text')}</p>` });
-    else if (type === 'linked') { item = itemSpec('clip', name, dur, { url: url('', 'mov'), media_duration, media_start }); linked_audio = [itemSpec('clip', (name || 'clip') + ' audio', dur, { url: url('', 'wav') })]; }
+    else if (type === 'linked') { item = itemSpec('clip', name, dur, { url: url('', 'mov'), media_duration, media_start }); linked_audio = syncAudioSpecs(name || 'clip', dur, parseInt($('#piAudioN').value) || 1); }
     else if (type === 'linkedvideo') { item = itemSpec('clip', name, dur, { url: url('', 'wav'), media_duration, media_start }); linked_video = itemSpec('clip', (name || 'clip') + ' video', dur, { url: url('', 'mov') }); }
     else item = itemSpec('clip', name, dur, { url: url('', isAudioTrack ? 'wav' : 'mov'), media_duration, media_start });
     const o = opts();
@@ -599,6 +642,21 @@
     else Object.assign(params, { mode: 'time', track_index: track.index, time: parseFloat($('#piTime').value) || 0 });
     closePops();
     await api('insert_item', params);
+  }
+  // N linked audio clips for a video clip: "<name> audio 1", "<name> audio 2", ...
+  function syncAudioSpecs(name, dur, n) {
+    const base = name.replace(/\s+/g, '_').toLowerCase();
+    return Array.from({ length: Math.max(1, n) }, (_, i) =>
+      itemSpec('clip', `${name} audio ${i + 1}`, dur, { url: `file:///${base}_a${i + 1}.wav` }));
+  }
+  // On a video track: a video clip with N sync audio clips (a video column).
+  // On an audio track: an audio clip with N sync audio clips (an audio-only
+  // column, stems), which the library keeps in an audio group.
+  function insertQuickSynced(track, time, n) {
+    const o = opts();
+    const name = `Clip ${clipCounter++}`;
+    const ext = track.kind === 'audio' ? 'wav' : 'mov';
+    api('insert_item', { mode: 'time', track_index: track.index, time, item: itemSpec('clip', name, 2, { url: `file:///${name.replace(/\s+/g, '_').toLowerCase()}.${ext}` }), linked_audio: syncAudioSpecs(name, 2, n), overlap_policy: o.overlap_policy, insert_policy: o.insert_policy });
   }
   function insertQuick(track, kind, time) {
     const o = opts();
@@ -695,6 +753,8 @@
   $('#btnReset').addEventListener('click', () => { selected.clear(); api('reset'); });
   $('#btnUndo').addEventListener('click', () => api('undo'));
   $('#btnSanitize').addEventListener('click', () => api('sanitize'));
+  $('#btnNormalize').addEventListener('click', () => api('normalize_tracks'));
+  $('#btnPrune').addEventListener('click', () => api('prune_tracks'));
   $('#btnLoadJson').addEventListener('click', () => {
     let parsed; try { parsed = JSON.parse($('#jsonText').value); } catch (e) { return showResult({ error: 'invalid JSON: ' + e.message }); }
     api('load_json', { json: parsed });

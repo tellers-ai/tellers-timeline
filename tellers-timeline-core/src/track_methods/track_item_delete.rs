@@ -1,4 +1,4 @@
-use crate::{Item, Seconds, Track};
+use crate::{IdMetadataExt, Item, Seconds, Track};
 
 impl Track {
     /// Insert a gap at `index`, extending an adjacent gap when possible.
@@ -18,7 +18,9 @@ impl Track {
             .is_some_and(|item| matches!(item, Item::Gap(_)));
 
         if previous_gap {
-            let next_duration = next_gap.then(|| self.items[index].duration()).unwrap_or(0.0);
+            let next_duration = next_gap
+                .then(|| self.items[index].duration())
+                .unwrap_or(0.0);
             let previous = match &mut self.items[index - 1] {
                 Item::Gap(gap) => gap,
                 Item::Clip(_) => unreachable!("previous_gap was checked above"),
@@ -86,7 +88,7 @@ impl Track {
         }
 
         self.split_at_time(start);
-        self.split_at_time(end);
+        let end_split = self.split_at_time(end);
 
         let start_index = self.get_item_at_time(start).unwrap_or(self.items.len());
         let end_index = self.get_item_at_time(end).unwrap_or(self.items.len());
@@ -99,8 +101,55 @@ impl Track {
         if replace_with_gap && end - start > EPS {
             self.insert_replacement_gap(start_index, end - start);
         }
+        // A clip whose head was cut by the end boundary keeps its id on the tail.
+        if let Some(mut split) = end_split {
+            self.restore_trimmed_head_id(&mut split);
+        }
+        self.restore_id_on_continuing_tail(&removed, end);
 
         removed
+    }
+
+    /// After a range deletion, the clip that starts exactly at `end` may be
+    /// the tail of a removed clip that had been split earlier (same sync id,
+    /// media picking up where the removed piece ended). It is the same clip,
+    /// shorter: give it the removed clip's id back.
+    pub(crate) fn restore_id_on_continuing_tail(&mut self, removed: &[Item], end: Seconds) {
+        const EPS: Seconds = 1e-9;
+        let Some(Item::Clip(head)) = removed
+            .iter()
+            .rev()
+            .find(|item| matches!(item, Item::Clip(_)))
+        else {
+            return;
+        };
+        let Some(head_id) = head.get_id() else {
+            return;
+        };
+        if self
+            .items
+            .iter()
+            .any(|item| item.get_id().as_deref() == Some(head_id.as_str()))
+        {
+            return;
+        }
+        let head_media_end =
+            head.source_range.start_time.to_seconds() + head.source_range.duration.to_seconds();
+        let Some(tail_index) = self.get_item_at_time(end) else {
+            return;
+        };
+        if (self.start_time_of_item(tail_index) - end).abs() > EPS {
+            return;
+        }
+        let Some(Item::Clip(tail)) = self.items.get_mut(tail_index) else {
+            return;
+        };
+        let continues = tail.sync_clips_id() == head.sync_clips_id()
+            && (tail.source_range.start_time.to_seconds() - head_media_end).abs() <= EPS
+            && tail.active_media_reference_key == head.active_media_reference_key;
+        if continues {
+            crate::IdMetadataExt::set_id(tail, Some(head_id));
+        }
     }
 
     /// Delete the clip at a given index. If `replace_with_gap` is true, insert a gap of the
