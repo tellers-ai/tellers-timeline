@@ -194,6 +194,7 @@ class State:
             "validation": timeline.validate(),
             "sync_track_info": sync_info,
             "track_groups": track_groups,
+            "markers": timeline.get_markers(),
             "result": result,
             "call": call,
             "error": error,
@@ -254,6 +255,14 @@ class State:
         add_track("video", "Text")
         insert("Text", 1.0, make_item({"duration": 2, "name": "Title", "text": True, "text_html": "<p>Hello</p>"}))
         stack.normalize_track_order()
+        # One marker of each kind: timeline-wide (a range), on a track, on a clip.
+        v1 = next(t for t in self.stack.tracks() if t.get_name() == "V1")
+        clip_b = next(it for it in v1.items() if it.is_clip() and it.duration() == 2)
+        timeline = Timeline(self.stack)
+        timeline.add_marker(0.5, name="Intro", comment="Timeline marker", color="BLUE", duration=1.0)
+        timeline.add_marker(6.5, name="Track note", comment="Marker on V1", color="GREEN", owner_id=v1.get_id())
+        timeline.add_marker(5.0, name="Fix B", comment="Clip marker: moves with B", owner_id=clip_b.get_id())
+        self.stack = timeline.get_stack()
 
     def load_basic_sample(self) -> None:
         """One video track with one synced clip, and a text track."""
@@ -525,6 +534,49 @@ def op_group_items(state: State, p: dict):
 def op_ungroup_items(state: State, p: dict):
     ids = list(p["ids"])
     return state.stack.ungroup_item(ids), f"stack.ungroup_item({_fmt(ids)})"
+
+
+def _on_timeline(state: State, fn: Callable[[Timeline], Any]) -> Any:
+    """Marker methods live on Timeline: run ``fn`` on a timeline wrapping the
+    stack, then keep the stack it leaves."""
+    timeline = Timeline(state.stack)
+    result = fn(timeline)
+    state.stack = timeline.get_stack()
+    return result
+
+
+@op("add_marker")
+def op_add_marker(state: State, p: dict):
+    kwargs = {
+        "name": p.get("name") or "",
+        "comment": p.get("comment") or "",
+        "color": p.get("color") or None,
+        "duration": float(p.get("duration") or 0.0),
+        "owner_id": p.get("owner_id") or None,
+    }
+    time = float(p["time"])
+    marker_id = _on_timeline(state, lambda tl: tl.add_marker(time, **kwargs))
+    if marker_id is None:
+        raise ValueError(f"add_marker refused: owner {kwargs['owner_id']!r} not found or is a gap")
+    args = ", ".join(f"{k}={_fmt(v)}" for k, v in kwargs.items() if v not in (None, "", 0.0))
+    return marker_id, f"timeline.add_marker({_fmt(time)}{', ' + args if args else ''})"
+
+
+@op("update_marker")
+def op_update_marker(state: State, p: dict):
+    kwargs = {k: p[k] for k in ("name", "comment", "color") if p.get(k) is not None}
+    for k in ("timeline_start", "duration"):
+        if p.get(k) is not None:
+            kwargs[k] = float(p[k])
+    ok = _on_timeline(state, lambda tl: tl.update_marker(p["id"], **kwargs))
+    args = ", ".join(f"{k}={_fmt(v)}" for k, v in kwargs.items())
+    return ok, f"timeline.update_marker({_fmt(p['id'])}, {args})"
+
+
+@op("delete_marker")
+def op_delete_marker(state: State, p: dict):
+    ok = _on_timeline(state, lambda tl: tl.delete_marker(p["id"]))
+    return ok, f"timeline.delete_marker({_fmt(p['id'])})"
 
 
 @op("get_item", mutates=False)
