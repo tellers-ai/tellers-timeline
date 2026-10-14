@@ -416,6 +416,20 @@ def op_resize_item(state: State, p: dict):
     return ok, f"stack.resize_item({_fmt(p['id'])}, {start:g}, {duration:g}, {_fmt(overlap)}, clamp_to_media={clamp})"
 
 
+@op("modify_item")
+def op_modify_item(state: State, p: dict):
+    source_start = float(p["source_start"])
+    duration = float(p["duration"])
+    clamp = bool(p.get("clamp_to_media", True))
+    from_start = bool(p.get("resize_from_start", False))
+    push = bool(p.get("push_following", False))
+    ok = state.stack.modify_item(p["id"], source_start, duration, clamp, from_start, push)
+    return ok, (
+        f"stack.modify_item({_fmt(p['id'])}, {source_start:g}, {duration:g}, clamp_to_media={clamp}, "
+        f"resize_from_start={from_start}, push_following={push})"
+    )
+
+
 @op("replace_item")
 def op_replace_item(state: State, p: dict):
     item_spec = p["item"]
