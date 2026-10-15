@@ -264,3 +264,75 @@ fn ripple_time_moves_keep_every_column_intact() {
     }
     assert!(problems.is_empty(), "{problems:#?}");
 }
+
+/// V1 owning A1 and A2, with C's channels swapped by earlier moves:
+/// A2: _ "C audio 1"[4+2.5]~C
+/// A1: _ "C audio 2"[4+2.5]~C "B audio"[6.5+2]~B
+/// V1: A[0+3] _ C[4+2.5]~C B[6.5+2]~B
+fn swapped_channels() -> Stack {
+    let mut stack = Stack::default();
+    stack.add_track(Track::new(TrackKind::Video, Some("V1".to_string())));
+    let audio = |id: &str, duration: f64| {
+        let mut item = audio_clip(duration, "file:///audio.wav", None);
+        item.set_id(Some(id.to_string()));
+        item
+    };
+    for (time, id, duration, channels) in [
+        (0.0, "A", 3.0, vec![]),
+        (
+            4.0,
+            "C",
+            2.5,
+            vec![audio("C audio 2", 2.5), audio("C audio 1", 2.5)],
+        ),
+        (6.5, "B", 2.0, vec![audio("B audio", 2.0)]),
+    ] {
+        let v1 = track_index_by_id(&stack, "V1");
+        stack
+            .insert_item_at_time(
+                v1,
+                time,
+                Item::Clip(clip(duration, Some(id))),
+                OverlapPolicy::Override,
+                InsertPolicy::SplitAndInsert,
+                (!channels.is_empty()).then_some(channels),
+                None,
+            )
+            .unwrap();
+    }
+    stack.normalize_track_order();
+    let c = clips(&stack);
+    assert_eq!(
+        c["C audio 2"].0, c["B audio"].0,
+        "C audio 2 shares B audio's track"
+    );
+    assert_ne!(c["C audio 1"].0, c["B audio"].0);
+    stack
+}
+
+#[test]
+fn moving_a_after_c_keeps_a_swapped_channel_and_b_audio() {
+    // The insert after lifting A used to delete C audio 2 and leave B audio
+    // at 0.5s while B was at 6.5s.
+    let base = swapped_channels();
+    let mut stack = base.clone();
+    assert!(index_move(&mut stack, "A", "V1", 3));
+    assert_intact(&base, &stack, "A -> V1 @ 3");
+    assert_eq!(start(&stack, "C"), 1.0);
+    assert_eq!(start(&stack, "C audio 1"), 1.0);
+    assert_eq!(start(&stack, "C audio 2"), 1.0);
+    assert_eq!(start(&stack, "A"), 3.5);
+    assert_eq!(start(&stack, "B"), 6.5);
+    assert_eq!(start(&stack, "B audio"), 6.5);
+
+    let mut stack = base.clone();
+    assert!(stack.move_item_at_time(
+        "A",
+        "V1",
+        6.5,
+        false,
+        InsertPolicy::InsertBeforeOrAfter,
+        OverlapPolicy::Push,
+    ));
+    assert_intact(&base, &stack, "A -> V1 @ 6.5s");
+}
