@@ -2519,8 +2519,9 @@ impl Stack {
     /// `dest_track_index` over `[start, end]`: a video clip only onto a video
     /// track; the audio partner of a video column only within its own group,
     /// onto a sibling track whose range is empty or holds clips of the same
-    /// column (a swap); a member of an audio-only column onto its own group
-    /// or another audio group, never a video group.
+    /// column (a swap), or with Push onto any sibling track (the columns there
+    /// are pushed whole, never overwritten); a member of an audio-only column
+    /// onto its own group or another audio group, never a video group.
     fn partner_move_target_allowed(
         &self,
         selected: &SyncedMoveItem,
@@ -2528,6 +2529,7 @@ impl Stack {
         dest_track_index: usize,
         start: Seconds,
         end: Seconds,
+        overlap_policy: OverlapPolicy,
     ) -> bool {
         let Some(dest) = self.children.get(dest_track_index) else {
             return false;
@@ -2548,6 +2550,9 @@ impl Stack {
         let source_owner = self.group_owner_of(selected.track_index);
         let dest_owner = self.group_owner_of(dest_track_index);
         if source_owner == dest_owner {
+            if overlap_policy == OverlapPolicy::Push {
+                return true;
+            }
             let allowed: HashSet<i64> = sync_clips_id.into_iter().collect();
             return self.range_only_holds_sync_clips(dest_track_index, start, end, &allowed);
         }
@@ -3264,6 +3269,7 @@ impl Stack {
             dest_track_index,
             dest_time,
             moved_end,
+            overlap_policy,
         ) {
             return false;
         }
@@ -3555,6 +3561,7 @@ impl Stack {
                 dest_track_index,
                 current_start,
                 current_start + moved_duration,
+                overlap_policy,
             ) {
                 return false;
             }

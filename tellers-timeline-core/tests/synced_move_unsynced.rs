@@ -1106,3 +1106,68 @@ fn index_move_of_a_column_pushes_its_partner_tracks_alike() {
     assert_eq!(start("SA"), start("S"));
     assert_eq!(start("CA"), start("C"));
 }
+
+/// v1: gap[0-5] - B[5-7] (sync 5) - C[7-9] (sync 2)
+/// a1: gap[0-7] - C audio 1[7-9] (sync 2)
+/// a2: gap[0-5] - B audio[5-7] (sync 5) - C audio 2[7-9] (sync 2)
+fn sibling_channel_stack() -> Stack {
+    let mut stack = Stack::default();
+    let mut a2 = Track::new(TrackKind::Audio, Some("a2".to_string()));
+    a2.items.push(Item::Gap(Gap::make_gap(5.0)));
+    a2.items.push(synced_clip_item(2.0, "B audio", 5));
+    a2.items.push(synced_clip_item(2.0, "C audio 2", 2));
+    stack.children.push(a2);
+    let mut a1 = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    a1.items.push(Item::Gap(Gap::make_gap(7.0)));
+    a1.items.push(synced_clip_item(2.0, "C audio 1", 2));
+    stack.children.push(a1);
+    let mut v1 = Track::new(TrackKind::Video, Some("v1".to_string()));
+    v1.items.push(Item::Gap(Gap::make_gap(5.0)));
+    v1.items.push(synced_clip_item(2.0, "B", 5));
+    v1.items.push(synced_clip_item(2.0, "C", 2));
+    stack.children.push(v1);
+    stack
+}
+
+#[test]
+fn ripple_move_of_an_audio_channel_onto_a_sibling_track_before_another_column() {
+    // Dropping B audio on a1 in front of C audio 1 (index 1, or 7s) with Push
+    // keeps the order and switches B audio's channel: it used to be refused
+    // because C audio 1 sat under the landing spot, though Push moves it.
+    let by_index = |stack: &mut Stack| stack.move_item_at_index("B audio", "a1", 1, false, OverlapPolicy::Push);
+    let by_time = |stack: &mut Stack| {
+        stack.move_item_at_time(
+            "B audio",
+            "a1",
+            7.0,
+            false,
+            InsertPolicy::InsertBeforeOrAfter,
+            OverlapPolicy::Push,
+        )
+    };
+    for (label, mv) in [("index", &by_index as &dyn Fn(&mut Stack) -> bool), ("time", &by_time)] {
+        let mut stack = sibling_channel_stack();
+        assert!(mv(&mut stack), "{label} move must be accepted");
+        assert_eq!(placement(&stack, "B audio"), ("a1".to_string(), 5.0), "{label}");
+        assert_eq!(placement(&stack, "B"), ("v1".to_string(), 5.0), "{label}");
+        assert_eq!(placement(&stack, "C"), ("v1".to_string(), 7.0), "{label}");
+        assert_eq!(placement(&stack, "C audio 1"), ("a1".to_string(), 7.0), "{label}");
+        assert_eq!(placement(&stack, "C audio 2"), ("a2".to_string(), 7.0), "{label}");
+    }
+}
+
+#[test]
+fn overwrite_move_of_an_audio_channel_onto_another_columns_audio_is_refused() {
+    // Without Push the same drop would overwrite C audio 1: still refused.
+    let mut stack = sibling_channel_stack();
+    let before = serde_json::to_string(&stack).unwrap();
+    assert!(!stack.move_item_at_time(
+        "B audio",
+        "a1",
+        7.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+    assert_eq!(serde_json::to_string(&stack).unwrap(), before);
+}
