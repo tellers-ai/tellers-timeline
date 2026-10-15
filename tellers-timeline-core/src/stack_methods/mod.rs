@@ -3321,9 +3321,19 @@ impl Stack {
             .filter_map(|item| item.item.get_id())
             .collect();
         // The whole column must land on free space: the selected item on the
-        // destination, its partners on their own tracks.
+        // destination, its partners on their own tracks. A video clip moved to
+        // another video track takes its audio to that track's partner tracks,
+        // so its own partner tracks say nothing about the landing (snapping on
+        // them would drop the column mid-clip on the destination).
+        let partners_change_tracks =
+            selected.track_kind == TrackKind::Video && dest_track_index != selected.track_index;
         let column_tracks: Vec<usize> = std::iter::once(dest_track_index)
-            .chain(items_to_move.iter().filter(|item| !item.is_selected).map(|item| item.track_index))
+            .chain(
+                items_to_move
+                    .iter()
+                    .filter(|item| !item.is_selected && !partners_change_tracks)
+                    .map(|item| item.track_index),
+            )
             .collect();
         let landing_is_free = column_tracks.iter().all(|&track_index| {
                 backup.move_landing_is_free(
