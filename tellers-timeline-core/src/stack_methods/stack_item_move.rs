@@ -169,7 +169,13 @@ impl Stack {
                     time,
                     None,
                     selected.item.clone(),
-                    Self::effective_move_overlap_policy(overlap_policy, Some(old_start), time),
+                    Self::effective_move_overlap_policy(
+                        overlap_policy,
+                        Some(old_start),
+                        time,
+                        // Every member is already lifted off the stack.
+                        self.move_landing_is_free(dest, time, selected.item.duration(), &[]),
+                    ),
                     InsertPolicy::SplitAndInsert,
                     (!audio.is_empty()).then_some(audio),
                     video,
@@ -177,7 +183,6 @@ impl Stack {
                     video_track.as_deref(),
                     Some(&audio_tracks),
                     Some(&source_tracks),
-                    Some(old_start),
                 )
                 .is_none()
             {
@@ -243,6 +248,24 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) -> bool {
+        if !self.move_keeps_track_kind(item_id, dest_track_id) {
+            return false;
+        }
+        // A ripple move (Push, no gap left behind) only changes the order of
+        // clips. Dropping a clip at a time inside its own slot on its own track
+        // keeps the order, so nothing moves; placing it would leave the lifted
+        // slot's gap behind.
+        if overlap_policy == OverlapPolicy::Push && !replace_with_gap {
+            if let Some((track_index, item_index, item)) = self.get_item(item_id) {
+                let start = self.children[track_index].start_time_of_item(item_index);
+                if self.children[track_index].get_id().as_deref() == Some(dest_track_id)
+                    && dest_time > start - super::EPS
+                    && dest_time < start + item.duration() - super::EPS
+                {
+                    return true;
+                }
+            }
+        }
         if let Some(items_to_move) = self.synced_move_items(item_id) {
             let dest_track_index = match self.get_track_by_id(dest_track_id) {
                 Some((index, _)) => index,
@@ -268,6 +291,17 @@ impl Stack {
         )
     }
 
+    /// A clip only ever moves onto a track of its own kind (video to video,
+    /// audio to audio), whether or not it is synced.
+    fn move_keeps_track_kind(&self, item_id: &str, dest_track_id: &str) -> bool {
+        let (Some((source, _, _)), Some((_, dest))) =
+            (self.get_item(item_id), self.get_track_by_id(dest_track_id))
+        else {
+            return false;
+        };
+        self.children[source].kind == dest.kind
+    }
+
     /// Move an item identified by `item_id` to `dest_index` on the track with `dest_track_id`.
     /// Returns true if the item was successfully moved.
     pub fn move_item_at_index(
@@ -278,6 +312,9 @@ impl Stack {
         replace_with_gap: bool,
         overlap_policy: OverlapPolicy,
     ) -> bool {
+        if !self.move_keeps_track_kind(item_id, dest_track_id) {
+            return false;
+        }
         if let Some((_, track)) = self.get_track_by_id(dest_track_id) {
             let time = track.start_time_of_item(dest_index);
             if self
@@ -314,9 +351,39 @@ impl Stack {
             );
         }
 
+        // `dest_index` refers to the track as it is now. Lifting the item from
+        // earlier on the same track shifts the indices after it (its slot goes,
+        // or its gap merges with a neighbour), so anchor the destination on the
+        // start time `items[dest_index]` has once the item is lifted: the same,
+        // or earlier by the item's duration when no gap is left behind. Then
+        // find that boundary again, splitting a merged gap if needed.
+        let source = self.get_item(item_id).map(|(ti, ii, _)| (ti, ii));
+        let anchor_time = match source {
+            Some((ti, ii)) if ti == dest_track_index && ii < dest_index => {
+                let lifted = if replace_with_gap {
+                    0.0
+                } else {
+                    item_to_move.duration()
+                };
+                Some(self.children[ti].start_time_of_item(dest_index) - lifted)
+            }
+            _ => None,
+        };
+
         if self.delete_one_item(item_id, replace_with_gap).is_none() {
             return false;
         }
+
+        let dest_index = match anchor_time {
+            Some(time) => {
+                let track = &mut self.children[dest_track_index];
+                track.split_at_time(time);
+                (0..=track.items.len())
+                    .find(|&index| track.start_time_of_item(index) >= time - super::EPS)
+                    .unwrap_or(track.items.len())
+            }
+            None => dest_index,
+        };
 
         if self
             .insert_item_at_index(

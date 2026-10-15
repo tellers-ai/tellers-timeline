@@ -1458,6 +1458,26 @@ impl PyStack {
         self.inner
             .resize_item(item_id, new_start_time, new_duration, op, clamp_to_media)
     }
+    /// Resize by source range, as the app editor's clip handles do: `resize_from_start`
+    /// trims the head, `push_following` ripples the rest of the track (else a gap stays).
+    fn modify_item(
+        &mut self,
+        item_id: &str,
+        source_start_time: f64,
+        duration: f64,
+        clamp_to_media: bool,
+        resize_from_start: bool,
+        push_following: bool,
+    ) -> bool {
+        self.inner.modify_item(
+            item_id,
+            source_start_time,
+            duration,
+            clamp_to_media,
+            resize_from_start,
+            push_following,
+        )
+    }
     #[pyo3(signature = (item_id, item, linked_audio_clips=None))]
     fn replace_item(
         &mut self,

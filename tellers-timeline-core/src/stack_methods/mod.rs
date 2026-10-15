@@ -14,6 +14,9 @@ mod stack_item_move;
 mod stack_item_replace;
 mod stack_item_split;
 mod stack_partner_tracks;
+#[cfg(test)]
+mod stack_partner_move_tests;
+mod stack_ripple;
 mod stack_snap;
 mod stack_track;
 
@@ -1548,7 +1551,6 @@ impl Stack {
         preferred_video_track_id: Option<&str>,
         preferred_audio_track_indices: Option<&[usize]>,
         move_source_track_indices: Option<&[usize]>,
-        move_previous_start: Option<Seconds>,
     ) -> Option<InsertItemAtTimeResult> {
         let mut primary_item = item;
         primary_item.clamp_to_active_available_range();
@@ -1788,14 +1790,7 @@ impl Stack {
             return None;
         }
         if overlap_policy == OverlapPolicy::Push
-            && !self.propagate_push_to_cluster(
-                start,
-                start + modified_duration,
-                modified_duration,
-                &update_refs,
-                &cluster,
-                move_previous_start,
-            )
+            && !self.propagate_push_to_cluster(start, modified_duration, &update_refs)
         {
             *self = backup;
             return None;
@@ -2407,7 +2402,15 @@ impl Stack {
 
     fn delete_one_item(&mut self, item_id: &str, replace_with_gap: bool) -> Option<(usize, Item)> {
         for ti in 0..self.children.len() {
-            if let Some((ii, _)) = self.children[ti].get_item_by_id(item_id) {
+            if let Some((ii, item)) = self.children[ti].get_item_by_id(item_id) {
+                // A ripple delete of an unsynced clip pulls every track whose
+                // sync columns shift with it, by the clip's duration.
+                if !replace_with_gap
+                    && matches!(item, Item::Clip(clip) if clip.sync_clips_id().is_none())
+                {
+                    let (mut removed, _) = self.ripple_remove_items(&[(ti, ii)])?;
+                    return removed.pop();
+                }
                 let backup = self.clone();
                 let before_states = self.synced_clip_states();
                 // Use the track API for deletion and optional gap insertion/merge behavior
@@ -2518,8 +2521,9 @@ impl Stack {
     /// `dest_track_index` over `[start, end]`: a video clip only onto a video
     /// track; the audio partner of a video column only within its own group,
     /// onto a sibling track whose range is empty or holds clips of the same
-    /// column (a swap); a member of an audio-only column onto its own group
-    /// or another audio group, never a video group.
+    /// column (a swap), or with Push onto any sibling track (the columns there
+    /// are pushed whole, never overwritten); a member of an audio-only column
+    /// onto its own group or another audio group, never a video group.
     fn partner_move_target_allowed(
         &self,
         selected: &SyncedMoveItem,
@@ -2527,6 +2531,7 @@ impl Stack {
         dest_track_index: usize,
         start: Seconds,
         end: Seconds,
+        overlap_policy: OverlapPolicy,
     ) -> bool {
         let Some(dest) = self.children.get(dest_track_index) else {
             return false;
@@ -2547,6 +2552,9 @@ impl Stack {
         let source_owner = self.group_owner_of(selected.track_index);
         let dest_owner = self.group_owner_of(dest_track_index);
         if source_owner == dest_owner {
+            if overlap_policy == OverlapPolicy::Push {
+                return true;
+            }
             let allowed: HashSet<i64> = sync_clips_id.into_iter().collect();
             return self.range_only_holds_sync_clips(dest_track_index, start, end, &allowed);
         }
@@ -2574,20 +2582,92 @@ impl Stack {
                 .all(|item| cluster.contains(&item.track_index))
     }
 
+    /// Whether `[start, start + duration]` on the track holds no clip other
+    /// than `moving_ids` (the items being moved, still in place).
+    fn move_landing_is_free(
+        &self,
+        track_index: usize,
+        start: Seconds,
+        duration: Seconds,
+        moving_ids: &[String],
+    ) -> bool {
+        let Some(track) = self.children.get(track_index) else {
+            return true;
+        };
+        let end = start + duration.max(0.0);
+        let mut cursor = 0.0;
+        track.items.iter().all(|item| {
+            let (item_start, item_end) = (cursor, cursor + item.duration());
+            cursor = item_end;
+            !matches!(item, Item::Clip(_))
+                || item_end <= start + EPS
+                || item_start >= end - EPS
+                || item.get_id().is_some_and(|id| moving_ids.contains(&id))
+        })
+    }
+
     fn stack_item_start_time(&self, item_id: &str) -> Option<Seconds> {
         let (track_index, item_index, _) = self.get_item(item_id)?;
         Some(self.children[track_index].start_time_of_item(item_index))
     }
 
-    /// Backward moves land earlier on the destination; Push would shove unrelated
-    /// tail content on that track rightward, so use Override for the insert itself.
+    /// Where `insert_policy` puts a drop at `time` relative to the clip (other
+    /// than `moving_ids`) that strictly contains it on the track, or `None`
+    /// when no such clip exists or the policy splits it.
+    fn move_snap_to_clip_at(
+        &self,
+        track_index: usize,
+        time: Seconds,
+        insert_policy: InsertPolicy,
+        moving_ids: &[String],
+    ) -> Option<Seconds> {
+        let track = self.children.get(track_index)?;
+        let mut cursor = 0.0;
+        track.items.iter().find_map(|item| {
+            let (start, end) = (cursor, cursor + item.duration());
+            cursor = end;
+            let contains = matches!(item, Item::Clip(_))
+                && start + EPS < time
+                && time < end - EPS
+                && !item.get_id().is_some_and(|id| moving_ids.contains(&id));
+            if !contains {
+                return None;
+            }
+            match insert_policy {
+                InsertPolicy::SplitAndInsert => None,
+                InsertPolicy::InsertBefore => Some(start),
+                InsertPolicy::InsertAfter => Some(end),
+                InsertPolicy::InsertBeforeOrAfter => {
+                    Some(if time - start <= end - time { start } else { end })
+                }
+            }
+        })
+    }
+
+    /// A move that lands on free space (only gaps once the moved items are
+    /// lifted) goes exactly where it was dropped. Snapping to an item boundary
+    /// would snap to the edge of the gap the lifted items leave behind.
+    fn effective_move_insert_policy(insert_policy: InsertPolicy, landing_is_free: bool) -> InsertPolicy {
+        if landing_is_free {
+            InsertPolicy::SplitAndInsert
+        } else {
+            insert_policy
+        }
+    }
+
+    /// A move that lands on free space has nothing to push: Push would shove
+    /// unrelated tail content on that track rightward, so use Override for the
+    /// insert itself. When it lands on another clip, keep Push: Override would
+    /// delete that clip instead of rippling it.
     fn effective_move_overlap_policy(
         overlap_policy: OverlapPolicy,
         previous_start: Option<Seconds>,
         dest_time: Seconds,
+        landing_is_free: bool,
     ) -> OverlapPolicy {
         if overlap_policy == OverlapPolicy::Push
-            && previous_start.is_some_and(|previous| dest_time < previous - EPS)
+            && landing_is_free
+            && previous_start.is_some_and(|previous| (dest_time - previous).abs() > EPS)
         {
             OverlapPolicy::Override
         } else {
@@ -2776,11 +2856,26 @@ impl Stack {
         let primary_start_time = backup
             .stack_item_start_time(item_id)
             .unwrap_or(dest_time);
-        let overlap_policy = Self::effective_move_overlap_policy(
-            overlap_policy,
-            Some(primary_start_time),
+        let landing_is_free = backup.move_landing_is_free(
+            dest_track_index,
             dest_time,
+            item_to_move.duration(),
+            &[item_id.to_string()],
         );
+        // A ripple move closes the source slot, pulling the rest of the track
+        // left, so the drop's free space is gone: Override would cut whatever
+        // slid under the drop. Push reopens the slot instead.
+        let overlap_policy = if replace_with_gap {
+            Self::effective_move_overlap_policy(
+                overlap_policy,
+                Some(primary_start_time),
+                dest_time,
+                landing_is_free,
+            )
+        } else {
+            overlap_policy
+        };
+        let insert_policy = Self::effective_move_insert_policy(insert_policy, landing_is_free);
         let preferred_cluster_video_id = backup
             .get_track_by_id(dest_track_id)
             .map(|(dest_track_index, _)| dest_track_index)
@@ -2902,7 +2997,6 @@ impl Stack {
                 None::<&str>,
                 None::<&[usize]>,
                 None::<&[usize]>,
-                Some(primary_start_time),
             )
         } else {
             self.insert_synced_item_at_time(
@@ -2919,7 +3013,6 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 None::<&[usize]>,
-                Some(primary_start_time),
             )
         };
         if has_synced_partners {
@@ -3113,7 +3206,6 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 gap_only_exclude,
-                None,
             )
             .is_some()
         {
@@ -3179,15 +3271,18 @@ impl Stack {
             dest_track_index,
             dest_time,
             moved_end,
+            overlap_policy,
         ) {
             return false;
         }
 
         // Deleting the last column erases the sync-cluster evidence. Keep the
-        // original video identity for a horizontal audio move before deleting it.
-        let preferred_video_track_id = (selected.track_index == dest_track_index)
-            .then(|| items_to_move.iter().find(|item| item.track_kind == TrackKind::Video))
-            .flatten()
+        // original video identity before deleting it: a moved audio partner
+        // keeps its video on the video's own track, whichever audio track it
+        // goes to.
+        let preferred_video_track_id = items_to_move
+            .iter()
+            .find(|item| item.track_kind == TrackKind::Video)
             .and_then(|item| self.children[item.track_index].get_id());
 
         let mut synced_audio = Vec::new();
@@ -3229,11 +3324,62 @@ impl Stack {
         }
         let move_previous_start = backup.children[selected.track_index]
             .start_time_of_item(selected.item_index);
-        let overlap_policy = Self::effective_move_overlap_policy(
+        let moving_ids: Vec<String> = items_to_move
+            .iter()
+            .filter_map(|item| item.item.get_id())
+            .collect();
+        // The whole column must land on free space: the selected item on the
+        // destination, its partners on their own tracks. A video clip moved to
+        // another video track takes its audio to that track's partner tracks,
+        // so its own partner tracks say nothing about the landing (snapping on
+        // them would drop the column mid-clip on the destination).
+        let partners_change_tracks =
+            selected.track_kind == TrackKind::Video && dest_track_index != selected.track_index;
+        let column_tracks: Vec<usize> = std::iter::once(dest_track_index)
+            .chain(
+                items_to_move
+                    .iter()
+                    .filter(|item| !item.is_selected && !partners_change_tracks)
+                    .map(|item| item.track_index),
+            )
+            .collect();
+        let landing_is_free = column_tracks.iter().all(|&track_index| {
+                backup.move_landing_is_free(
+                    track_index,
+                    dest_time,
+                    selected.item.duration(),
+                    &moving_ids,
+                )
+            });
+        let requested_overlap_policy = overlap_policy;
+        let mut overlap_policy = Self::effective_move_overlap_policy(
             overlap_policy,
             Some(move_previous_start),
             dest_time,
+            landing_is_free,
         );
+        // Snap to the clip the column lands on, on whichever column track holds
+        // it. The lifted source leaves only a gap on its own track, so snapping
+        // there would jump to that gap's edge and strand the partners.
+        let dest_time = if landing_is_free {
+            dest_time
+        } else {
+            column_tracks
+                .iter()
+                .find_map(|&track_index| {
+                    backup.move_snap_to_clip_at(track_index, dest_time, insert_policy, &moving_ids)
+                })
+                .unwrap_or(dest_time)
+        };
+        if dest_track_index == selected.track_index && (dest_time - move_previous_start).abs() <= EPS {
+            // Snapped back onto its own slot: nothing moves.
+            return true;
+        }
+        let insert_policy = if landing_is_free || insert_policy != InsertPolicy::SplitAndInsert {
+            InsertPolicy::SplitAndInsert
+        } else {
+            insert_policy
+        };
         let move_source_track_indices: Vec<usize> =
             items_to_move.iter().map(|item| item.track_index).collect();
         let partner_ids: Vec<String> = items_to_move
@@ -3245,11 +3391,56 @@ impl Stack {
         let Some(targets) = self.delete_item_targets(&item_id) else {
             return false;
         };
-        let removed = self.delete_clips_at_indices(targets.clone(), true);
-        if removed.is_empty() {
-            return false;
+        // A ripple move along the column's own tracks closes the hole first:
+        // every column track shifts by the same amount, so the drop time
+        // (given on the timeline before the move) just shifts with it. Holding
+        // placeholder gaps through the insert instead lost them whenever the
+        // insert merged or split them, and the column came out misaligned.
+        let ripple_in_place =
+            !replace_with_gap && move_source_track_indices.contains(&dest_track_index);
+        let original_dest_time = dest_time;
+        let mut dest_time = dest_time;
+        if ripple_in_place {
+            let moved_duration = selected.item.duration().max(0.0);
+            if dest_time >= move_previous_start + moved_duration - EPS {
+                dest_time -= moved_duration;
+            } else if dest_time > move_previous_start {
+                dest_time = move_previous_start;
+            }
         }
-        let placeholder_gap_ids = self.collect_placeholder_gap_ids(&targets);
+        // A ripple move closes the hole on every track the column's removal
+        // shifts, linked or not, and drops at the same content it was aimed at.
+        let mut rippled = false;
+        if !replace_with_gap {
+            let Some((_, spans)) = self.ripple_remove_items(&targets) else {
+                *self = backup;
+                return false;
+            };
+            dest_time = spans.map_time(dest_track_index, original_dest_time);
+            rippled = true;
+            // Closing the hole may have pulled a clip under the drop: the
+            // landing is judged again on the stack as it is now.
+            let landing_is_free = column_tracks.iter().all(|&track_index| {
+                self.move_landing_is_free(track_index, dest_time, selected.item.duration(), &[])
+            });
+            overlap_policy = Self::effective_move_overlap_policy(
+                requested_overlap_policy,
+                Some(move_previous_start),
+                dest_time,
+                landing_is_free,
+            );
+        }
+        if !rippled {
+            let removed = self.delete_clips_at_indices(targets.clone(), !ripple_in_place);
+            if removed.is_empty() {
+                return false;
+            }
+        }
+        let placeholder_gap_ids = if ripple_in_place || rippled {
+            Vec::new()
+        } else {
+            self.collect_placeholder_gap_ids(&targets)
+        };
 
         let synced_audio_clips = (!synced_audio.is_empty()).then_some(synced_audio);
         if self
@@ -3267,11 +3458,10 @@ impl Stack {
                 (!preferred_audio_track_indices.is_empty())
                     .then_some(preferred_audio_track_indices.as_slice()),
                 Some(move_source_track_indices.as_slice()),
-                Some(move_previous_start),
             )
             .is_some()
         {
-            if !replace_with_gap {
+            if !replace_with_gap && !ripple_in_place && !rippled {
                 self.remove_gaps_by_id(&placeholder_gap_ids);
                 self.realign_moved_partners(&item_id, &partner_ids);
             }
@@ -3356,8 +3546,14 @@ impl Stack {
         {
             return false;
         }
+        // `dest_index` refers to the destination as it is now. Lifting a column
+        // member that sits before it shifts the indices (its slot goes, or its
+        // gap merges with a neighbour), and the column's sync splits shift them
+        // again, so the drop is anchored on the start time `items[dest_index]`
+        // has once the column is lifted. The landing check below still runs on
+        // the track as it is now, so it takes the boundary as it is now.
+        let current_start = self.children[dest_track_index].start_time_of_item(dest_index);
         {
-            let planned_start = self.children[dest_track_index].start_time_of_item(dest_index);
             let column_has_video = items_to_move
                 .iter()
                 .any(|item| item.track_kind == TrackKind::Video);
@@ -3365,8 +3561,9 @@ impl Stack {
                 selected_item,
                 column_has_video,
                 dest_track_index,
-                planned_start,
-                planned_start + moved_duration,
+                current_start,
+                current_start + moved_duration,
+                overlap_policy,
             ) {
                 return false;
             }
@@ -3377,21 +3574,32 @@ impl Stack {
             .iter()
             .map(|item| (item.track_index, item.item_index))
             .collect();
-        targets.sort_by(|a, b| b.cmp(a));
-        for (track_index, item_index) in targets {
-            if !self.remove_item_at_for_move(
-                track_index,
-                item_index,
-                replace_with_gap,
-                &mut used_ids,
-            ) {
+        let planned_start = if replace_with_gap {
+            targets.sort_by(|a, b| b.cmp(a));
+            for (track_index, item_index) in targets {
+                if !self.remove_item_at_for_move(
+                    track_index,
+                    item_index,
+                    replace_with_gap,
+                    &mut used_ids,
+                ) {
+                    *self = backup;
+                    return false;
+                }
+            }
+            current_start
+        } else {
+            // Closing the hole pulls every track the column's removal shifts,
+            // linked or not; the drop follows the content it was aimed at.
+            let Some((_, spans)) = self.ripple_remove_items(&targets) else {
                 *self = backup;
                 return false;
-            }
-        }
+            };
+            spans.map_time(dest_track_index, current_start)
+        };
 
         let insert_policy_for_video = InsertPolicy::SplitAndInsert;
-        let moved_start = self.children[dest_track_index].start_time_of_item(dest_index);
+        let moved_start = planned_start;
 
         let mut placements = vec![(
             dest_track_index,
@@ -3442,7 +3650,14 @@ impl Stack {
         for position in 0..sync_track_items.len() {
             let move_item = sync_track_items[position].clone();
             if intra_cluster_move {
-                let track_index = move_item.track_index;
+                // A swap: the channel sitting on the destination takes the
+                // moved channel's old track, so a track never holds two clips
+                // of the column.
+                let track_index = if move_item.track_index == dest_track_index {
+                    selected_source_track_index
+                } else {
+                    move_item.track_index
+                };
                 match move_item.track_kind {
                     TrackKind::Audio => used_audio_track_indices.push(track_index),
                     TrackKind::Video => used_video_track_indices.push(track_index),
@@ -3584,6 +3799,10 @@ impl Stack {
 
         let insert_policy = InsertPolicy::SplitAndInsert;
         let cluster = self.boundary_group_indices(dest_track_index);
+        let placed_ids: HashSet<String> = placements
+            .iter()
+            .filter_map(|(_, item, _)| item.get_id())
+            .collect();
         if !self.apply_sync_splits_for_column_insert(
             moved_start,
             moved_duration,
@@ -3596,10 +3815,25 @@ impl Stack {
             return false;
         }
 
+        let starts_before = self.clip_starts_from(moved_start);
         for (track_index, item, is_selected) in placements {
-            if is_selected {
-                let _ = self.children[track_index]
-                    .insert_at_index(dest_index, item, overlap_policy);
+            // The selected item goes in at the boundary it was dropped on. When
+            // the column stays in its own cluster and pushes, its other tracks
+            // do the same, so whatever follows shifts by the same amount on
+            // every track of the cluster (filling a gap on one while pushing on
+            // another breaks the sync of the columns after it). A column moved
+            // to another cluster leaves its old tracks' content in place.
+            let at_boundary = is_selected
+                || (intra_cluster_move
+                    && overlap_policy == OverlapPolicy::Push
+                    && moved_start <= self.children[track_index].total_duration() + EPS);
+            if at_boundary {
+                let track = &mut self.children[track_index];
+                track.split_at_time(moved_start);
+                let index = (0..=track.items.len())
+                    .find(|&index| track.start_time_of_item(index) >= moved_start - EPS)
+                    .unwrap_or(track.items.len());
+                let _ = track.insert_at_index(index, item, overlap_policy);
             } else {
                 let moved_end = moved_start + item.duration().max(0.0);
                 if range_is_gap_backed(&self.children[track_index], moved_start, moved_end) {
@@ -3618,6 +3852,20 @@ impl Stack {
             }
         }
         if self.get_item(&selected_id).is_none() {
+            *self = backup;
+            return false;
+        }
+        // Whatever the placement pushed carries its sync partners along, on
+        // every track holding them.
+        if overlap_policy == OverlapPolicy::Push
+            && !self.push_partners_of_shifted_clips(
+                &starts_before,
+                moved_start,
+                moved_duration,
+                &placed_ids,
+                Some(sync_clips_id),
+            )
+        {
             *self = backup;
             return false;
         }

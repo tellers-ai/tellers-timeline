@@ -180,208 +180,43 @@ impl Stack {
         true
     }
 
-    /// Push-only: for sync groups present after the insert on updated tracks, push a gap
-    /// on cluster partners that were not part of the column insert.
+    /// Push-only: every track holding a clip of a sync column that the insert
+    /// pushed is pushed by the same `insert_duration` at `insert_start`, so the
+    /// column stays aligned. Any track counts, associated with the column's
+    /// owner or not, and the pushed tracks are followed transitively: a partner
+    /// track pushed here pushes the sync clips on it too, and their partners
+    /// follow. Pushing only ever adds gap time; a clip on a partner track that
+    /// straddles `insert_start` is never cut, the gap goes in after it.
     pub(super) fn propagate_push_to_cluster(
         &mut self,
         insert_start: Seconds,
-        insert_end: Seconds,
         insert_duration: Seconds,
         updates: &[TrackInsertUpdate<'_>],
-        cluster: &[usize],
-        move_previous_start: Option<Seconds>,
     ) -> bool {
         if insert_duration <= EPS {
             return true;
         }
-        // Backward moves only retime updated tracks; untouched cluster partners
-        // already keep their historical leading layout.
-        if move_previous_start.is_some_and(|previous| insert_start < previous - EPS) {
-            return true;
-        }
-        let updated_tracks = updated_track_set(updates);
-        let sync_groups =
-            self.sync_groups_after_insert_on_tracks(&updated_tracks, insert_end, updates);
-        let aligned_start = self
-            .min_sync_clip_start_at_or_after(&updated_tracks, insert_end)
-            .unwrap_or(insert_end);
-        let cluster_set: HashSet<usize> = cluster.iter().copied().collect();
-        let mut used_ids = self.collect_timeline_ids();
-
-        if let Some(updated_leading) =
-            self.min_item_start_before_on_tracks(&updated_tracks, insert_start)
-        {
-            for &track_index in cluster {
-                if updated_tracks.contains(&track_index) {
-                    continue;
-                }
-                let Some(partner_first_sync) = self.first_sync_clip_start_on_track(track_index)
-                else {
-                    continue;
-                };
-                if partner_first_sync <= updated_leading + EPS {
-                    continue;
-                }
-                let gap_duration = partner_first_sync - updated_leading;
-                if gap_duration <= EPS
-                    || self.track_has_spacer_at(track_index, updated_leading, gap_duration)
-                {
-                    continue;
-                }
-                let mut gap = Item::Gap(Gap::make_gap(gap_duration));
-                Self::ensure_unique_item_id(&mut gap, &mut used_ids);
-                let result = self.children[track_index].insert_at_time(
-                    updated_leading,
-                    gap,
-                    OverlapPolicy::Push,
-                    InsertPolicy::SplitAndInsert,
-                );
-                if !result.success {
-                    return false;
-                }
-            }
-        }
-
-        for sync_id in sync_groups {
-            for (track_index, _) in self.synced_clips_targets(sync_id) {
-                if !cluster_set.contains(&track_index) || updated_tracks.contains(&track_index) {
-                    continue;
-                }
-                let Some(partner_sync_start) = self.first_cluster_sync_clip_start_at_or_after(
-                    track_index,
-                    insert_start,
-                    cluster,
-                ) else {
-                    continue;
-                };
-                let (gap_at, gap_duration) = if partner_sync_start <= insert_start + EPS {
-                    (insert_start, aligned_start - insert_start)
-                } else {
-                    (insert_start, aligned_start - partner_sync_start)
-                };
-                if gap_duration <= EPS {
-                    continue;
-                }
-                if partner_sync_start <= insert_start + EPS
-                    && self.track_has_spacer_at(track_index, gap_at, gap_duration)
-                {
-                    continue;
-                }
-                let mut gap = Item::Gap(Gap::make_gap(gap_duration));
-                Self::ensure_unique_item_id(&mut gap, &mut used_ids);
-                let result = self.children[track_index].insert_at_time(
-                    gap_at,
-                    gap,
-                    OverlapPolicy::Push,
-                    InsertPolicy::SplitAndInsert,
-                );
-                if !result.success {
-                    return false;
-                }
-            }
-        }
-        true
-    }
-
-    fn min_sync_clip_start_at_or_after(
-        &self,
-        track_indices: &HashSet<usize>,
-        threshold: Seconds,
-    ) -> Option<Seconds> {
-        let mut min_start: Option<Seconds> = None;
-        for &track_index in track_indices {
-            let Some(track) = self.children.get(track_index) else {
-                continue;
-            };
-            let mut pos = 0.0;
-            for item in &track.items {
-                if pos >= threshold - EPS {
-                    if let Item::Clip(clip) = item {
-                        if clip.sync_clips_id().is_some() {
-                            min_start = Some(match min_start {
-                                Some(current) => current.min(pos),
-                                None => pos,
-                            });
-                        }
-                    }
-                }
-                pos += item.duration().max(0.0);
-            }
-        }
-        min_start
-    }
-
-    fn min_item_start_before_on_tracks(
-        &self,
-        track_indices: &HashSet<usize>,
-        insert_start: Seconds,
-    ) -> Option<Seconds> {
-        let mut min_start: Option<Seconds> = None;
-        for &track_index in track_indices {
-            let Some(track) = self.children.get(track_index) else {
-                continue;
-            };
-            let mut pos = 0.0;
-            for item in &track.items {
-                if pos >= insert_start - EPS {
-                    break;
-                }
-                min_start = Some(match min_start {
-                    Some(current) => current.min(pos),
-                    None => pos,
-                });
-                pos += item.duration().max(0.0);
-            }
-        }
-        min_start
-    }
-
-    fn first_sync_clip_start_on_track(&self, track_index: usize) -> Option<Seconds> {
-        let track = self.children.get(track_index)?;
-        let mut pos = 0.0;
-        for item in &track.items {
-            if let Item::Clip(clip) = item {
-                if clip.sync_clips_id().is_some() {
-                    return Some(pos);
-                }
-            }
-            pos += item.duration().max(0.0);
-        }
-        None
-    }
-
-    fn first_cluster_sync_clip_start_at_or_after(
-        &self,
-        track_index: usize,
-        insert_start: Seconds,
-        cluster: &[usize],
-    ) -> Option<Seconds> {
-        let track = self.children.get(track_index)?;
-        let cluster_sync_ids: HashSet<i64> = cluster
+        let pushed_tracks = updated_track_set(updates);
+        // Right fragments of a clip the insert split moved with the push.
+        let mut pending: Vec<i64> = updates
             .iter()
-            .filter_map(|&index| self.children.get(index))
-            .flat_map(|track| track.items.iter())
-            .filter_map(|item| match item {
-                Item::Clip(clip) => clip.sync_clips_id(),
-                Item::Gap(_) => None,
-            })
+            .flat_map(|(_, result)| result.split_clips.iter())
+            .filter_map(|split| split.sync_clips_id)
             .collect();
-        let mut pos = 0.0;
-        let mut any_sync_start: Option<Seconds> = None;
-        for item in &track.items {
-            if pos + item.duration().max(0.0) > insert_start + EPS {
-                if let Item::Clip(clip) = item {
-                    if let Some(sync_id) = clip.sync_clips_id() {
-                        if cluster_sync_ids.is_empty() || cluster_sync_ids.contains(&sync_id) {
-                            return Some(pos);
-                        }
-                        any_sync_start = Some(any_sync_start.map_or(pos, |current| current.min(pos)));
-                    }
-                }
-            }
-            pos += item.duration().max(0.0);
+        for &track_index in &pushed_tracks {
+            pending.extend(self.sync_ids_starting_at_or_after(
+                track_index,
+                insert_start + insert_duration,
+            ));
         }
-        any_sync_start
+        self.push_sync_partner_tracks(
+            insert_start,
+            insert_duration,
+            pushed_tracks,
+            pending,
+            &HashSet::new(),
+            HashSet::new(),
+        )
     }
 
     fn propagate_deleted_sync_clips(
@@ -681,39 +516,6 @@ impl Stack {
             }
             set_resolve_sync_clips_id(&mut clip.metadata, right_sync_clips_id);
         }
-    }
-
-    fn sync_groups_after_insert_on_tracks(
-        &self,
-        updated_tracks: &HashSet<usize>,
-        insert_end: Seconds,
-        updates: &[TrackInsertUpdate<'_>],
-    ) -> HashSet<i64> {
-        let mut sync_ids = HashSet::new();
-        for &track_index in updated_tracks {
-            let Some(track) = self.children.get(track_index) else {
-                continue;
-            };
-            let mut pos = 0.0;
-            for item in &track.items {
-                if pos >= insert_end - EPS {
-                    if let Item::Clip(clip) = item {
-                        if let Some(sync_id) = clip.sync_clips_id() {
-                            sync_ids.insert(sync_id);
-                        }
-                    }
-                }
-                pos += item.duration().max(0.0);
-            }
-        }
-        for (_, result) in updates {
-            for split in &result.split_clips {
-                if let Some(sync_id) = split.sync_clips_id {
-                    sync_ids.insert(sync_id);
-                }
-            }
-        }
-        sync_ids
     }
 
     pub(super) fn track_has_spacer_at(

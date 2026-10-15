@@ -152,6 +152,81 @@ class MoveRegressionTests(unittest.TestCase):
                     for item in track["items"] if item["id"] == "4-200")
         self.assertEqual((item["start"], item["duration"]), (end, LONG_CLIP_DURATION))
 
+    def test_shift_moves_are_plain_index_changes(self):
+        # The app's ⇧-drag (index.html `prodMovePolicy`): move_item_at_index,
+        # push, no gap left. On the source and destination tracks the result
+        # is the item list with the clip taken out and put back at `index`
+        # (same gaps, adjacent gaps merged). No clip is lost or trimmed and
+        # synced partners stay aligned with their clip. A synced clip moved
+        # to another track moves its whole column, so there only the clip
+        # order is a plain index change: times follow the column. A channel
+        # dropped on a track holding a sibling channel swaps with it.
+        def layout(items):
+            merged, start = [], 0.0
+            for kind, name, duration in items:
+                if kind == "gap" and merged and merged[-1][0] == "gap":
+                    merged[-1] = ("gap", None, merged[-1][2], merged[-1][3] + duration)
+                else:
+                    merged.append((kind, name, start, duration))
+                start += duration
+            return {name: (round(s, 6), d) for kind, name, s, d in merged if kind == "clip"}
+
+        for sample in (ui.State.load_sample, ui.State.load_basic_sample):
+            base = ui.State()
+            sample(base)
+            tracks = base.view()["tracks"]
+            durations = {i["name"]: i["duration"] for t in tracks for i in t["items"] if i["kind"] == "clip"}
+            for track in tracks:
+                for clip in [i for i in track["items"] if i["kind"] == "clip"]:
+                    for dest in tracks:
+                        for index in range(len(dest["items"]) + 1):
+                            if dest["id"] == track["id"] and index in (clip["index"], clip["index"] + 1):
+                                continue  # the UI leaves a clip dropped on its own slot alone
+                            state = ui.State()
+                            state.restore(base.snapshot())
+                            ok, _ = ui.op_move_item(state, {
+                                "mode": "index", "id": clip["id"], "track_id": dest["id"], "index": index,
+                                "replace_with_gap": False, "overlap_policy": "push",
+                            })
+                            if not ok:
+                                continue
+                            lists = {t["id"]: [(i["kind"], i["name"], i["duration"]) for i in t["items"]] for t in tracks}
+                            moved = lists[track["id"]].pop(clip["index"])
+                            shift = 1 if dest["id"] == track["id"] and clip["index"] < index else 0
+                            lists[dest["id"]].insert(index - shift, moved)
+                            group = clip.get("link_group_id")
+                            swapped = [i for i in dest["items"] if dest["id"] != track["id"]
+                                       and group is not None and i.get("link_group_id") == group]
+                            for sibling in swapped:
+                                entry = (sibling["kind"], sibling["name"], sibling["duration"])
+                                lists[dest["id"]].remove(entry)
+                            exact = dest["id"] == track["id"] or group is None
+                            after = state.view()["tracks"]
+                            with self.subTest(sample=sample.__name__, clip=clip["name"], dest=dest["name"], index=index):
+                                for t in after:
+                                    if t["id"] not in (track["id"], dest["id"]):
+                                        continue
+                                    got = {i["name"]: (round(i["start"], 6), i["duration"]) for i in t["items"] if i["kind"] == "clip"}
+                                    if exact:
+                                        self.assertEqual(got, layout(lists[t["id"]]), t["name"])
+                                    else:
+                                        if t["id"] == track["id"]:
+                                            # A swapped sibling lands wherever its column does.
+                                            for sibling in swapped:
+                                                self.assertIn(sibling["name"], got)
+                                                del got[sibling["name"]]
+                                        self.assertEqual(sorted(got, key=lambda name: got[name][0]),
+                                                         [name for kind, name, _ in lists[t["id"]] if kind == "clip"], t["name"])
+                                clips = [i for t in after for i in t["items"] if i["kind"] == "clip"]
+                                self.assertEqual(sorted((i["name"], i["duration"]) for i in clips), sorted(durations.items()))
+                                columns = {}
+                                for t in after:
+                                    for i in t["items"]:
+                                        if i["kind"] == "clip" and i.get("link_group_id") is not None:
+                                            columns.setdefault(i["link_group_id"], []).append((t["id"], round(i["start"], 6)))
+                                for column in columns.values():
+                                    self.assertEqual(len({start for _, start in column}), 1, column)
+                                    self.assertEqual(len({track_id for track_id, _ in column}), len(column), column)
 
 if __name__ == "__main__":
     unittest.main()

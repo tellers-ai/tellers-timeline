@@ -350,6 +350,15 @@ class Stack:
         overlap_policy: OverlapPolicy,
         clamp_to_media: bool,
     ) -> bool: ...
+    def modify_item(
+        self,
+        item_id: str,
+        source_start_time: float,
+        duration: float,
+        clamp_to_media: bool,
+        resize_from_start: bool,
+        push_following: bool,
+    ) -> bool: ...
     def replace_item(
         self,
         item_id: str,
