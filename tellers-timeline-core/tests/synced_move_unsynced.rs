@@ -1027,3 +1027,79 @@ fn move_later_by_index_lands_before_the_indexed_item() {
         assert_eq!(got, want, "A -> index {index} (gap: {replace_with_gap})");
     }
 }
+
+/// A column of one video and two audio clips (V on v1, SA1 on a1, SA2 on a2).
+/// Moving SA2 by index onto a1, where its sibling SA1 sits, swaps the two
+/// channels' tracks like a time move does, instead of putting both on a1.
+#[test]
+fn index_move_onto_a_sibling_channel_track_swaps_the_channels() {
+    const GROUP: i64 = 7;
+    for (index, replace_with_gap) in [(0, false), (1, false), (0, true), (1, true)] {
+        let mut stack = Stack::default();
+        let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+        video.items.push(Item::Gap(Gap::make_gap(1.0)));
+        video.items.push(synced_clip_item(2.0, "V", GROUP));
+        stack.children.push(video);
+        for (track, clip) in [("a1", "SA1"), ("a2", "SA2")] {
+            let mut audio = Track::new(TrackKind::Audio, Some(track.to_string()));
+            audio.items.push(Item::Gap(Gap::make_gap(1.0)));
+            audio.items.push(synced_clip_item(2.0, clip, GROUP));
+            stack.children.push(audio);
+        }
+        assert!(
+            stack.move_item_at_index("SA2", "a1", index, replace_with_gap, OverlapPolicy::Push),
+            "SA2 -> a1[{index}] (gap: {replace_with_gap})"
+        );
+        let placed = |id: &str| {
+            let (track_index, item_index, _) = stack.get_item(id).unwrap();
+            let track = &stack.children[track_index];
+            (
+                track.get_id().unwrap(),
+                track.start_time_of_item(item_index),
+            )
+        };
+        let (v_track, v_start) = placed("V");
+        assert_eq!(v_track, "v1");
+        assert_eq!(
+            placed("SA2"),
+            ("a1".to_string(), v_start),
+            "SA2 -> a1[{index}]"
+        );
+        assert_eq!(
+            placed("SA1"),
+            ("a2".to_string(), v_start),
+            "SA2 -> a1[{index}]"
+        );
+    }
+}
+
+/// v1 = S[0+2] A[2+3] _[5+1] B[6+2] _[8+1] C[9+2.5], a1 = SA[0+2] _[2+7]
+/// CA[9+2.5], with S/SA and C/CA synced. A plain index move of S to just
+/// before B pushes B and C on v1, so a1 must push CA the same way rather than
+/// fill its gap, or C and CA come apart.
+#[test]
+fn index_move_of_a_column_pushes_its_partner_tracks_alike() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v1".to_string()));
+    video.items.push(synced_clip_item(2.0, "S", 7));
+    video.items.push(Item::Clip(clip(3.0, Some("A"))));
+    video.items.push(Item::Gap(Gap::make_gap(1.0)));
+    video.items.push(Item::Clip(clip(2.0, Some("B"))));
+    video.items.push(Item::Gap(Gap::make_gap(1.0)));
+    video.items.push(synced_clip_item(2.5, "C", 1));
+    stack.children.push(video);
+    let mut audio = Track::new(TrackKind::Audio, Some("a1".to_string()));
+    audio.items.push(synced_clip_item(2.0, "SA", 7));
+    audio.items.push(Item::Gap(Gap::make_gap(7.0)));
+    audio.items.push(synced_clip_item(2.5, "CA", 1));
+    stack.children.push(audio);
+
+    assert!(stack.move_item_at_index("S", "v1", 3, false, OverlapPolicy::Push));
+    let start = |id: &str| {
+        let (track_index, item_index, _) = stack.get_item(id).unwrap();
+        stack.children[track_index].start_time_of_item(item_index)
+    };
+    assert_eq!((start("A"), start("S"), start("B")), (0.0, 4.0, 6.0));
+    assert_eq!(start("SA"), start("S"));
+    assert_eq!(start("CA"), start("C"));
+}
