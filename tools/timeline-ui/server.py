@@ -207,6 +207,56 @@ class State:
         self.stack.add_track(Track(kind="video"))
 
     def load_sample(self) -> None:
+        """Video tracks with 0, 1, 2 and 3 associated audio tracks, video clips
+        with 0 to 3 synced audio clips, an audio-led column (an audio clip
+        linked to a video clip) and a standalone music track."""
+        stack = self.stack = Stack()
+
+        def clip(name: str, duration: float, ext: str = "mov", **spec: Any):
+            url = f"file:///{name.lower().replace(' ', '_')}.{ext}"
+            return make_item({"duration": duration, "name": name, "url": url, **spec})
+
+        def channels(name: str, duration: float, count: int) -> list:
+            names = [f"{name} audio {n + 1}" for n in range(count)] if count > 1 else [f"{name} audio"]
+            return [clip(n, duration, "wav") for n in names]
+
+        def add_track(kind: str, name: str, index: Optional[int] = None) -> int:
+            track = Track(kind=kind)
+            track.set_name(name)
+            track_id = stack.add_track(track, len(stack.tracks()) if index is None else index)
+            return stack.get_track_by_id(track_id)[0]
+
+        def insert(track_name: str, time: float, item, linked_audio=None) -> None:
+            index = next(i for i, t in enumerate(stack.tracks()) if t.get_name() == track_name)
+            stack.insert_item_at_time(index, time, item, "override", "split_and_insert", linked_audio)
+
+        # V1: two partner tracks (A1, A2), from clips with 0, 1 and 2 channels.
+        add_track("video", "V1")
+        insert("V1", 0.0, clip("A", 3))
+        insert("V1", 4.0, clip("B", 2, media_duration=5), channels("B", 2, 1))
+        insert("V1", 7.0, clip("C", 2.5), channels("C", 2.5, 2))
+        # V2: three partner tracks (A3-A5), and a clip without sound.
+        add_track("video", "V2")
+        insert("V2", 2.0, clip("D", 2), channels("D", 2, 3))
+        insert("V2", 6.0, clip("E", 1.5))
+        # Cutaway: one partner track, from an audio-led column. The library
+        # refuses an insert with a linked video, so it is linked afterwards.
+        add_track("video", "Cutaway")
+        insert("Cutaway", 5.0, clip("F", 2))
+        add_track("audio", "VO", 0)
+        insert("VO", 5.0, clip("F voice", 2, "wav"))
+        ids = {item.get_id(): item for track in stack.tracks() for item in track.items()}
+        by_name = {_clip_name(item): item_id for item_id, item in ids.items()}
+        stack.link_item([by_name["F"], by_name["F voice"]])
+        # Music: an audio track no video track owns. Text: no partner track.
+        add_track("audio", "Music", 0)
+        insert("Music", 0.0, clip("Music", 6, "wav"))
+        add_track("video", "Text")
+        insert("Text", 1.0, make_item({"duration": 2, "name": "Title", "text": True, "text_html": "<p>Hello</p>"}))
+        stack.normalize_track_order()
+
+    def load_basic_sample(self) -> None:
+        """One video track with one synced clip, and a text track."""
         self.stack = Stack()
         video = Track(kind="video")
         video.set_name("V1")
