@@ -9,13 +9,13 @@
 //!   "OTIO_SCHEMA": "Effect.1",
 //!   "effect_name": "ColorLut",
 //!   "name": "slog3_to_709.cube",
-//!   "metadata": { "tellers.ai": { "asset_id": "a1b2", "cube": "https://cdn.example.test/…" } }
+//!   "metadata": { "tellers.ai": { "asset_id": "a1b2", "cube_url": "https://cdn.example.test/…" } }
 //! }
 //! ```
 //!
 //! - `asset_id` identifies the `.cube` file. It is what the timeline
 //!   persists and what the list methods take.
-//! - `cube` is the URL the player (`video-player-js`) downloads the table
+//! - `cube_url` is the URL the player (`video-player-js`) downloads the table
 //!   from. It is resolved from the asset id, like a media `target_url`: set it
 //!   with [`Timeline::set_color_lut_url`] / [`Timeline::set_color_lut_urls`]
 //!   before handing the timeline to the player, and strip it with
@@ -29,8 +29,8 @@
 //!
 //! Timelines written before LUTs were effects hold the same list at
 //! `metadata["tellers.ai"]["color_grading"]` as `{ asset_id, name?, cube? }`
-//! entries. Reads fall back to it when a stage has no `ColorLut` effect, and
-//! any list write moves it into effects.
+//! entries, `cube` being the URL. Reads fall back to it when a stage has no `ColorLut` effect and
+//! ignore it otherwise; any list write moves it into effects.
 //!
 //! The list has the same shape at all three stages, graded in this order:
 //!
@@ -72,8 +72,10 @@ pub const COLOR_GRADING_KEY: &str = "color_grading";
 
 /// Key holding the asset id of the `.cube` file.
 const ASSET_ID_KEY: &str = "asset_id";
-/// Key holding the resolved `.cube` URL.
-const CUBE_KEY: &str = "cube";
+/// Key, inside a LUT effect, holding the resolved `.cube` URL.
+const CUBE_URL_KEY: &str = "cube_url";
+/// Key, inside a legacy list entry, holding the resolved `.cube` URL.
+const LEGACY_CUBE_KEY: &str = "cube";
 /// Key, inside a legacy list entry, holding the optional display name.
 const NAME_KEY: &str = "name";
 
@@ -86,8 +88,8 @@ pub struct ColorLut {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The URL the player downloads the file from, once resolved from the
-    /// asset id. Stored as `cube`.
-    #[serde(rename = "cube", default, skip_serializing_if = "Option::is_none")]
+    /// asset id. Stored as `cube_url`.
+    #[serde(rename = "cube_url", default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
 }
 
@@ -137,7 +139,7 @@ impl ColorLut {
         let mut ai = serde_json::Map::new();
         ai.insert(ASSET_ID_KEY.to_string(), self.asset_id.clone().into());
         if let Some(url) = &self.url {
-            ai.insert(CUBE_KEY.to_string(), url.clone().into());
+            ai.insert(CUBE_URL_KEY.to_string(), url.clone().into());
         }
         let mut other = serde_json::Map::new();
         other.insert("tellers.ai".to_string(), serde_json::Value::Object(ai));
@@ -162,7 +164,7 @@ impl ColorLut {
         ColorLut {
             asset_id: text(ASSET_ID_KEY)?,
             name: Some(effect.name.clone()),
-            url: text(CUBE_KEY),
+            url: text(CUBE_URL_KEY),
         }
         .normalized()
     }
@@ -287,7 +289,7 @@ pub fn set_color_lut_urls(
     urls: &HashMap<String, String>,
 ) -> usize {
     let mut updated = 0;
-    for ai in lut_objects_mut(effects, metadata) {
+    for (ai, url_key) in lut_objects_mut(effects, metadata) {
         let Some(url) = ai
             .get(ASSET_ID_KEY)
             .and_then(|id| id.as_str())
@@ -296,7 +298,7 @@ pub fn set_color_lut_urls(
         else {
             continue;
         };
-        ai.insert(CUBE_KEY.to_string(), serde_json::Value::String(url));
+        ai.insert(url_key.to_string(), serde_json::Value::String(url));
         updated += 1;
     }
     updated
@@ -305,15 +307,9 @@ pub fn set_color_lut_urls(
 /// Remove the resolved URL from every LUT, keeping its asset id, and return
 /// how many had one.
 pub fn clear_color_lut_urls(effects: &mut [Effect], metadata: &mut serde_json::Value) -> usize {
-    let legacy = legacy_entries_mut(metadata)
-        .filter_map(|entry| entry.as_object_mut()?.remove(CUBE_KEY))
-        .count();
-    legacy
-        + effects
-            .iter_mut()
-            .filter(|effect| is_lut_effect(effect))
-            .filter_map(|effect| effect_ai_mut(effect)?.remove(CUBE_KEY))
-            .count()
+    lut_objects_mut(effects, metadata)
+        .filter_map(|(ai, url_key)| ai.remove(url_key))
+        .count()
 }
 
 /// A stage holding a LUT list: its effects, and the metadata holding the
@@ -793,11 +789,14 @@ fn usable_lut_effects(effects: &[Effect], metadata: &serde_json::Value) -> Vec<E
         .collect()
 }
 
-/// A legacy `{ asset_id, name?, cube? }` entry as a `ColorLut` effect, its
-/// other keys kept beside `asset_id`.
+/// A legacy `{ asset_id, name?, cube? }` entry as a `ColorLut` effect, `cube`
+/// renamed `cube_url` and its other keys kept beside `asset_id`.
 fn effect_from_legacy_entry(entry: &serde_json::Value) -> Option<Effect> {
     let mut ai = entry.as_object()?.clone();
     let name = ai.remove(NAME_KEY);
+    if let Some(url) = ai.remove(LEGACY_CUBE_KEY) {
+        ai.insert(CUBE_URL_KEY.to_string(), url);
+    }
     let mut effect = ColorLut::new("").to_effect();
     effect.name = name
         .as_ref()
@@ -832,21 +831,34 @@ fn write_lut_effects(
     }
 }
 
-/// The `tellers.ai` object of every LUT the stage reads, for in-place
-/// updates: its LUT effects', or its legacy entries when it has none.
+/// The `tellers.ai` object of every LUT the stage reads, with the key of its
+/// URL, for in-place updates: its LUT effects', or its legacy entries when it
+/// has none.
 fn lut_objects_mut<'a>(
     effects: &'a mut [Effect],
     metadata: &'a mut serde_json::Value,
-) -> Box<dyn Iterator<Item = &'a mut serde_json::Map<String, serde_json::Value>> + 'a> {
+) -> Box<
+    dyn Iterator<
+            Item = (
+                &'a mut serde_json::Map<String, serde_json::Value>,
+                &'static str,
+            ),
+        > + 'a,
+> {
     if effects.iter().any(is_lut_effect) {
         Box::new(
             effects
                 .iter_mut()
                 .filter(|effect| is_lut_effect(effect))
-                .filter_map(effect_ai_mut),
+                .filter_map(effect_ai_mut)
+                .map(|ai| (ai, CUBE_URL_KEY)),
         )
     } else {
-        Box::new(legacy_entries_mut(metadata).filter_map(|entry| entry.as_object_mut()))
+        Box::new(
+            legacy_entries_mut(metadata)
+                .filter_map(|entry| entry.as_object_mut())
+                .map(|entry| (entry, LEGACY_CUBE_KEY)),
+        )
     }
 }
 

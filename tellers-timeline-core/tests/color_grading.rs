@@ -1,6 +1,6 @@
 // Tests for the `.cube` LUT list accessors on the timeline, its tracks and
 // its clips. A LUT is an OTIO `ColorLut` effect whose
-// `metadata["tellers.ai"]` holds `{ "asset_id", "cube"? }`, where `cube` is
+// `metadata["tellers.ai"]` holds `{ "asset_id", "cube_url"? }`, where `cube_url` is
 // the URL the player (video-player-js) reads, resolved from the asset id; the
 // effect's `name` is the display name. The stored JSON is part of the
 // contract with the player. Timelines written before LUTs were effects hold
@@ -92,7 +92,7 @@ fn push_writes_color_lut_effects() {
                 "OTIO_SCHEMA": "Effect.1",
                 "name": "",
                 "effect_name": "ColorLut",
-                "metadata": {"tellers.ai": {"asset_id": "warm", "cube": "https://cdn/warm.cube"}}
+                "metadata": {"tellers.ai": {"asset_id": "warm", "cube_url": "https://cdn/warm.cube"}}
             }
         ])
     );
@@ -105,12 +105,12 @@ fn push_writes_color_lut_effects() {
 #[test]
 fn reads_trim_and_skip_effects_without_an_asset_id() {
     let effects = effects_from(json!([
-        {"effect_name": "ColorLut", "name": "  ", "metadata": {"tellers.ai": {"asset_id": " a ", "cube": " /luts/a.cube "}}},
+        {"effect_name": "ColorLut", "name": "  ", "metadata": {"tellers.ai": {"asset_id": " a ", "cube_url": " /luts/a.cube "}}},
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "   "}}},
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": 3}}},
         {"effect_name": "ColorLut", "metadata": {}},
         {"effect_name": "Blur", "metadata": {"tellers.ai": {"asset_id": "blur"}}},
-        {"effect_name": "ColorLut", "name": "b.cube", "metadata": {"tellers.ai": {"asset_id": "b", "cube": ""}}}
+        {"effect_name": "ColorLut", "name": "b.cube", "metadata": {"tellers.ai": {"asset_id": "b", "cube_url": ""}}}
     ]));
     assert_eq!(
         resolve_color_luts(&effects, &json!({})),
@@ -167,7 +167,7 @@ fn writes_move_the_legacy_list_into_effects() {
                 "OTIO_SCHEMA": "Effect.1",
                 "name": "a.cube",
                 "effect_name": "ColorLut",
-                "metadata": {"tellers.ai": {"asset_id": "a", "cube": "https://cdn/a.cube", "intensity": 0.5}}
+                "metadata": {"tellers.ai": {"asset_id": "a", "cube_url": "https://cdn/a.cube", "intensity": 0.5}}
             },
             {
                 "OTIO_SCHEMA": "Effect.1",
@@ -246,7 +246,7 @@ fn insert_replace_remove_by_index() {
 #[test]
 fn indices_skip_unusable_effects_and_writes_drop_them() {
     let mut effects = effects_from(json!([
-        {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"cube": "orphan.cube"}}},
+        {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"cube_url": "orphan.cube"}}},
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "a", "intensity": 0.5}}},
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "b"}}}
     ]));
@@ -328,9 +328,9 @@ fn set_and_clear_urls_by_asset_id() {
     assert_eq!(
         ai(&effects),
         [
-            json!({"asset_id": "a", "intensity": 0.5, "cube": "https://cdn/a.cube"}),
+            json!({"asset_id": "a", "intensity": 0.5, "cube_url": "https://cdn/a.cube"}),
             json!({"asset_id": "b"}),
-            json!({"asset_id": "a", "cube": "https://cdn/a.cube"})
+            json!({"asset_id": "a", "cube_url": "https://cdn/a.cube"})
         ]
     );
 
@@ -747,4 +747,27 @@ fn stacks_and_tracks_without_effects_serialize_as_before() {
         serde_json::from_str(&tl.to_json_with_options(None, false).unwrap()).unwrap();
     assert!(json["tracks"].get("effects").is_none());
     assert!(json["tracks"]["children"][0].get("effects").is_none());
+}
+
+#[test]
+fn a_legacy_list_beside_lut_effects_is_ignored() {
+    let mut effects = vec![lut("new").to_effect()];
+    let mut metadata = json!({"tellers.ai": {"color_grading": [
+        {"asset_id": "old", "cube": "https://cdn/stale.cube"}
+    ]}});
+    let legacy = metadata.clone();
+    assert_eq!(resolve_color_luts(&effects, &metadata), vec![lut("new")]);
+
+    let urls = HashMap::from([
+        ("new".to_string(), "https://cdn/new.cube".to_string()),
+        ("old".to_string(), "https://cdn/old.cube".to_string()),
+    ]);
+    assert_eq!(set_color_lut_urls(&mut effects, &mut metadata, &urls), 1);
+    assert_eq!(clear_color_lut_urls(&mut effects, &mut metadata), 1);
+    assert_eq!(metadata, legacy);
+
+    let mut tl = timeline_with_clip("c1");
+    tl.tracks.effects = vec![lut("look").to_effect()];
+    tl.metadata["tellers.ai"]["color_grading"] = json!([{"asset_id": "old"}]);
+    assert_eq!(tl.color_lut_asset_ids(), ["look"]);
 }
