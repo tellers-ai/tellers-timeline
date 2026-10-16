@@ -187,7 +187,7 @@
     <button data-tab="sync">Groups</button>
     <button data-tab="json">JSON</button>
     <span class="spacer"></span>
-    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu (ruler/lane/clip: add marker) · click flag = edit marker · drag flag = move, ⇧drag = length · ⌘Z undo</span>
+    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu (ruler/lane/clip: add marker) · click flag = edit marker · drag flag = move marker · ⌘Z undo</span>
     <button id="btnPanel" title="collapse">▾</button>
   </div>
   <div class="body">
@@ -401,7 +401,7 @@
     flag.title = `${m.name || 'marker'}${m.comment ? '\n' + m.comment : ''}\n${m.owner_kind} marker ${m.id}` +
       (m.owner_id ? ` on ${m.owner_id}` : '') + `\n@ ${fmt(m.timeline_start)}s` + (m.duration ? ` + ${fmt(m.duration)}s` : '') +
       (m.visible ? '' : '\n(hidden: its clip is trimmed past it)') + (m.created_by ? `\nby ${m.created_by}` : '');
-    flag.title += '\n\ndrag = move · ⇧drag = set its length';
+    flag.title += '\n\ndrag = move (set a length in its popover)';
     flag.addEventListener('click', e => {
       e.stopPropagation();
       if (markerDragMoved) { markerDragMoved = false; return; }
@@ -420,34 +420,26 @@
     return d;
   }
 
-  // Drag a flag to move its marker; Shift+drag moves its end instead (sets its
-  // duration). Snaps with the toolbar's Snap setting; a clip marker stays
-  // inside its clip. One update_marker call on release.
+  // Drag a flag to move its marker (its length is set in the popover). Snaps
+  // with the toolbar's Snap setting; a clip marker stays inside its clip. One
+  // update_marker call on release.
   let markerDragMoved = false;
   function onMarkerPointerDown(e, m, d) {
     if (e.button !== 0) return;
     e.stopPropagation();
     const owner = m.owner_kind === 'clip' ? findItem(m.owner_id) : null;
     const lo = owner ? owner.start : 0, hi = owner ? owner.start + owner.duration : Infinity;
-    const setsDuration = e.shiftKey, x0 = e.clientX;
-    let start = m.timeline_start, duration = m.duration, moved = false;
+    const x0 = e.clientX;
+    let start = m.timeline_start, moved = false;
     const flag = e.currentTarget;
     try { flag.setPointerCapture(e.pointerId); } catch (_) { /* synthetic pointer */ }
     const move = ev => {
       const dt = (ev.clientX - x0) / pps;
       if (!moved && Math.abs(ev.clientX - x0) < 3) return;
       moved = true; d.classList.add('dragging');
-      if (setsDuration) {
-        const end = Math.min(hi, Math.max(m.timeline_start, snapT(m.timeline_start + m.duration + dt)));
-        duration = +(end - m.timeline_start).toFixed(4);
-      } else {
-        start = +Math.min(Math.max(lo, hi - m.duration), Math.max(lo, snapT(m.timeline_start + dt))).toFixed(4);
-      }
+      start = +Math.min(Math.max(lo, hi - m.duration), Math.max(lo, snapT(m.timeline_start + dt))).toFixed(4);
       d.style.left = (start * pps) + 'px';
-      const range = $('.range', d);
-      if (range) range.style.width = (duration * pps) + 'px';
-      else if (duration > 0) d.insertAdjacentHTML('afterbegin', `<div class="range" style="width:${duration * pps}px"></div>`);
-      el.droptip.textContent = setsDuration ? `duration → ${fmt(duration)}s` : `start → ${fmt(start)}s`;
+      el.droptip.textContent = `start → ${fmt(start)}s`;
       el.droptip.style.display = 'block'; el.droptip.style.left = (ev.clientX + 14) + 'px'; el.droptip.style.top = (ev.clientY + 14) + 'px';
     };
     const up = () => {
@@ -455,8 +447,7 @@
       el.droptip.style.display = 'none'; d.classList.remove('dragging');
       if (!moved) return;
       markerDragMoved = true;
-      if (setsDuration) api('update_marker', { id: m.id, duration });
-      else api('update_marker', { id: m.id, timeline_start: start });
+      api('update_marker', { id: m.id, timeline_start: start });
     };
     flag.addEventListener('pointermove', move);
     flag.addEventListener('pointerup', up, { once: true });
