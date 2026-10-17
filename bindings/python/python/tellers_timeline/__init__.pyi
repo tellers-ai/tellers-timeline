@@ -39,6 +39,21 @@ class TextStyle(TypedDict):
     name: str
     declarations: str
 
+MARKER_COLORS: list[str]
+
+class MarkerInfo(TypedDict):
+    id: Optional[str]
+    name: str
+    comment: str
+    color: str
+    created_by: Optional[str]
+    owner_kind: Literal["stack", "track", "clip", "gap"]
+    owner_id: Optional[str]
+    track_id: Optional[str]
+    timeline_start: float
+    duration: float
+    visible: bool
+
 class ColorLut(TypedDict):
     asset_id: str
     name: Optional[str]
@@ -406,6 +421,29 @@ class Timeline:
     def set_track_text_style(self, track_id: str, name: str, declarations: str) -> bool: ...
     def remove_track_text_style(self, track_id: str, name: str) -> bool: ...
     def track_text_styles_css(self, track_id: str) -> Optional[str]: ...
+    def get_markers(self) -> list[MarkerInfo]: ...
+    def get_marker(self, marker_id: str) -> Optional[MarkerInfo]: ...
+    def add_marker(
+        self,
+        timeline_start: float,
+        name: str = "",
+        comment: str = "",
+        color: Optional[str] = None,
+        duration: float = 0.0,
+        owner_id: Optional[str] = None,
+        created_by: Optional[str] = None,
+        id: Optional[str] = None,
+    ) -> Optional[str]: ...
+    def update_marker(
+        self,
+        marker_id: str,
+        name: Optional[str] = None,
+        comment: Optional[str] = None,
+        color: Optional[str] = None,
+        timeline_start: Optional[float] = None,
+        duration: Optional[float] = None,
+    ) -> bool: ...
+    def delete_marker(self, marker_id: str) -> bool: ...
     def is_item_color_gradable(self, item_id: str) -> bool: ...
     def get_color_luts(self) -> list[ColorLut]: ...
     def set_color_luts(self, luts: list[ColorLutInput]) -> bool: ...

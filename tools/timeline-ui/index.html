@@ -81,6 +81,15 @@
   .item .h { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2; }
   .item .h.l { left: 0; } .item .h.r { right: 0; }
   .item .h:hover { background: rgba(255,255,255,.35); }
+  /* markers: flag + stem (timeline / track markers) or flag only (clip markers) */
+  .marker { position: absolute; top: 0; bottom: 0; width: 12px; margin-left: -6px; z-index: 12; pointer-events: none; }
+  .marker .flag { position: absolute; top: 0; left: 0; width: 12px; height: 13px; background: var(--mc); clip-path: polygon(0 0, 100% 0, 100% 60%, 50% 100%, 0 60%); cursor: grab; pointer-events: auto; }
+  .marker.dragging .flag { cursor: grabbing; outline: 1.5px solid #fff; }
+  .marker .stem { position: absolute; top: 10px; bottom: 0; left: 5.5px; width: 1px; background: var(--mc); opacity: .75; }
+  .marker .range { position: absolute; top: 0; left: 6px; height: 4px; background: var(--mc); opacity: .55; }
+  .marker.clip .stem { display: none; }
+  .marker.hidden { opacity: .35; }
+  .marker.hidden .flag { outline: 1px dashed #fff; }
   #ghost { position: fixed; pointer-events: none; z-index: 100; opacity: .8; }
   #ghost .item { position: static; height: calc(var(--row-h) - 12px); }
   #droptip { position: fixed; z-index: 101; pointer-events: none; background: var(--bg3); border: 1px solid var(--accent); border-radius: 4px; padding: 2px 6px; font-size: 11px; display: none; }
@@ -178,7 +187,7 @@
     <button data-tab="sync">Groups</button>
     <button data-tab="json">JSON</button>
     <span class="spacer"></span>
-    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu · ⌘Z undo</span>
+    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu (ruler/lane/clip: add marker) · click flag = edit marker · drag flag = move marker · ⌘Z undo</span>
     <button id="btnPanel" title="collapse">▾</button>
   </div>
   <div class="body">
@@ -219,6 +228,16 @@
   <div class="frow"><label>Duration (s)</label><input type="number" id="prDur" step="0.5" min="0.1" value="2"></div>
   <div class="frow"><label>Linked audio</label><input type="checkbox" id="prAudio"></div>
   <div class="actions"><button id="prCancel">Cancel</button><button id="prOk" class="primary">Replace clip</button></div>
+</div>
+
+<div class="pop" id="popMarker">
+  <div class="frow"><label>On</label><span id="pmOwner" class="mono" style="color:var(--fg2)"></span></div>
+  <div class="frow"><label>Name</label><input type="text" id="pmName" style="width:150px"></div>
+  <div class="frow"><label>Comment</label><input type="text" id="pmComment" style="width:150px"></div>
+  <div class="frow"><label>Color</label><select id="pmColor"></select></div>
+  <div class="frow"><label>Timeline start (s)</label><input type="number" id="pmTime" step="0.1" min="0" value="0"></div>
+  <div class="frow"><label>Duration (s)</label><input type="number" id="pmDur" step="0.1" min="0" value="0"></div>
+  <div class="actions"><button id="pmDelete" class="danger">Delete</button><button id="pmCancel">Cancel</button><button id="pmOk" class="primary">Add</button></div>
 </div>
 
 <div id="menu"></div>
@@ -364,7 +383,106 @@
       d.textContent = fmt(t) + 's';
       el.ruler.appendChild(d);
     }
+    for (const m of markers()) if (m.owner_kind === 'stack') el.ruler.appendChild(renderMarker(m));
   }
+
+  // ------------------------------------------------------------- markers
+  const MARKER_COLORS = { RED: '#e5484d', PINK: '#e93d82', ORANGE: '#f76b15', YELLOW: '#ffc53d', GREEN: '#30a46c', CYAN: '#00a2c7', BLUE: '#3e63dd', PURPLE: '#8e4ec6', MAGENTA: '#d6409f', WHITE: '#ededed', BLACK: '#3a3a3a' };
+  $('#pmColor').innerHTML = Object.keys(MARKER_COLORS).map(c => `<option>${c}</option>`).join('');
+  const markers = () => (S && S.markers) || [];
+
+  function renderMarker(m) {
+    const d = document.createElement('div');
+    d.className = `marker ${m.owner_kind}${m.visible ? '' : ' hidden'}`;
+    d.style.left = (m.timeline_start * pps) + 'px';
+    d.style.setProperty('--mc', MARKER_COLORS[(m.color || '').toUpperCase()] || MARKER_COLORS.RED);
+    d.innerHTML = (m.duration > 0 ? `<div class="range" style="width:${m.duration * pps}px"></div>` : '') + '<div class="stem"></div><div class="flag"></div>';
+    const flag = $('.flag', d);
+    flag.title = `${m.name || 'marker'}${m.comment ? '\n' + m.comment : ''}\n${m.owner_kind} marker ${m.id}` +
+      (m.owner_id ? ` on ${m.owner_id}` : '') + `\n@ ${fmt(m.timeline_start)}s` + (m.duration ? ` + ${fmt(m.duration)}s` : '') +
+      (m.visible ? '' : '\n(hidden: its clip is trimmed past it)') + (m.created_by ? `\nby ${m.created_by}` : '');
+    flag.title += '\n\ndrag = move (set a length in its popover)';
+    flag.addEventListener('click', e => {
+      e.stopPropagation();
+      if (markerDragMoved) { markerDragMoved = false; return; }
+      openMarkerPopover(e, { marker: m });
+    });
+    flag.addEventListener('pointerdown', e => onMarkerPointerDown(e, m, d));
+    flag.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      openMenu(e, [
+        { label: 'Edit marker…', run: () => openMarkerPopover(e, { marker: m }) },
+        { label: `Move marker to playhead (${fmt(playhead)}s)`, run: () => api('update_marker', { id: m.id, timeline_start: playhead }) },
+        { label: 'Delete marker', run: () => api('delete_marker', { id: m.id }) },
+        { label: 'Copy id', run: () => navigator.clipboard.writeText(m.id) },
+      ]);
+    });
+    return d;
+  }
+
+  // Drag a flag to move its marker (its length is set in the popover). Snaps
+  // with the toolbar's Snap setting; a clip marker stays inside its clip. One
+  // update_marker call on release.
+  let markerDragMoved = false;
+  function onMarkerPointerDown(e, m, d) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const owner = m.owner_kind === 'clip' ? findItem(m.owner_id) : null;
+    const lo = owner ? owner.start : 0, hi = owner ? owner.start + owner.duration : Infinity;
+    const x0 = e.clientX;
+    let start = m.timeline_start, moved = false;
+    const flag = e.currentTarget;
+    try { flag.setPointerCapture(e.pointerId); } catch (_) { /* synthetic pointer */ }
+    const move = ev => {
+      const dt = (ev.clientX - x0) / pps;
+      if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+      moved = true; d.classList.add('dragging');
+      start = +Math.min(Math.max(lo, hi - m.duration), Math.max(lo, snapT(m.timeline_start + dt))).toFixed(4);
+      d.style.left = (start * pps) + 'px';
+      el.droptip.textContent = `start → ${fmt(start)}s`;
+      el.droptip.style.display = 'block'; el.droptip.style.left = (ev.clientX + 14) + 'px'; el.droptip.style.top = (ev.clientY + 14) + 'px';
+    };
+    const up = () => {
+      flag.removeEventListener('pointermove', move);
+      el.droptip.style.display = 'none'; d.classList.remove('dragging');
+      if (!moved) return;
+      markerDragMoved = true;
+      api('update_marker', { id: m.id, timeline_start: start });
+    };
+    flag.addEventListener('pointermove', move);
+    flag.addEventListener('pointerup', up, { once: true });
+  }
+
+  // ctx: { marker } to edit, or { owner_id, owner_label, time } to add.
+  function openMarkerPopover(ev, ctx) {
+    popCtx = ctx;
+    const m = ctx.marker;
+    $('#pmOwner').textContent = m ? `${m.owner_kind}${m.owner_id ? ' ' + m.owner_id : ''}` : ctx.owner_label;
+    $('#pmName').value = m ? m.name : `Marker ${markers().length + 1}`;
+    $('#pmComment').value = m ? m.comment : '';
+    $('#pmColor').value = m ? (m.color || 'RED').toUpperCase() : 'RED';
+    $('#pmTime').value = fmt(m ? m.timeline_start : ctx.time);
+    $('#pmDur').value = fmt(m ? m.duration : 0);
+    $('#pmDelete').style.display = m ? '' : 'none';
+    $('#pmOk').textContent = m ? 'Save' : 'Add';
+    place($('#popMarker'), null, ev);
+    $('#pmName').focus(); $('#pmName').select();
+  }
+  async function submitMarkerPopover() {
+    const ctx = popCtx;
+    const fields = {
+      name: $('#pmName').value.trim(), comment: $('#pmComment').value.trim(), color: $('#pmColor').value,
+      duration: Math.max(0, parseFloat($('#pmDur').value) || 0),
+    };
+    const time = Math.max(0, parseFloat($('#pmTime').value) || 0);
+    closePops();
+    if (ctx.marker) await api('update_marker', { id: ctx.marker.id, ...fields, timeline_start: time });
+    else await api('add_marker', { owner_id: ctx.owner_id, time, ...fields });
+  }
+  $('#pmOk').addEventListener('click', submitMarkerPopover);
+  $('#pmCancel').addEventListener('click', closePops);
+  $('#pmDelete').addEventListener('click', () => { const m = popCtx.marker; closePops(); api('delete_marker', { id: m.id }); });
+  $('#popMarker').addEventListener('keydown', e => { if (e.key === 'Enter') submitMarkerPopover(); });
 
   // Collapsed group owners (track ids); partners of a collapsed owner are hidden.
   const collapsed = new Set();
@@ -422,6 +540,7 @@
     lane.style.width = width + 'px';
     lane.dataset.trackId = t.id;
     for (const it of t.items) lane.appendChild(renderItem(it, t));
+    for (const m of markers()) if (m.track_id === t.id) lane.appendChild(renderMarker(m));
     lane.addEventListener('dblclick', e => {
       if (e.target !== lane) return;
       openItemPopover(null, t, clampT((e.clientX - lane.getBoundingClientRect().left) / pps), e);
@@ -440,6 +559,8 @@
         { label: 'Insert gap here', run: () => insertQuick(t, 'gap', snapT(time)) },
         ...(t.kind !== 'other' ? [{ label: `Insert ${t.kind} clip + 2 sync audio here`, run: () => insertQuickSynced(t, snapT(time), 2) }] : []),
         { label: 'Set playhead here', run: () => setPlayhead(time) },
+        { sep: true },
+        { label: `Add track marker here (${fmt(time)}s)`, run: () => openMarkerPopover(e, { owner_id: t.id, owner_label: `track ${t.id}`, time }) },
       ]);
     });
     row.append(hdr, lane);
@@ -492,6 +613,14 @@
   function setPlayhead(t) { playhead = clampT(t); positionPlayhead(); }
   $('#playheadIn').addEventListener('change', e => setPlayhead(parseFloat(e.target.value) || 0));
   el.ruler.addEventListener('click', e => setPlayhead((e.clientX - el.ruler.getBoundingClientRect().left) / pps));
+  el.ruler.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const time = clampT((e.clientX - el.ruler.getBoundingClientRect().left) / pps);
+    openMenu(e, [
+      { label: `Add timeline marker here (${fmt(time)}s)`, run: () => openMarkerPopover(e, { owner_id: null, owner_label: 'timeline (stack)', time }) },
+      { label: 'Set playhead here', run: () => setPlayhead(time) },
+    ]);
+  });
 
   function renderPanels() {
     const v = S.validation || [];
@@ -777,6 +906,7 @@
       { label: 'Delete → leave gap', key: '⌫', run: () => deleteSelected(true) },
       { label: 'Delete → ripple (no gap)', key: '⇧⌫', run: () => deleteSelected(false) },
       { label: 'Replace with new clip…', run: () => openReplacePopover(it, ev) },
+      { label: `Add clip marker here (${fmt(clickT)}s)`, disabled: it.kind !== 'clip', run: () => openMarkerPopover(ev, { owner_id: it.id, owner_label: `clip ${it.name || it.id}`, time: clickT }) },
       { label: it.enabled ? 'Disable (set_enabled False)' : 'Enable', key: 'E', run: () => toggleEnabled() },
       { sep: true },
       { label: `Link selected (${ids.length})`, key: 'L', disabled: ids.length < 2, run: () => api('link_items', { ids }) },

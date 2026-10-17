@@ -27,6 +27,7 @@ fn make_clip_with_id(duration: Seconds, id: &str) -> Item {
         active_media_reference_key: Some("DEFAULT_MEDIA".to_string()),
         metadata: serde_json::Value::Null,
         effects: Vec::new(),
+        markers: Vec::new(),
     });
     it.set_id(Some(id.to_string()));
     it
