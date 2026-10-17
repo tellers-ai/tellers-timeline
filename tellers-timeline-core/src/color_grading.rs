@@ -1,24 +1,36 @@
 //! `.cube` LUT colour grading attached to a timeline, its tracks and its
 //! clips.
 //!
-//! LUTs live at `metadata["tellers.ai"]["color_grading"]`, an ordered list of
+//! Each LUT is an OTIO effect in the `effects` list of the clip, the track,
+//! or — for the timeline — its root stack (`timeline.tracks`):
 //!
 //! ```json
-//! [
-//!   { "asset_id": "a1b2", "name": "slog3_to_709.cube", "cube": "https://cdn.example.test/…" },
-//!   { "asset_id": "c3d4", "name": "warm.cube" }
-//! ]
+//! {
+//!   "OTIO_SCHEMA": "Effect.1",
+//!   "effect_name": "ColorLut",
+//!   "name": "slog3_to_709.cube",
+//!   "metadata": { "tellers.ai": { "asset_id": "a1b2", "cube_url": "https://cdn.example.test/…" } }
+//! }
 //! ```
 //!
 //! - `asset_id` identifies the `.cube` file. It is what the timeline
 //!   persists and what the list methods take.
-//! - `cube` is the URL the player (`video-player-js`) downloads the table
+//! - `cube_url` is the URL the player (`video-player-js`) downloads the table
 //!   from. It is resolved from the asset id, like a media `target_url`: set it
 //!   with [`Timeline::set_color_lut_url`] / [`Timeline::set_color_lut_urls`]
 //!   before handing the timeline to the player, and strip it with
 //!   [`Timeline::clear_color_lut_urls`] so ephemeral (e.g. presigned) URLs are
-//!   not persisted. The player skips an entry without one.
+//!   not persisted. The player skips an effect without one.
 //! - `name` is an optional display label.
+//!
+//! The `ColorLut` effects of a stage, in list order, are its LUT list. Other
+//! effects are left where they are; writes keep the LUT effects together, at
+//! the position of the first one (appended when there was none).
+//!
+//! Timelines written before LUTs were effects hold the same list at
+//! `metadata["tellers.ai"]["color_grading"]` as `{ asset_id, name?, cube? }`
+//! entries, `cube` being the URL. Reads fall back to it when a stage has no `ColorLut` effect and
+//! ignore it otherwise; any list write moves it into effects.
 //!
 //! The list has the same shape at all three stages, graded in this order:
 //!
@@ -39,25 +51,32 @@
 //! graded (see [`Timeline::is_track_color_gradable`]). The `Clip`, `Item` and
 //! `Track` methods do not know their context and stay unrestricted.
 //!
-//! An entry is usable when its `asset_id` is a non-empty string; reads skip
-//! the others. Indices passed to the list methods count usable entries only,
-//! which are exactly what [`resolve_color_luts`] returns. List writes drop
-//! unusable entries and keep the other keys of untouched entries.
+//! A LUT is usable when its `asset_id` is a non-empty string; reads skip the
+//! others. Indices passed to the list methods count usable LUTs only, which
+//! are exactly what [`resolve_color_luts`] returns. List writes drop unusable
+//! LUTs and keep the other keys of untouched ones.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Clip, Item, MediaReference, Timeline, Track, TrackKind};
+use crate::{Clip, Effect, EffectMetadata, Item, MediaReference, Timeline, Track, TrackKind};
 
-/// Metadata key, under the `tellers.ai` namespace, holding the LUT list.
+/// `effect_name` of a LUT effect.
+pub const COLOR_LUT_EFFECT_NAME: &str = "ColorLut";
+
+/// Legacy metadata key, under the `tellers.ai` namespace, holding the LUT
+/// list of timelines written before LUTs were effects.
+// TODO: drop the legacy list once the backend has migrated stored projects.
 pub const COLOR_GRADING_KEY: &str = "color_grading";
 
-/// Key, inside a list entry, holding the asset id of the `.cube` file.
+/// Key holding the asset id of the `.cube` file.
 const ASSET_ID_KEY: &str = "asset_id";
-/// Key, inside a list entry, holding the resolved `.cube` URL.
-const CUBE_KEY: &str = "cube";
-/// Key, inside a list entry, holding the optional display name.
+/// Key, inside a LUT effect, holding the resolved `.cube` URL.
+const CUBE_URL_KEY: &str = "cube_url";
+/// Key, inside a legacy list entry, holding the resolved `.cube` URL.
+const LEGACY_CUBE_KEY: &str = "cube";
+/// Key, inside a legacy list entry, holding the optional display name.
 const NAME_KEY: &str = "name";
 
 /// A `.cube` LUT referenced by asset id.
@@ -69,8 +88,8 @@ pub struct ColorLut {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The URL the player downloads the file from, once resolved from the
-    /// asset id. Stored as `cube`.
-    #[serde(rename = "cube", default, skip_serializing_if = "Option::is_none")]
+    /// asset id. Stored as `cube_url`.
+    #[serde(rename = "cube_url", default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
 }
 
@@ -115,24 +134,65 @@ impl ColorLut {
         self.normalized().is_some()
     }
 
-    fn to_json(&self) -> serde_json::Value {
-        serde_json::to_value(self).expect("ColorLut serializes to JSON")
+    /// This LUT as a `ColorLut` effect.
+    pub fn to_effect(&self) -> Effect {
+        let mut ai = serde_json::Map::new();
+        ai.insert(ASSET_ID_KEY.to_string(), self.asset_id.clone().into());
+        if let Some(url) = &self.url {
+            ai.insert(CUBE_URL_KEY.to_string(), url.clone().into());
+        }
+        let mut other = serde_json::Map::new();
+        other.insert("tellers.ai".to_string(), serde_json::Value::Object(ai));
+        Effect {
+            otio_schema: "Effect.1".to_string(),
+            name: self.name.clone().unwrap_or_default(),
+            effect_name: COLOR_LUT_EFFECT_NAME.to_string(),
+            metadata: EffectMetadata {
+                resolve_otio: None,
+                other,
+            },
+        }
+    }
+
+    /// The LUT of a `ColorLut` effect, if it is one and is usable.
+    pub fn from_effect(effect: &Effect) -> Option<ColorLut> {
+        if !is_lut_effect(effect) {
+            return None;
+        }
+        let ai = effect.metadata.other.get("tellers.ai");
+        let text = |key| ai?.get(key)?.as_str().map(str::to_string);
+        ColorLut {
+            asset_id: text(ASSET_ID_KEY)?,
+            name: Some(effect.name.clone()),
+            url: text(CUBE_URL_KEY),
+        }
+        .normalized()
     }
 }
 
-/// The LUTs in `metadata["tellers.ai"]["color_grading"]`, in grading order,
-/// normalized and with unusable entries skipped.
-pub fn resolve_color_luts(metadata: &serde_json::Value) -> Vec<ColorLut> {
-    usable_entries(metadata)
+/// Whether `effect` is a `ColorLut` effect, usable or not.
+pub fn is_lut_effect(effect: &Effect) -> bool {
+    effect.effect_name == COLOR_LUT_EFFECT_NAME
+}
+
+/// The LUTs of a stage, in grading order, normalized and with unusable ones
+/// skipped: its `ColorLut` effects, or its legacy metadata list when it has
+/// none.
+pub fn resolve_color_luts(effects: &[Effect], metadata: &serde_json::Value) -> Vec<ColorLut> {
+    usable_lut_effects(effects, metadata)
         .iter()
-        .filter_map(lut_from_json)
+        .filter_map(ColorLut::from_effect)
         .collect()
 }
 
-/// Replace the whole LUT list with `luts`. An empty list removes the key.
-/// Returns `false` — leaving the metadata untouched — when any asset id is
-/// empty.
-pub fn set_color_luts(metadata: &mut serde_json::Value, luts: Vec<ColorLut>) -> bool {
+/// Replace the whole LUT list with `luts`. An empty list removes every LUT
+/// effect. Returns `false` — leaving the stage untouched — when any asset id
+/// is empty.
+pub fn set_color_luts(
+    effects: &mut Vec<Effect>,
+    metadata: &mut serde_json::Value,
+    luts: Vec<ColorLut>,
+) -> bool {
     let Some(luts) = luts
         .iter()
         .map(ColorLut::normalized)
@@ -140,30 +200,43 @@ pub fn set_color_luts(metadata: &mut serde_json::Value, luts: Vec<ColorLut>) -> 
     else {
         return false;
     };
-    write_entries(metadata, luts.iter().map(ColorLut::to_json).collect());
+    write_lut_effects(
+        effects,
+        metadata,
+        luts.iter().map(ColorLut::to_effect).collect(),
+    );
     true
 }
 
 /// Append `lut` to the end of the list (graded last). Returns `false`,
 /// changing nothing, when the asset id is empty.
-pub fn push_color_lut(metadata: &mut serde_json::Value, lut: ColorLut) -> bool {
-    let len = usable_entries(metadata).len();
-    insert_color_lut_at(metadata, len, lut)
+pub fn push_color_lut(
+    effects: &mut Vec<Effect>,
+    metadata: &mut serde_json::Value,
+    lut: ColorLut,
+) -> bool {
+    let len = usable_lut_effects(effects, metadata).len();
+    insert_color_lut_at(effects, metadata, len, lut)
 }
 
 /// Insert `lut` at `index` (0 grades first; the list length appends).
 /// Returns `false`, changing nothing, when `index` is past the end or the
 /// asset id is empty.
-pub fn insert_color_lut_at(metadata: &mut serde_json::Value, index: usize, lut: ColorLut) -> bool {
+pub fn insert_color_lut_at(
+    effects: &mut Vec<Effect>,
+    metadata: &mut serde_json::Value,
+    index: usize,
+    lut: ColorLut,
+) -> bool {
     let Some(lut) = lut.normalized() else {
         return false;
     };
-    let mut entries = usable_entries(metadata);
-    if index > entries.len() {
+    let mut luts = usable_lut_effects(effects, metadata);
+    if index > luts.len() {
         return false;
     }
-    entries.insert(index, lut.to_json());
-    write_entries(metadata, entries);
+    luts.insert(index, lut.to_effect());
+    write_lut_effects(effects, metadata, luts);
     true
 }
 
@@ -171,53 +244,53 @@ pub fn insert_color_lut_at(metadata: &mut serde_json::Value, index: usize, lut: 
 /// changing nothing, when there is no LUT at `index` or the asset id is
 /// empty.
 pub fn replace_color_lut_at(
+    effects: &mut Vec<Effect>,
     metadata: &mut serde_json::Value,
     index: usize,
     lut: ColorLut,
 ) -> Option<ColorLut> {
     let lut = lut.normalized()?;
-    let mut entries = usable_entries(metadata);
-    let previous = lut_from_json(entries.get(index)?)?;
-    entries[index] = lut.to_json();
-    write_entries(metadata, entries);
+    let mut luts = usable_lut_effects(effects, metadata);
+    let previous = ColorLut::from_effect(luts.get(index)?)?;
+    luts[index] = lut.to_effect();
+    write_lut_effects(effects, metadata, luts);
     Some(previous)
 }
 
 /// Remove and return the LUT at `index`. `None`, changing nothing, when there
-/// is no LUT at `index`. The key is dropped once the list is empty.
-pub fn remove_color_lut_at(metadata: &mut serde_json::Value, index: usize) -> Option<ColorLut> {
-    let mut entries = usable_entries(metadata);
-    if index >= entries.len() {
+/// is no LUT at `index`.
+pub fn remove_color_lut_at(
+    effects: &mut Vec<Effect>,
+    metadata: &mut serde_json::Value,
+    index: usize,
+) -> Option<ColorLut> {
+    let mut luts = usable_lut_effects(effects, metadata);
+    if index >= luts.len() {
         return None;
     }
-    let removed = lut_from_json(&entries.remove(index));
-    write_entries(metadata, entries);
+    let removed = ColorLut::from_effect(&luts.remove(index));
+    write_lut_effects(effects, metadata, luts);
     removed
 }
 
 /// Remove every LUT, returning whether any usable one was present.
-pub fn clear_color_luts(metadata: &mut serde_json::Value) -> bool {
-    let had_luts = !usable_entries(metadata).is_empty();
-    if let Some(ai) = metadata
-        .get_mut("tellers.ai")
-        .and_then(|value| value.as_object_mut())
-    {
-        ai.remove(COLOR_GRADING_KEY);
-    }
+pub fn clear_color_luts(effects: &mut Vec<Effect>, metadata: &mut serde_json::Value) -> bool {
+    let had_luts = !usable_lut_effects(effects, metadata).is_empty();
+    write_lut_effects(effects, metadata, Vec::new());
     had_luts
 }
 
 /// Set the resolved URL of every LUT whose asset id is in `urls` (asset id →
-/// URL), returning how many entries were updated. Other entries are left as
-/// they are. An empty URL is ignored; use [`clear_color_lut_urls`] to strip
-/// URLs.
+/// URL), returning how many were updated. Other LUTs are left as they are.
+/// An empty URL is ignored; use [`clear_color_lut_urls`] to strip URLs.
 pub fn set_color_lut_urls(
+    effects: &mut [Effect],
     metadata: &mut serde_json::Value,
     urls: &HashMap<String, String>,
 ) -> usize {
     let mut updated = 0;
-    for entry in entries_mut(metadata) {
-        let Some(url) = entry
+    for (ai, url_key) in lut_objects_mut(effects, metadata) {
+        let Some(url) = ai
             .get(ASSET_ID_KEY)
             .and_then(|id| id.as_str())
             .and_then(|id| urls.get(id.trim()))
@@ -225,60 +298,100 @@ pub fn set_color_lut_urls(
         else {
             continue;
         };
-        if let Some(entry) = entry.as_object_mut() {
-            entry.insert(CUBE_KEY.to_string(), serde_json::Value::String(url));
-            updated += 1;
-        }
+        ai.insert(url_key.to_string(), serde_json::Value::String(url));
+        updated += 1;
     }
     updated
 }
 
 /// Remove the resolved URL from every LUT, keeping its asset id, and return
-/// how many entries had one.
-pub fn clear_color_lut_urls(metadata: &mut serde_json::Value) -> usize {
-    entries_mut(metadata)
-        .filter_map(|entry| entry.as_object_mut()?.remove(CUBE_KEY))
+/// how many had one.
+pub fn clear_color_lut_urls(effects: &mut [Effect], metadata: &mut serde_json::Value) -> usize {
+    lut_objects_mut(effects, metadata)
+        .filter_map(|(ai, url_key)| ai.remove(url_key))
         .count()
 }
 
-/// Generates the LUT list accessors for a type holding its metadata in
-/// `self.metadata`, so the timeline, track and clip stages stay identical.
+/// A stage holding a LUT list: its effects, and the metadata holding the
+/// legacy list.
+trait LutStage {
+    fn lut_parts(&self) -> (&[Effect], &serde_json::Value);
+    fn lut_parts_mut(&mut self) -> (&mut Vec<Effect>, &mut serde_json::Value);
+}
+
+impl LutStage for Clip {
+    fn lut_parts(&self) -> (&[Effect], &serde_json::Value) {
+        (&self.effects, &self.metadata)
+    }
+    fn lut_parts_mut(&mut self) -> (&mut Vec<Effect>, &mut serde_json::Value) {
+        (&mut self.effects, &mut self.metadata)
+    }
+}
+
+impl LutStage for Track {
+    fn lut_parts(&self) -> (&[Effect], &serde_json::Value) {
+        (&self.effects, &self.metadata)
+    }
+    fn lut_parts_mut(&mut self) -> (&mut Vec<Effect>, &mut serde_json::Value) {
+        (&mut self.effects, &mut self.metadata)
+    }
+}
+
+/// OTIO timelines have no effects of their own; the root stack holds them.
+impl LutStage for Timeline {
+    fn lut_parts(&self) -> (&[Effect], &serde_json::Value) {
+        (&self.tracks.effects, &self.metadata)
+    }
+    fn lut_parts_mut(&mut self) -> (&mut Vec<Effect>, &mut serde_json::Value) {
+        (&mut self.tracks.effects, &mut self.metadata)
+    }
+}
+
+/// Generates the LUT list accessors for a [`LutStage`], so the timeline,
+/// track and clip stages stay identical.
 macro_rules! impl_color_luts {
     ($ty:ty, $stage:literal) => {
         impl $ty {
             #[doc = concat!("The LUTs graded ", $stage, ", in order.")]
             pub fn get_color_luts(&self) -> Vec<ColorLut> {
-                resolve_color_luts(&self.metadata)
+                let (effects, metadata) = self.lut_parts();
+                resolve_color_luts(effects, metadata)
             }
 
             #[doc = concat!("Replace every LUT graded ", $stage, " with `luts`; see [`set_color_luts`].")]
             pub fn set_color_luts(&mut self, luts: Vec<ColorLut>) -> bool {
-                set_color_luts(&mut self.metadata, luts)
+                let (effects, metadata) = self.lut_parts_mut();
+                set_color_luts(effects, metadata, luts)
             }
 
             #[doc = concat!("Append a LUT graded ", $stage, "; see [`push_color_lut`].")]
             pub fn push_color_lut(&mut self, lut: ColorLut) -> bool {
-                push_color_lut(&mut self.metadata, lut)
+                let (effects, metadata) = self.lut_parts_mut();
+                push_color_lut(effects, metadata, lut)
             }
 
             #[doc = concat!("Insert a LUT graded ", $stage, " at `index`; see [`insert_color_lut_at`].")]
             pub fn insert_color_lut_at(&mut self, index: usize, lut: ColorLut) -> bool {
-                insert_color_lut_at(&mut self.metadata, index, lut)
+                let (effects, metadata) = self.lut_parts_mut();
+                insert_color_lut_at(effects, metadata, index, lut)
             }
 
             #[doc = concat!("Replace the LUT graded ", $stage, " at `index`; see [`replace_color_lut_at`].")]
             pub fn replace_color_lut_at(&mut self, index: usize, lut: ColorLut) -> Option<ColorLut> {
-                replace_color_lut_at(&mut self.metadata, index, lut)
+                let (effects, metadata) = self.lut_parts_mut();
+                replace_color_lut_at(effects, metadata, index, lut)
             }
 
             #[doc = concat!("Remove the LUT graded ", $stage, " at `index`; see [`remove_color_lut_at`].")]
             pub fn remove_color_lut_at(&mut self, index: usize) -> Option<ColorLut> {
-                remove_color_lut_at(&mut self.metadata, index)
+                let (effects, metadata) = self.lut_parts_mut();
+                remove_color_lut_at(effects, metadata, index)
             }
 
             #[doc = concat!("Remove every LUT graded ", $stage, "; see [`clear_color_luts`].")]
             pub fn clear_color_luts(&mut self) -> bool {
-                clear_color_luts(&mut self.metadata)
+                let (effects, metadata) = self.lut_parts_mut();
+                clear_color_luts(effects, metadata)
             }
         }
     };
@@ -300,13 +413,13 @@ impl Track {
     /// Set the resolved URL of this track's LUTs from `urls` (asset id →
     /// URL); see [`set_color_lut_urls`].
     pub fn set_color_lut_urls(&mut self, urls: &HashMap<String, String>) -> usize {
-        set_color_lut_urls(&mut self.metadata, urls)
+        set_color_lut_urls(&mut self.effects, &mut self.metadata, urls)
     }
 
     /// Strip the resolved URL from this track's LUTs; see
     /// [`clear_color_lut_urls`].
     pub fn clear_color_lut_urls(&mut self) -> usize {
-        clear_color_lut_urls(&mut self.metadata)
+        clear_color_lut_urls(&mut self.effects, &mut self.metadata)
     }
 }
 
@@ -314,13 +427,13 @@ impl Clip {
     /// Set the resolved URL of this clip's LUTs from `urls` (asset id → URL);
     /// see [`set_color_lut_urls`].
     pub fn set_color_lut_urls(&mut self, urls: &HashMap<String, String>) -> usize {
-        set_color_lut_urls(&mut self.metadata, urls)
+        set_color_lut_urls(&mut self.effects, &mut self.metadata, urls)
     }
 
     /// Strip the resolved URL from this clip's LUTs; see
     /// [`clear_color_lut_urls`].
     pub fn clear_color_lut_urls(&mut self) -> usize {
-        clear_color_lut_urls(&mut self.metadata)
+        clear_color_lut_urls(&mut self.effects, &mut self.metadata)
     }
 
     /// Whether the player grades this clip's LUTs when it sits on a video
@@ -372,7 +485,7 @@ impl Timeline {
     /// and every graded clip, whose asset id is in `urls` (asset id → URL).
     /// Unknown ids are ignored. Returns how many entries were updated.
     pub fn set_color_lut_urls(&mut self, urls: &HashMap<String, String>) -> usize {
-        let mut updated = set_color_lut_urls(&mut self.metadata, urls);
+        let mut updated = set_color_lut_urls(&mut self.tracks.effects, &mut self.metadata, urls);
         for track in self
             .tracks
             .children
@@ -396,7 +509,7 @@ impl Timeline {
     /// [`Timeline::clear_target_urls`] does for media. Returns how many
     /// entries had one.
     pub fn clear_color_lut_urls(&mut self) -> usize {
-        let mut cleared = clear_color_lut_urls(&mut self.metadata);
+        let mut cleared = clear_color_lut_urls(&mut self.tracks.effects, &mut self.metadata);
         for track in self.tracks.children.iter_mut() {
             cleared += track.clear_color_lut_urls();
             cleared += track
@@ -655,63 +768,112 @@ fn non_empty(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-/// A list entry as a LUT, if usable.
-fn lut_from_json(entry: &serde_json::Value) -> Option<ColorLut> {
-    let text = |key| entry.get(key).and_then(|v| v.as_str()).map(str::to_string);
-    ColorLut {
-        asset_id: text(ASSET_ID_KEY)?,
-        name: text(NAME_KEY),
-        url: text(CUBE_KEY),
+/// The usable LUT effects of a stage: its `ColorLut` effects, or, when it
+/// has none, its legacy list entries as effects.
+fn usable_lut_effects(effects: &[Effect], metadata: &serde_json::Value) -> Vec<Effect> {
+    if effects.iter().any(is_lut_effect) {
+        return effects
+            .iter()
+            .filter(|effect| ColorLut::from_effect(effect).is_some())
+            .cloned()
+            .collect();
     }
-    .normalized()
-}
-
-/// The raw entries of the LUT list that are usable, in order.
-fn usable_entries(metadata: &serde_json::Value) -> Vec<serde_json::Value> {
     metadata
         .get("tellers.ai")
         .and_then(|ai| ai.get(COLOR_GRADING_KEY))
         .and_then(|grading| grading.as_array())
-        .map(|entries| {
-            entries
-                .iter()
-                .filter(|entry| lut_from_json(entry).is_some())
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default()
+        .into_iter()
+        .flatten()
+        .filter_map(effect_from_legacy_entry)
+        .filter(|effect| ColorLut::from_effect(effect).is_some())
+        .collect()
 }
 
-/// Every raw entry of the LUT list, for in-place updates.
-fn entries_mut(metadata: &mut serde_json::Value) -> impl Iterator<Item = &mut serde_json::Value> {
+/// A legacy `{ asset_id, name?, cube? }` entry as a `ColorLut` effect, `cube`
+/// renamed `cube_url` and its other keys kept beside `asset_id`.
+fn effect_from_legacy_entry(entry: &serde_json::Value) -> Option<Effect> {
+    let mut ai = entry.as_object()?.clone();
+    let name = ai.remove(NAME_KEY);
+    if let Some(url) = ai.remove(LEGACY_CUBE_KEY) {
+        ai.insert(CUBE_URL_KEY.to_string(), url);
+    }
+    let mut effect = ColorLut::new("").to_effect();
+    effect.name = name
+        .as_ref()
+        .and_then(|name| name.as_str())
+        .unwrap_or_default()
+        .to_string();
+    effect
+        .metadata
+        .other
+        .insert("tellers.ai".to_string(), serde_json::Value::Object(ai));
+    Some(effect)
+}
+
+/// Store `luts` as the stage's LUT effects, at the position of its first LUT
+/// effect (appended when it had none), and drop the legacy list.
+fn write_lut_effects(
+    effects: &mut Vec<Effect>,
+    metadata: &mut serde_json::Value,
+    luts: Vec<Effect>,
+) {
+    let at = effects
+        .iter()
+        .take_while(|effect| !is_lut_effect(effect))
+        .count();
+    effects.retain(|effect| !is_lut_effect(effect));
+    effects.splice(at..at, luts);
+    if let Some(ai) = metadata
+        .get_mut("tellers.ai")
+        .and_then(|value| value.as_object_mut())
+    {
+        ai.remove(COLOR_GRADING_KEY);
+    }
+}
+
+/// The `tellers.ai` object of every LUT the stage reads, with the key of its
+/// URL, for in-place updates: its LUT effects', or its legacy entries when it
+/// has none.
+fn lut_objects_mut<'a>(
+    effects: &'a mut [Effect],
+    metadata: &'a mut serde_json::Value,
+) -> Box<
+    dyn Iterator<
+            Item = (
+                &'a mut serde_json::Map<String, serde_json::Value>,
+                &'static str,
+            ),
+        > + 'a,
+> {
+    if effects.iter().any(is_lut_effect) {
+        Box::new(
+            effects
+                .iter_mut()
+                .filter(|effect| is_lut_effect(effect))
+                .filter_map(effect_ai_mut)
+                .map(|ai| (ai, CUBE_URL_KEY)),
+        )
+    } else {
+        Box::new(
+            legacy_entries_mut(metadata)
+                .filter_map(|entry| entry.as_object_mut())
+                .map(|entry| (entry, LEGACY_CUBE_KEY)),
+        )
+    }
+}
+
+fn effect_ai_mut(effect: &mut Effect) -> Option<&mut serde_json::Map<String, serde_json::Value>> {
+    effect.metadata.other.get_mut("tellers.ai")?.as_object_mut()
+}
+
+/// Every raw entry of the legacy LUT list.
+fn legacy_entries_mut(
+    metadata: &mut serde_json::Value,
+) -> impl Iterator<Item = &mut serde_json::Value> {
     metadata
         .get_mut("tellers.ai")
         .and_then(|ai| ai.get_mut(COLOR_GRADING_KEY))
         .and_then(|grading| grading.as_array_mut())
         .into_iter()
         .flatten()
-}
-
-/// Store `entries` as the LUT list, creating the `tellers.ai` object as
-/// needed, or drop the key when `entries` is empty.
-fn write_entries(metadata: &mut serde_json::Value, entries: Vec<serde_json::Value>) {
-    if entries.is_empty() {
-        clear_color_luts(metadata);
-        return;
-    }
-    if metadata.as_object().is_none() {
-        *metadata = serde_json::Value::Object(serde_json::Map::new());
-    }
-    let ai = metadata
-        .as_object_mut()
-        .unwrap()
-        .entry("tellers.ai".to_string())
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    if ai.as_object().is_none() {
-        *ai = serde_json::Value::Object(serde_json::Map::new());
-    }
-    ai.as_object_mut().unwrap().insert(
-        COLOR_GRADING_KEY.to_string(),
-        serde_json::Value::Array(entries),
-    );
 }

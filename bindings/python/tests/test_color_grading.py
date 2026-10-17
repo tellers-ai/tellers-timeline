@@ -33,15 +33,27 @@ def lut(asset_id, name=None, url=None):
     return {"asset_id": asset_id, "name": name, "url": url}
 
 
+def lut_effect(asset_id, name="", url=None):
+    ai = {"asset_id": asset_id}
+    if url is not None:
+        ai["cube_url"] = url
+    return {
+        "OTIO_SCHEMA": "Effect.1",
+        "name": name,
+        "effect_name": "ColorLut",
+        "metadata": {"tellers.ai": ai},
+    }
+
+
 def test_timeline_luts_round_trip():
     tl = Timeline()
     assert tl.get_color_luts() == []
     assert tl.push_color_lut("look", name="film_look.cube")
 
     assert tl.get_color_luts() == [lut("look", "film_look.cube")]
-    metadata = json.loads(tl.get_metadata_json())
-    assert metadata["tellers.ai"]["color_grading"] == [
-        {"asset_id": "look", "name": "film_look.cube"}
+    # The timeline's LUTs are effects of its root stack.
+    assert json.loads(tl.to_json())["tracks"]["effects"] == [
+        lut_effect("look", "film_look.cube")
     ]
 
     reparsed = Timeline.parse_json(tl.to_json())
@@ -58,10 +70,9 @@ def test_clip_list_operations():
     assert clip.insert_color_lut_at(0, "slog3", "slog3_to_709.cube")
     assert not clip.insert_color_lut_at(5, "x")
     assert clip.get_color_luts() == [lut("slog3", "slog3_to_709.cube"), lut("warm")]
-    metadata = json.loads(clip.get_metadata_json())
-    assert metadata["tellers.ai"]["color_grading"] == [
-        {"asset_id": "slog3", "name": "slog3_to_709.cube"},
-        {"asset_id": "warm"},
+    assert json.loads(clip.to_json())["effects"] == [
+        lut_effect("slog3", "slog3_to_709.cube"),
+        lut_effect("warm"),
     ]
 
     assert clip.replace_color_lut_at(1, "cool") == lut("warm")
@@ -149,9 +160,7 @@ def test_set_urls_from_asset_ids():
     ]
     metadata = json.loads(tl.to_json())
     track_items = metadata["tracks"]["children"][0]["children"]
-    assert track_items[2]["metadata"]["tellers.ai"]["color_grading"] == [
-        {"asset_id": "log", "cube": "https://cdn/log.cube"}
-    ]
+    assert track_items[2]["effects"] == [lut_effect("log", url="https://cdn/log.cube")]
 
     assert tl.clear_color_lut_urls() == 4
     assert tl.get_item_color_luts("c1") == [lut("log"), lut("warm")]
@@ -250,10 +259,7 @@ def test_track_luts_on_a_track_object():
     assert track.push_color_lut("warm", name="warm.cube")
     assert track.insert_color_lut_at(0, "film")
     assert track.get_color_luts() == [lut("film"), lut("warm", name="warm.cube")]
-    assert json.loads(track.get_metadata_json())["tellers.ai"]["color_grading"] == [
-        {"asset_id": "film"},
-        {"asset_id": "warm", "name": "warm.cube"},
-    ]
+    assert "color_grading" not in json.loads(track.get_metadata_json()).get("tellers.ai", {})
     assert track.set_color_lut_urls({"film": "https://cdn/f.cube"}) == 1
     assert track.clear_color_lut_urls() == 1
     assert track.remove_color_lut_at(0) == lut("film")
@@ -292,3 +298,19 @@ def test_timeline_edits_tracks_by_id():
     assert tl.clear_color_lut_urls() == 2
     assert tl.clear_track_color_luts("v")
     assert not tl.clear_track_color_luts("missing")
+
+
+def test_legacy_metadata_luts_are_read_and_moved_on_write():
+    tl = Timeline()
+    data = json.loads(tl.to_json())
+    data["metadata"].setdefault("tellers.ai", {})["color_grading"] = [
+        {"asset_id": "old", "name": "old.cube"}
+    ]
+    tl = Timeline.parse_json(json.dumps(data))
+    assert tl.get_color_luts() == [lut("old", "old.cube")]
+    assert tl.color_lut_asset_ids() == ["old"]
+
+    assert tl.push_color_lut("new")
+    data = json.loads(tl.to_json())
+    assert "color_grading" not in data["metadata"]["tellers.ai"]
+    assert data["tracks"]["effects"] == [lut_effect("old", "old.cube"), lut_effect("new")]

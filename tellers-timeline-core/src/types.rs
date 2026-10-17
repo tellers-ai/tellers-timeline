@@ -160,6 +160,8 @@ pub struct Track {
     pub items: Vec<Item>,
     #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
@@ -172,6 +174,8 @@ pub struct Stack {
     pub children: Vec<Track>,
     #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
 }
 
 impl Default for Stack {
@@ -181,6 +185,7 @@ impl Default for Stack {
             name: None,
             children: vec![],
             metadata: serde_json::Value::Object(serde_json::Map::new()),
+            effects: Vec::new(),
         }
     }
 }
@@ -1719,6 +1724,7 @@ impl Track {
             name: None,
             items: vec![],
             metadata: serde_json::Value::Object(serde_json::Map::new()),
+            effects: Vec::new(),
         };
         crate::metadata::IdMetadataExt::set_id(&mut t, Some(id.unwrap_or_else(gen_hex_id_12)));
         t
