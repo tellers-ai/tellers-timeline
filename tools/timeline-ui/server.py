@@ -431,9 +431,10 @@ def op_insert_item(state: State, p: dict):
 @op("delete_item")
 def op_delete_item(state: State, p: dict):
     replace_with_gap = bool(p.get("replace_with_gap", True))
-    removed = state.stack.delete_item(p["id"], replace_with_gap)
+    with_sync_clips = bool(p.get("with_sync_clips", True))
+    removed = state.stack.delete_item(p["id"], replace_with_gap, with_sync_clips)
     result = [{"track_index": ti, "item_id": it.get_id(), "duration": it.duration()} for ti, it in removed]
-    return result, f"stack.delete_item({_fmt(p['id'])}, replace_with_gap={replace_with_gap})"
+    return result, f"stack.delete_item({_fmt(p['id'])}, replace_with_gap={replace_with_gap}, with_sync_clips={with_sync_clips})"
 
 
 @op("move_item")

@@ -618,7 +618,7 @@ fn delete_group_removes_all_members() {
         .group_item(&["A".to_string(), "B".to_string()])
         .unwrap();
 
-    let removed = stack.delete_item("A", true);
+    let removed = stack.delete_item("A", true, true);
     assert!(removed.len() >= 3);
     assert!(stack.get_item("A").is_none());
     assert!(stack.get_item("A_audio").is_none());
@@ -638,7 +638,7 @@ fn delete_group_collapse_removes_all_members() {
         .group_item(&["A".to_string(), "B".to_string()])
         .unwrap();
 
-    let removed = stack.delete_item("A", false);
+    let removed = stack.delete_item("A", false, true);
     assert!(removed.len() >= 2);
     assert!(stack.get_item("A").is_none());
     assert!(stack.get_item("B").is_none());

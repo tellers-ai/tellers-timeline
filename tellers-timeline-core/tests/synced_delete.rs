@@ -20,7 +20,7 @@ fn synced_delete_can_remove_entire_sync_clips() {
     )
     .unwrap();
 
-    let removed = stack.delete_item("primary", true);
+    let removed = stack.delete_item("primary", true, true);
     assert_eq!(removed.len(), 2);
     assert!(stack.children[0]
         .items
@@ -57,7 +57,7 @@ fn synced_delete_keeps_touched_tracks_without_remaining_clips() {
     )
     .unwrap();
 
-    let removed = stack.delete_item("primary", true);
+    let removed = stack.delete_item("primary", true, true);
 
     assert_eq!(removed.len(), 2);
     assert_eq!(stack.children.len(), 2);
@@ -86,7 +86,7 @@ fn synced_delete_without_gap_collapses_sync_clips() {
     )
     .unwrap();
 
-    let removed = stack.delete_item("primary", false);
+    let removed = stack.delete_item("primary", false, true);
     assert_eq!(removed.len(), 2);
     assert!(stack.children.iter().all(|track| track.items.is_empty()));
 }
@@ -97,7 +97,7 @@ fn delete_clip_a_replace_with_gap_preserves_synced_partner_spans() {
     let v1 = track_index_by_id(&stack, "v1");
     let a1 = track_index_by_id(&stack, "a1");
 
-    let removed = stack.delete_item("clip-a", true);
+    let removed = stack.delete_item("clip-a", true, true);
     assert_eq!(removed.len(), 1);
     assert!(stack.get_item("clip-a").is_none());
     assert!(stack.get_item("clip-b-video").is_some());
@@ -126,7 +126,7 @@ fn delete_clip_a_collapse_pulls_synced_partner_left() {
     let v1 = track_index_by_id(&stack, "v1");
     let a1 = track_index_by_id(&stack, "a1");
 
-    let removed = stack.delete_item("clip-a", false);
+    let removed = stack.delete_item("clip-a", false, true);
     assert_eq!(removed.len(), 2);
     assert!(stack.get_item("clip-a").is_none());
     assert!(stack.get_item("clip-b-video").is_some());
@@ -151,7 +151,7 @@ fn delete_synced_audio_collapse_removes_video_partner_and_moves_following_clip()
     let v1 = track_index_by_id(&stack, "v1");
     let a1 = track_index_by_id(&stack, "a1");
 
-    let removed = stack.delete_item("c1a", false);
+    let removed = stack.delete_item("c1a", false, true);
     assert_eq!(removed.len(), 2);
     assert!(stack.get_item("c1a").is_none());
     assert!(stack.get_item("c1").is_none());
@@ -178,7 +178,7 @@ fn delete_unsynced_item_only_removes_selected_item() {
     stack.children.push(video);
     stack.children.push(audio);
 
-    let removed = stack.delete_item("primary", true);
+    let removed = stack.delete_item("primary", true, true);
 
     assert_eq!(removed.len(), 1);
     assert!(stack.get_item("primary").is_none());
@@ -204,7 +204,7 @@ fn delete_unsynced_item_without_gap_pulls_later_synced_assets() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    let removed = stack.delete_item("unlinked", false);
+    let removed = stack.delete_item("unlinked", false, true);
 
     assert_eq!(removed.len(), 2);
     let (video_track_index, video_item_index, _) = stack.get_item("linked-video").unwrap();
@@ -252,4 +252,52 @@ fn delete_track_keeps_the_other_channels_of_its_columns() {
     let (_, _, audio_item) = stack.get_item(&audio_id).expect("audio stays");
     assert_eq!(audio_item.duration(), 3.0);
     assert_eq!(sync_clips_id(audio_item), None);
+}
+
+fn stack_with_synced_primary() -> (Stack, String) {
+    let mut stack = Stack::default();
+    stack
+        .children
+        .push(Track::new(TrackKind::Video, Some("v".to_string())));
+    stack
+        .children
+        .push(Track::new(TrackKind::Audio, Some("a".to_string())));
+    let result = insert_with_audio(
+        &mut stack,
+        0,
+        0.0,
+        clip(3.0, Some("primary")),
+        vec![audio_clip(3.0, "file:///a1.wav", None)],
+    )
+    .unwrap();
+    let audio_id = result.audio_clips[0].0.clone();
+    (stack, audio_id)
+}
+
+#[test]
+fn delete_without_sync_clips_keeps_partner() {
+    let (mut stack, audio_id) = stack_with_synced_primary();
+
+    let removed = stack.delete_item("primary", true, false);
+
+    assert_eq!(removed.len(), 1);
+    assert_eq!(removed[0].1.get_id().as_deref(), Some("primary"));
+    assert!(stack.get_item("primary").is_none());
+    let (ti, ii, _) = stack.get_item(&audio_id).unwrap();
+    assert_eq!(stack.children[ti].start_time_of_item(ii), 0.0);
+    assert!(stack.children[0]
+        .items
+        .iter()
+        .all(|item| matches!(item, Item::Gap(_))));
+}
+
+#[test]
+fn delete_without_sync_clips_and_without_gap_is_refused() {
+    let (mut stack, audio_id) = stack_with_synced_primary();
+
+    let removed = stack.delete_item("primary", false, false);
+
+    assert!(removed.is_empty());
+    assert!(stack.get_item("primary").is_some());
+    assert!(stack.get_item(&audio_id).is_some());
 }

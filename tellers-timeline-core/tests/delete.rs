@@ -57,7 +57,7 @@ fn delete_clip_by_index_no_gap() {
         ..Stack::default()
     };
 
-    let deleted = stack.delete_item("c1", false);
+    let deleted = stack.delete_item("c1", false, true);
     assert_eq!(deleted.len(), 1);
     let track = &stack.children[0];
     assert_eq!(track.items.len(), 1);
@@ -82,7 +82,7 @@ fn delete_clip_by_index_with_gap_and_merge() {
         ..Stack::default()
     };
 
-    let deleted = stack.delete_item("c1", true);
+    let deleted = stack.delete_item("c1", true, true);
     assert_eq!(deleted.len(), 1);
     let track = &stack.children[0];
     // Expect leading gap of 5.0 merged with following 2.0 -> 7.0, then c2
@@ -113,7 +113,7 @@ fn delete_clip_via_getter_with_gap() {
         ..Stack::default()
     };
 
-    let deleted = stack.delete_item(&id, true);
+    let deleted = stack.delete_item(&id, true, true);
     assert_eq!(deleted.len(), 1);
     let track = &stack.children[0];
     // Expect gap(4.0) then c2, and no adjacent gaps to merge
@@ -144,7 +144,7 @@ fn delete_item_sanitizes_stack_after_successful_delete() {
         ..Stack::default()
     };
 
-    let deleted = stack.delete_item("c2", false);
+    let deleted = stack.delete_item("c2", false, true);
 
     assert_eq!(deleted.len(), 1);
     assert_eq!(stack.children[0].items.len(), 1);
@@ -184,7 +184,7 @@ fn delete_new_project_clip_454bfdad4796_without_gap_collapses_sync_cluster() {
     let mut tl: Timeline = serde_json::from_str(&json).expect("parse");
     tl.sanitize();
 
-    let removed = tl.tracks.delete_item("454bfdad4796", false);
+    let removed = tl.tracks.delete_item("454bfdad4796", false, true);
     assert_eq!(removed.len(), 2);
     assert!(tl.tracks.get_item("454bfdad4796").is_none());
     assert!(tl.tracks.get_item("4f85c014f851").is_some());
