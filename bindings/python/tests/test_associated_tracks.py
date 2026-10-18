@@ -84,17 +84,28 @@ def test_track_groups_report_each_track_once():
     assert [g["owner_track_id"] for g in timeline.track_groups()] == ["M1", "V1"]
 
 
-def test_prune_empty_partner_tracks_removes_auto_named_tracks_only():
+def test_prune_empty_partner_tracks_removes_auto_created_tracks_only():
     voice = _gap_track("audio", "Voice")
-    voice.set_name("Voice over")  # a user name: never pruned
-    stack = Stack([voice, _gap_track("video", "V1")])
-    assert _insert_column(stack, 1, 0.0, "c", 2) is not None
+    voice.set_name("Voice over")  # a user track: never pruned
+    look_alike = _gap_track("audio", "A9")
+    look_alike.set_name("A9")  # named like its id, but not created by the library
+    stack = Stack([look_alike, voice, _gap_track("video", "V1")])
+    assert _insert_column(stack, 2, 0.0, "c", 3) is not None
     partners = stack.associated_track_ids("V1")
-    assert len(partners) == 2
-    created = [p for p in partners if p != "Voice"]
+    assert len(partners) == 3
+    created = [t.get_id() for t in stack.tracks() if t.is_auto_created()]
+    assert len(created) == 1 and created[0] not in ("Voice", "A9")
     stack.delete_item("c", True)
     assert stack.prune_empty_partner_tracks() == created
-    assert [t.get_id() for t in stack.tracks()] == ["Voice", "V1"]
+    assert [t.get_id() for t in stack.tracks()] == ["A9", "Voice", "V1"]
+
+
+def test_renaming_a_created_track_keeps_it_from_pruning():
+    stack = Stack([_gap_track("video", "V1")])
+    assert _insert_column(stack, 0, 0.0, "c", 1) is not None
+    created = next(t for t in stack.tracks() if t.is_auto_created())
+    created.set_name("Room tone")
+    assert not created.is_auto_created()
 
 
 def test_normalize_puts_each_group_together_owner_on_top():

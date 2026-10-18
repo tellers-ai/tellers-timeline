@@ -962,6 +962,7 @@ impl Stack {
             .unwrap_or_else(crate::types::gen_hex_id_12);
         let mut track = Track::new(kind, Some(id.clone()));
         track.name = Some(id);
+        track.set_auto_created(true);
         track
     }
 
