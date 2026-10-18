@@ -118,8 +118,14 @@ impl Stack {
             let Some(selected) = members.iter().find(|m| m.is_selected) else {
                 return false;
             };
-            let mut audio = Vec::new();
-            let mut audio_tracks = Vec::new();
+            // Partners in slot order (nearest the owner first), as the
+            // single-column move does: insertion assigns slots in list order,
+            // so stack order would reverse the channels.
+            let member_tracks: Vec<usize> = members.iter().map(|m| m.track_index).collect();
+            let owner = snapshot
+                .column_owner_track_index(&member_tracks)
+                .unwrap_or(selected.track_index);
+            let mut audio_partners = Vec::new();
             let mut video = None;
             let mut video_track = None;
             let mut source_tracks = Vec::new();
@@ -144,8 +150,8 @@ impl Stack {
                 }
                 match member.track_kind {
                     TrackKind::Audio => {
-                        audio.push(member.item.clone());
-                        audio_tracks.push(source);
+                        let slot = snapshot.partner_slot_order(owner, member.track_index);
+                        audio_partners.push((slot, member.item.clone(), source));
                     }
                     TrackKind::Video => {
                         if video.is_some() {
@@ -161,6 +167,11 @@ impl Stack {
                     TrackKind::Other => return false,
                 }
             }
+            audio_partners.sort_by_key(|(slot, _, _)| *slot);
+            let (audio, audio_tracks): (Vec<_>, Vec<_>) = audio_partners
+                .into_iter()
+                .map(|(_, item, source)| (item, source))
+                .unzip();
             let old_start =
                 snapshot.children[selected.track_index].start_time_of_item(selected.item_index);
             if self
