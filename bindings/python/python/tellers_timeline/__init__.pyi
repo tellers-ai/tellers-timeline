@@ -356,7 +356,6 @@ class Stack:
         dest_index: int,
         replace_with_gap: bool,
         overlap_policy: OverlapPolicy,
-        insert_policy: InsertPolicy,
     ) -> bool: ...
     def split_item_at_time(self, item_id: str, split_time: float) -> bool: ...
     def resize_item(

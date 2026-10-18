@@ -190,3 +190,40 @@ fn an_audio_only_column_moves_between_audio_groups_but_not_into_a_video_group() 
         }
     }
 }
+
+/// A video column moved to another video track keeps its channels in slot
+/// order (channel 1 on slot 1) whether or not it moves as a Tellers group.
+/// Hosts group a multi-clip selection before moving it, so a grouped move
+/// must place partners exactly like a single-column move.
+#[test]
+fn a_grouped_video_column_keeps_its_channel_order_on_another_video_track() {
+    for grouped in [false, true] {
+        let mut stack = stack();
+        // v2 (video group: b1, b2) above v1's group, held by the D column.
+        stack.children.extend([
+            track(TrackKind::Audio, "b2", vec![clip(1.0, "D audio 2", Some(7))]),
+            track(TrackKind::Audio, "b1", vec![clip(1.0, "D audio 1", Some(7))]),
+            track(TrackKind::Video, "v2", vec![clip(1.0, "D", Some(7))]),
+        ]);
+        if grouped {
+            let ids = ["C", "C audio 1", "C audio 2"].map(String::from);
+            assert!(stack.group_item(&ids).is_some());
+        }
+        assert!(stack.move_item_at_time(
+            "C",
+            "v2",
+            3.0,
+            true,
+            InsertPolicy::SplitAndInsert,
+            OverlapPolicy::Override,
+        ));
+        stack.normalize_track_order();
+        let track_of = |id: &str| {
+            let (ti, _, _) = stack.get_item(id).unwrap();
+            stack.children[ti].get_id().unwrap()
+        };
+        assert_eq!(track_of("C"), "v2", "grouped: {grouped}");
+        assert_eq!(track_of("C audio 1"), "b1", "grouped: {grouped}");
+        assert_eq!(track_of("C audio 2"), "b2", "grouped: {grouped}");
+    }
+}
