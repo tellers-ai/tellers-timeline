@@ -1181,18 +1181,25 @@ impl PyStack {
             (ti, ii, Py::new(py, PyItem { inner: item }).unwrap())
         })
     }
-    #[pyo3(signature = (id, replace_with_gap))]
+    #[pyo3(signature = (id, replace_with_gap, with_sync_clips=true))]
     fn delete_item(
         &mut self,
         py: Python<'_>,
         id: &str,
         replace_with_gap: bool,
-    ) -> Vec<(usize, Py<PyItem>)> {
-        self.inner
-            .delete_item(id, replace_with_gap)
+        with_sync_clips: bool,
+    ) -> PyResult<Vec<(usize, Py<PyItem>)>> {
+        if !replace_with_gap && !with_sync_clips {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "with_sync_clips=False requires replace_with_gap=True",
+            ));
+        }
+        Ok(self
+            .inner
+            .delete_item(id, replace_with_gap, with_sync_clips)
             .into_iter()
             .map(|(ti, it)| (ti, Py::new(py, PyItem { inner: it }).unwrap()))
-            .collect()
+            .collect())
     }
     #[pyo3(signature = (dest_track_index, dest_time, item, overlap_policy, insert_policy, linked_audio_clips=None, linked_video_clip=None))]
     fn insert_item_at_time(

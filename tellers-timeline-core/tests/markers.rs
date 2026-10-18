@@ -69,7 +69,7 @@ fn clip_marker_follows_its_clip() {
     let mut tl = timeline();
     tl.add_marker(Some("b"), marker(12.0, "m")).unwrap();
     // Removing `a` (ripple) moves `b` to 0..10: the marker moves with it.
-    assert!(!tl.tracks.delete_item("a", false).is_empty());
+    assert!(!tl.tracks.delete_item("a", false, true).is_empty());
     let info = tl.get_marker("m").unwrap();
     assert!((info.timeline_start - 2.0).abs() < 1e-9, "{}", info.timeline_start);
 }

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from tellers_timeline import Clip, Gap, Item, MediaReference, Stack, Timeline, Track
 
 # These tests cover ONLY the Python <-> Rust translation layer: argument
@@ -285,6 +287,9 @@ def test_stack_edit_methods_translate_return_types():
         bool,
     )
     assert isinstance(stack.delete_item("primary", True), list)
+    assert isinstance(stack.delete_item("primary", True, with_sync_clips=False), list)
+    with pytest.raises(ValueError):
+        stack.delete_item("primary", False, with_sync_clips=False)
 
 
 def test_timeline_delegates_to_stack():

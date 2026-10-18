@@ -298,6 +298,7 @@ class Stack:
         self,
         id: str,
         replace_with_gap: bool,
+        with_sync_clips: bool = True,
     ) -> list[tuple[int, Item]]: ...
     def insert_item_at_time(
         self,
