@@ -44,9 +44,12 @@ into one group, moving clips off other groups onto new partner tracks.
 
 `normalize_track_order` is the only call that reorders tracks: each group
 becomes contiguous, owner on top with its partners right below in slot order.
-`prune_empty_partner_tracks` removes the auto-numbered audio tracks the
-library created once they hold no clip. Both are separate steps the host runs
-when it wants, e.g. once per request or on save.
+`prune_empty_partner_tracks` removes the audio tracks the library created
+once they hold no clip. The library marks the tracks it creates at
+`metadata["tellers.ai"]["created_by"] = "auto"` (`Track.is_auto_created()`);
+renaming a track with `Track.set_name` clears the mark, so a track the user
+named is kept. Both are separate steps the host runs when it wants, e.g. once
+per request or on save.
 
 API: `Stack.associated_track_ids(track_id)`, `Stack.track_groups()` (every
 group as one object: owner, kind, partners in slot order; tracks in no group

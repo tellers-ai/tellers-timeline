@@ -691,9 +691,13 @@ fn a_video_column_never_borrows_an_audio_group_owner() {
 }
 
 #[test]
-fn prune_removes_only_empty_auto_named_audio_tracks() {
+fn prune_removes_only_empty_auto_created_audio_tracks() {
     let mut stack = host_stack(&["M1"], &["V1"]);
-    // A three-channel column adopts M1 and creates A1 and A2 (name == id).
+    // A user track named like its id is still the user's: no auto mark.
+    let mut look_alike = empty_track(TrackKind::Audio, "A9", 5.0);
+    look_alike.name = Some("A9".into());
+    stack.children.insert(0, look_alike);
+    // A four-channel column adopts M1 and A9 and creates A1 and A2.
     assert!(insert_column(
         &mut stack,
         "V1",
@@ -702,12 +706,23 @@ fn prune_removes_only_empty_auto_named_audio_tracks() {
         vec![
             named_audio("c1", 2.0),
             named_audio("c2", 2.0),
-            named_audio("c3", 2.0)
+            named_audio("c3", 2.0),
+            named_audio("c4", 2.0)
         ]
     ));
-    assert_eq!(stack.children.len(), 4);
+    let created: Vec<String> = stack
+        .children
+        .iter()
+        .filter(|track| track.is_auto_created())
+        .filter_map(|track| track.get_id())
+        .collect();
+    assert_eq!(created.len(), 2);
     let m1 = track_index_by_id(&stack, "M1");
     stack.children[m1].name = Some("Voice".into());
+    // Renaming a created track makes it the user's.
+    let renamed = track_index_by_id(&stack, &created[1]);
+    stack.children[renamed].set_name(Some("Room tone".into()));
+    assert!(!stack.children[renamed].is_auto_created());
     stack
         .children
         .push(empty_track(TrackKind::Audio, "user-track", 5.0));
@@ -715,10 +730,24 @@ fn prune_removes_only_empty_auto_named_audio_tracks() {
     assert!(!stack.delete_item("vid", true, true).is_empty());
 
     let removed = stack.prune_empty_partner_tracks();
-    // The created tracks go; the named track, the unnamed user track with
-    // an id of its own, and the owner stay.
-    assert_eq!(removed.len(), 2);
-    assert!(removed.iter().all(|id| id.starts_with('A')));
-    assert_eq!(ids(&stack), vec!["M1", "V1", "user-track"]);
+    // Only the created, never renamed track goes; the look-alike, the
+    // renamed track, the user track and the owner stay.
+    assert_eq!(removed, vec![created[0].clone()]);
+    assert_eq!(stack.children.len(), 5);
     assert!(stack.prune_empty_partner_tracks().is_empty());
+}
+
+#[test]
+fn the_auto_created_mark_survives_a_json_round_trip() {
+    let mut stack = host_stack(&[], &["V1"]);
+    assert!(insert_column(&mut stack, "V1", 0.0, "vid", vec![named_audio("c1", 2.0)]));
+    let created = stack
+        .children
+        .iter()
+        .find(|track| track.is_auto_created())
+        .expect("a created audio track");
+    assert_eq!(created.metadata["tellers.ai"]["created_by"], "auto");
+    let json = serde_json::to_string(&stack).unwrap();
+    let back: Stack = serde_json::from_str(&json).unwrap();
+    assert_eq!(back.children.iter().filter(|track| track.is_auto_created()).count(), 1);
 }

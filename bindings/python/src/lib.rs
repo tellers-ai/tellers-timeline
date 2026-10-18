@@ -946,8 +946,13 @@ impl PyTrack {
     fn clear_color_lut_urls(&mut self) -> usize {
         self.inner.clear_color_lut_urls()
     }
+    /// Rename the track; this clears its auto-created mark.
     fn set_name(&mut self, name: Option<String>) {
-        self.inner.name = name;
+        self.inner.set_name(name);
+    }
+    /// Whether the library created this track (a pruning candidate).
+    fn is_auto_created(&self) -> bool {
+        self.inner.is_auto_created()
     }
     fn get_enabled(&self) -> bool {
         self.inner.enabled

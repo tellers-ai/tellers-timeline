@@ -24,10 +24,62 @@
 //! the stack order below the owner. Associated tracks are reserved for their
 //! owner's columns; [`Stack::free_audio_track_for`] picks a track for a plain
 //! audio clip accordingly.
+//!
+//! The tracks the library creates (numbered `A3`, `V2`, …) are marked at
+//! `metadata["tellers.ai"]["created_by"] = "auto"`, so
+//! [`Stack::prune_empty_partner_tracks`] can remove the audio ones once empty without
+//! guessing from their name. Renaming a track with [`Track::set_name`] clears
+//! the mark: a track the user named is theirs to keep.
 
 use std::collections::BTreeMap;
 
 use crate::{IdMetadataExt, Item, Seconds, Stack, Track, TrackKind};
+
+/// The key of a track's creator at `metadata["tellers.ai"]`.
+pub const TRACK_CREATED_BY_KEY: &str = "created_by";
+/// The creator value of the tracks the library creates itself.
+pub const TRACK_CREATED_BY_AUTO: &str = "auto";
+
+impl Track {
+    /// Whether the library created this track (see [`Self::set_auto_created`]).
+    pub fn is_auto_created(&self) -> bool {
+        self.metadata
+            .get("tellers.ai")
+            .and_then(|ai| ai.get(TRACK_CREATED_BY_KEY))
+            .and_then(|value| value.as_str())
+            == Some(TRACK_CREATED_BY_AUTO)
+    }
+
+    /// Mark (or unmark) this track as created by the library, which makes it
+    /// a candidate for [`Stack::prune_empty_partner_tracks`].
+    pub fn set_auto_created(&mut self, auto_created: bool) {
+        if self.metadata.as_object().is_none() {
+            self.metadata = serde_json::Value::Object(serde_json::Map::new());
+        }
+        let map = self.metadata.as_object_mut().unwrap();
+        if auto_created {
+            let ai = map
+                .entry("tellers.ai".to_string())
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if ai.as_object().is_none() {
+                *ai = serde_json::Value::Object(serde_json::Map::new());
+            }
+            ai.as_object_mut().unwrap().insert(
+                TRACK_CREATED_BY_KEY.to_string(),
+                serde_json::Value::String(TRACK_CREATED_BY_AUTO.to_string()),
+            );
+        } else if let Some(ai) = map.get_mut("tellers.ai").and_then(|ai| ai.as_object_mut()) {
+            ai.remove(TRACK_CREATED_BY_KEY);
+        }
+    }
+
+    /// Rename the track. A rename makes the track the user's: it is no longer
+    /// marked as created by the library, so pruning leaves it alone.
+    pub fn set_name(&mut self, name: Option<String>) {
+        self.name = name;
+        self.set_auto_created(false);
+    }
+}
 
 /// One track group: an owner with its partners in slot order. A track in no
 /// group is reported as a group of one. Hosts use this to draw or collapse a
@@ -298,8 +350,8 @@ impl Stack {
     }
 
     /// Remove the audio tracks the library created that hold no clip any
-    /// more: tracks named like their id (the auto-numbered `A3` pattern) with
-    /// gaps only, or nothing. Tracks the host named or left unnamed stay, as
+    /// more: tracks marked as auto-created (see [`Track::is_auto_created`])
+    /// with gaps only, or nothing. Tracks the host created or renamed stay, as
     /// do all tracks holding a clip. Returns the removed track ids.
     ///
     /// A separate step, like [`Self::normalize_track_order`]: the host runs it
@@ -311,7 +363,7 @@ impl Stack {
             .filter(|track| {
                 track.kind == TrackKind::Audio
                     && track.items.iter().all(|item| matches!(item, Item::Gap(_)))
-                    && matches!((&track.name, track.get_id()), (Some(name), Some(id)) if *name == id)
+                    && track.is_auto_created()
             })
             .filter_map(|track| track.get_id())
             .collect();
