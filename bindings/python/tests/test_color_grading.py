@@ -36,7 +36,7 @@ def lut(asset_id, name=None, url=None):
 def lut_effect(asset_id, name="", url=None):
     ai = {"asset_id": asset_id}
     if url is not None:
-        ai["cube_url"] = url
+        ai["parameters"] = {"cube_url": url}
     return {
         "OTIO_SCHEMA": "Effect.1",
         "name": name,

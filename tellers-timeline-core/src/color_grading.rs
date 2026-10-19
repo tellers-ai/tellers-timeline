@@ -9,7 +9,7 @@
 //!   "OTIO_SCHEMA": "Effect.1",
 //!   "effect_name": "ColorLut",
 //!   "name": "slog3_to_709.cube",
-//!   "metadata": { "tellers.ai": { "asset_id": "a1b2", "cube_url": "https://cdn.example.test/…" } }
+//!   "metadata": { "tellers.ai": { "asset_id": "a1b2", "parameters": { "cube_url": "https://cdn.example.test/…" } } }
 //! }
 //! ```
 //!
@@ -20,7 +20,10 @@
 //!   with [`Timeline::set_color_lut_url`] / [`Timeline::set_color_lut_urls`]
 //!   before handing the timeline to the player, and strip it with
 //!   [`Timeline::clear_color_lut_urls`] so ephemeral (e.g. presigned) URLs are
-//!   not persisted. The player skips an effect without one.
+//!   not persisted. The player skips an effect without one. Like every
+//!   effect parameter it lives in `parameters`; a `cube_url` beside
+//!   `parameters`, where it used to be written, is still read and is moved
+//!   there by the URL setters.
 //! - `name` is an optional display label.
 //!
 //! The `ColorLut` effects of a stage, in list order, are its LUT list. Other
@@ -62,8 +65,10 @@ pub const COLOR_LUT_EFFECT_NAME: &str = "ColorLut";
 
 /// Key holding the asset id of the `.cube` file.
 const ASSET_ID_KEY: &str = "asset_id";
-/// Key, inside a LUT effect, holding the resolved `.cube` URL.
+/// Key, inside a LUT effect's `parameters`, holding the resolved `.cube` URL.
 const CUBE_URL_KEY: &str = "cube_url";
+/// Key of the effect parameters inside `tellers.ai`.
+const PARAMETERS_KEY: &str = "parameters";
 
 /// A `.cube` LUT referenced by asset id.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,7 +130,12 @@ impl ColorLut {
         let mut ai = serde_json::Map::new();
         ai.insert(ASSET_ID_KEY.to_string(), self.asset_id.clone().into());
         if let Some(url) = &self.url {
-            ai.insert(CUBE_URL_KEY.to_string(), url.clone().into());
+            let mut parameters = serde_json::Map::new();
+            parameters.insert(CUBE_URL_KEY.to_string(), url.clone().into());
+            ai.insert(
+                PARAMETERS_KEY.to_string(),
+                serde_json::Value::Object(parameters),
+            );
         }
         let mut other = serde_json::Map::new();
         other.insert("tellers.ai".to_string(), serde_json::Value::Object(ai));
@@ -146,11 +156,13 @@ impl ColorLut {
             return None;
         }
         let ai = effect.metadata.other.get("tellers.ai");
-        let text = |key| ai?.get(key)?.as_str().map(str::to_string);
+        let text = |value: Option<&serde_json::Value>| value?.as_str().map(str::to_string);
+        let url = text(ai.and_then(|ai| ai.get(PARAMETERS_KEY)?.get(CUBE_URL_KEY)))
+            .or_else(|| text(ai.and_then(|ai| ai.get(CUBE_URL_KEY))));
         ColorLut {
-            asset_id: text(ASSET_ID_KEY)?,
+            asset_id: text(ai.and_then(|ai| ai.get(ASSET_ID_KEY)))?,
             name: Some(effect.name.clone()),
-            url: text(CUBE_URL_KEY),
+            url,
         }
         .normalized()
     }
@@ -254,7 +266,16 @@ pub fn set_color_lut_urls(effects: &mut [Effect], urls: &HashMap<String, String>
         else {
             continue;
         };
-        ai.insert(CUBE_URL_KEY.to_string(), serde_json::Value::String(url));
+        ai.remove(CUBE_URL_KEY);
+        let parameters = ai
+            .entry(PARAMETERS_KEY)
+            .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+        if !parameters.is_object() {
+            *parameters = serde_json::Value::Object(serde_json::Map::new());
+        }
+        if let Some(parameters) = parameters.as_object_mut() {
+            parameters.insert(CUBE_URL_KEY.to_string(), serde_json::Value::String(url));
+        }
         updated += 1;
     }
     updated
@@ -264,7 +285,23 @@ pub fn set_color_lut_urls(effects: &mut [Effect], urls: &HashMap<String, String>
 /// how many had one.
 pub fn clear_color_lut_urls(effects: &mut [Effect]) -> usize {
     lut_objects_mut(effects)
-        .filter_map(|ai| ai.remove(CUBE_URL_KEY))
+        .map(|ai| {
+            let legacy = ai.remove(CUBE_URL_KEY).is_some();
+            let current = ai
+                .get_mut(PARAMETERS_KEY)
+                .and_then(|parameters| parameters.as_object_mut())
+                .and_then(|parameters| parameters.remove(CUBE_URL_KEY))
+                .is_some();
+            if ai
+                .get(PARAMETERS_KEY)
+                .and_then(|p| p.as_object())
+                .is_some_and(|p| p.is_empty())
+            {
+                ai.remove(PARAMETERS_KEY);
+            }
+            legacy || current
+        })
+        .filter(|had_url| *had_url)
         .count()
 }
 
