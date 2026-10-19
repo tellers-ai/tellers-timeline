@@ -10,6 +10,10 @@ regen-schema:
 regen-docs:
   cargo run -p tellers-timeline-schema --bin otio-docs --quiet
 
+# Fail when docs/otio-reference.md does not match the code (what CI's docs job runs)
+check-docs: regen-docs
+  git diff --exit-code -- docs/otio-reference.md || { echo "docs/otio-reference.md is stale: commit the regenerated file"; exit 1; }
+
 build-all:
   cargo build --workspace --all-targets --exclude tellers-timeline-wasm --exclude tellers-timeline-python
 

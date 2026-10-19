@@ -6,8 +6,8 @@
 | --- | --- |
 | `tellers-timeline-core/` | Rust data model, editing engine, metadata conventions, validation, and serialization. |
 | `bindings/python/` | PyO3 bindings, Python type signatures, and binding tests. |
-| `tellers-timeline-schema/` | Internal CLIs that generate `spec/otio.schema.json` (`just regen-schema`) and `docs/otio-reference.md` (`just regen-docs`; its tests fail when the reference is stale or a field is undocumented). |
-| `docs/` | The format reference (generated) and the hand-written guide to reading a timeline. |
+| `tellers-timeline-schema/` | Internal CLIs that generate `spec/otio.schema.json` (`just regen-schema`) and `docs/otio-reference.md` (`just regen-docs`). CI's `docs` job fails when the committed reference is stale (`just check-docs` runs the same check), and its tests fail when a schema field is undocumented. |
+| `docs/` | The format reference (generated) and the hand-written guide to reading a timeline; `test_docs_examples.py` runs the guide's worked example and Python snippet. |
 | `spec/examples/` | Example documents used by compatibility tests. |
 | `tools/timeline-ui/` | Local browser UI for trying editing operations against the Python bindings. |
 | `tools/audit_associated_tracks.py` | Inspect computed sync groups in project documents. |
