@@ -40,7 +40,7 @@ def lut_effect(asset_id, name="", url=None):
     return {
         "OTIO_SCHEMA": "Effect.1",
         "name": name,
-        "effect_name": "ColorLut",
+        "effect_name": "tellers.ai.ColorLut",
         "metadata": {"tellers.ai": ai},
     }
 

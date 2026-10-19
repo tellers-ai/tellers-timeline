@@ -1,5 +1,5 @@
 // Tests for the `.cube` LUT list accessors on the timeline, its tracks and
-// its clips. A LUT is an OTIO `ColorLut` effect whose
+// its clips. A LUT is an OTIO `tellers.ai.ColorLut` effect (`ColorLut` is still read) whose
 // `metadata["tellers.ai"]` holds `{ "asset_id", "parameters": { "cube_url"? } }`, where `cube_url` is
 // the URL the player (video-player-js) reads, resolved from the asset id; the
 // effect's `name` is the display name. The stored JSON is part of the
@@ -81,13 +81,13 @@ fn push_writes_color_lut_effects() {
             {
                 "OTIO_SCHEMA": "Effect.1",
                 "name": "slog3_to_709.cube",
-                "effect_name": "ColorLut",
+                "effect_name": "tellers.ai.ColorLut",
                 "metadata": {"tellers.ai": {"asset_id": "slog3"}}
             },
             {
                 "OTIO_SCHEMA": "Effect.1",
                 "name": "",
-                "effect_name": "ColorLut",
+                "effect_name": "tellers.ai.ColorLut",
                 "metadata": {"tellers.ai": {"asset_id": "warm", "parameters": {"cube_url": "https://cdn/warm.cube"}}}
             }
         ])
@@ -133,7 +133,14 @@ fn writes_keep_other_effects_in_place() {
         .collect();
     assert_eq!(
         names,
-        ["Blur", "ColorLut", "ColorLut", "ColorLut", "Sharpen"]
+        // Untouched LUTs keep their name; the inserted one is written prefixed.
+        [
+            "Blur",
+            "ColorLut",
+            "tellers.ai.ColorLut",
+            "ColorLut",
+            "Sharpen"
+        ]
     );
     assert_eq!(effects_json(&effects)[0], blur);
     assert_eq!(effects_json(&effects)[4], sharpen);

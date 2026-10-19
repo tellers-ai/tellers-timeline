@@ -7,7 +7,7 @@
 //! ```json
 //! {
 //!   "OTIO_SCHEMA": "Effect.1",
-//!   "effect_name": "ColorLut",
+//!   "effect_name": "tellers.ai.ColorLut",
 //!   "name": "slog3_to_709.cube",
 //!   "metadata": { "tellers.ai": { "asset_id": "a1b2", "parameters": { "cube_url": "https://cdn.example.test/…" } } }
 //! }
@@ -61,7 +61,9 @@ use serde::{Deserialize, Serialize};
 use crate::{Clip, Effect, EffectMetadata, Item, MediaReference, Timeline, Track, TrackKind};
 
 /// `effect_name` of a LUT effect.
-pub const COLOR_LUT_EFFECT_NAME: &str = "ColorLut";
+pub const COLOR_LUT_EFFECT_NAME: &str = "tellers.ai.ColorLut";
+/// `effect_name` of a LUT effect written before tellers effects were prefixed, still read.
+const LEGACY_COLOR_LUT_EFFECT_NAME: &str = "ColorLut";
 
 /// Key holding the asset id of the `.cube` file.
 const ASSET_ID_KEY: &str = "asset_id";
@@ -171,6 +173,7 @@ impl ColorLut {
 /// Whether `effect` is a `ColorLut` effect, usable or not.
 pub fn is_lut_effect(effect: &Effect) -> bool {
     effect.effect_name == COLOR_LUT_EFFECT_NAME
+        || effect.effect_name == LEGACY_COLOR_LUT_EFFECT_NAME
 }
 
 /// The LUTs of a stage, in grading order, normalized and with unusable ones
