@@ -1,5 +1,6 @@
 pub mod associated_tracks;
 pub mod color_grading;
+pub mod effects;
 pub mod fonts;
 pub mod markers;
 pub mod metadata;
@@ -13,6 +14,7 @@ pub mod validate;
 
 pub use associated_tracks::*;
 pub use color_grading::*;
+pub use effects::*;
 pub use fonts::*;
 pub use markers::*;
 pub use metadata::*;

@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Clip, ColorLut, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
+    validate_timeline, Animatable, Clip, ColorLut, TellersEffect, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -168,6 +168,7 @@ impl PyEffect {
             name: name.unwrap_or_default(),
             effect_name: effect_name.unwrap_or_default(),
             metadata: metadata_typed,
+            ..Effect::default()
         };
 
         Ok(Self { inner })
@@ -523,6 +524,57 @@ impl PyClip {
     /// Remove every LUT graded on this clip, returning whether any was present.
     fn clear_color_luts(&mut self) -> bool {
         self.inner.clear_color_luts()
+    }
+    /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of this clip,
+    /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
+    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        tellers_effects_to_python(py, self.inner.get_tellers_effects())
+    }
+    /// Replace every tellers effect of this clip with `effects` (dicts like
+    /// `get_tellers_effects` returns); other effects stay. False, changing
+    /// nothing, when an `effect_name` is unknown.
+    fn set_tellers_effects(&mut self, effects: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.set_tellers_effects(tellers_effects_from_python(effects)?))
+    }
+    /// Append a tellers effect to this clip; False when its `effect_name` is unknown.
+    fn push_tellers_effect(&mut self, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.push_tellers_effect(tellers_effect_from_python(effect)?))
+    }
+    /// Insert a tellers effect into this clip at `index` (counting tellers effects only).
+    fn insert_tellers_effect_at(&mut self, index: usize, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.insert_tellers_effect_at(index, tellers_effect_from_python(effect)?))
+    }
+    /// Replace the tellers effect of this clip at `index`, keeping its other keys;
+    /// returns the previous one, or None when out of range.
+    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+        let effect = tellers_effect_from_python(effect)?;
+        self.inner
+            .replace_tellers_effect_at(index, effect)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove and return the tellers effect of this clip at `index`.
+    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+        self.inner
+            .remove_tellers_effect_at(index)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove every tellers effect of this clip, returning whether any was present.
+    fn clear_tellers_effects(&mut self) -> bool {
+        self.inner.clear_tellers_effects()
+    }
+    /// Turn the tellers effect of this clip at `index` on or off.
+    fn set_tellers_effect_enabled(&mut self, index: usize, enabled: bool) -> bool {
+        self.inner.set_tellers_effect_enabled(index, enabled)
+    }
+    /// Set the parameter `key` of the tellers effect of this clip at `index`
+    /// to `value` (a number, `{"keyframes": [...]}`, a string or a bool);
+    /// None removes it.
+    #[pyo3(signature = (index, key, value=None))]
+    fn set_tellers_effect_parameter(&mut self, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
+        let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
+        Ok(self.inner.set_tellers_effect_parameter(index, key, value))
     }
     /// Set the resolved `.cube` URL of this clip's LUTs whose asset id is a
     /// key of `urls` (asset id -> URL). Returns how many were updated.
@@ -936,6 +988,57 @@ impl PyTrack {
     /// Remove every LUT of this track object, returning whether any was present.
     fn clear_color_luts(&mut self) -> bool {
         self.inner.clear_color_luts()
+    }
+    /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it,
+    /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
+    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        tellers_effects_to_python(py, self.inner.get_tellers_effects())
+    }
+    /// Replace every tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it with `effects` (dicts like
+    /// `get_tellers_effects` returns); other effects stay. False, changing
+    /// nothing, when an `effect_name` is unknown.
+    fn set_tellers_effects(&mut self, effects: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.set_tellers_effects(tellers_effects_from_python(effects)?))
+    }
+    /// Append a tellers effect to this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it; False when its `effect_name` is unknown.
+    fn push_tellers_effect(&mut self, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.push_tellers_effect(tellers_effect_from_python(effect)?))
+    }
+    /// Insert a tellers effect into this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it at `index` (counting tellers effects only).
+    fn insert_tellers_effect_at(&mut self, index: usize, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.insert_tellers_effect_at(index, tellers_effect_from_python(effect)?))
+    }
+    /// Replace the tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it at `index`, keeping its other keys;
+    /// returns the previous one, or None when out of range.
+    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+        let effect = tellers_effect_from_python(effect)?;
+        self.inner
+            .replace_tellers_effect_at(index, effect)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove and return the tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it at `index`.
+    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+        self.inner
+            .remove_tellers_effect_at(index)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove every tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it, returning whether any was present.
+    fn clear_tellers_effects(&mut self) -> bool {
+        self.inner.clear_tellers_effects()
+    }
+    /// Turn the tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it at `index` on or off.
+    fn set_tellers_effect_enabled(&mut self, index: usize, enabled: bool) -> bool {
+        self.inner.set_tellers_effect_enabled(index, enabled)
+    }
+    /// Set the parameter `key` of the tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it at `index`
+    /// to `value` (a number, `{"keyframes": [...]}`, a string or a bool);
+    /// None removes it.
+    #[pyo3(signature = (index, key, value=None))]
+    fn set_tellers_effect_parameter(&mut self, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
+        let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
+        Ok(self.inner.set_tellers_effect_parameter(index, key, value))
     }
     /// Set the resolved `.cube` URL of this track's LUTs whose asset id is a
     /// key of `urls` (asset id -> URL). Returns how many were updated.
@@ -2030,6 +2133,57 @@ impl PyTimeline {
     fn clear_color_luts(&mut self) -> bool {
         self.inner.clear_color_luts()
     }
+    /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the timeline, applied over the whole composited image,
+    /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
+    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        tellers_effects_to_python(py, self.inner.get_tellers_effects())
+    }
+    /// Replace every tellers effect of the timeline, applied over the whole composited image with `effects` (dicts like
+    /// `get_tellers_effects` returns); other effects stay. False, changing
+    /// nothing, when an `effect_name` is unknown.
+    fn set_tellers_effects(&mut self, effects: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.set_tellers_effects(tellers_effects_from_python(effects)?))
+    }
+    /// Append a tellers effect to the timeline, applied over the whole composited image; False when its `effect_name` is unknown.
+    fn push_tellers_effect(&mut self, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.push_tellers_effect(tellers_effect_from_python(effect)?))
+    }
+    /// Insert a tellers effect into the timeline, applied over the whole composited image at `index` (counting tellers effects only).
+    fn insert_tellers_effect_at(&mut self, index: usize, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.insert_tellers_effect_at(index, tellers_effect_from_python(effect)?))
+    }
+    /// Replace the tellers effect of the timeline, applied over the whole composited image at `index`, keeping its other keys;
+    /// returns the previous one, or None when out of range.
+    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+        let effect = tellers_effect_from_python(effect)?;
+        self.inner
+            .replace_tellers_effect_at(index, effect)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove and return the tellers effect of the timeline, applied over the whole composited image at `index`.
+    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+        self.inner
+            .remove_tellers_effect_at(index)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove every tellers effect of the timeline, applied over the whole composited image, returning whether any was present.
+    fn clear_tellers_effects(&mut self) -> bool {
+        self.inner.clear_tellers_effects()
+    }
+    /// Turn the tellers effect of the timeline, applied over the whole composited image at `index` on or off.
+    fn set_tellers_effect_enabled(&mut self, index: usize, enabled: bool) -> bool {
+        self.inner.set_tellers_effect_enabled(index, enabled)
+    }
+    /// Set the parameter `key` of the tellers effect of the timeline, applied over the whole composited image at `index`
+    /// to `value` (a number, `{"keyframes": [...]}`, a string or a bool);
+    /// None removes it.
+    #[pyo3(signature = (index, key, value=None))]
+    fn set_tellers_effect_parameter(&mut self, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
+        let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
+        Ok(self.inner.set_tellers_effect_parameter(index, key, value))
+    }
     /// Whether the player grades the LUTs of the item `item_id`: a clip on a
     /// video track whose media is video or an image. False for gaps, text
     /// clips, clips on audio or other tracks, and unknown ids. The by-id LUT
@@ -2126,6 +2280,57 @@ impl PyTimeline {
     fn clear_item_color_luts(&mut self, item_id: &str) -> bool {
         self.inner.clear_item_color_luts(item_id)
     }
+    /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the clip `item_id`,
+    /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
+    fn get_item_tellers_effects(&self, py: Python<'_>, item_id: &str, ) -> PyResult<Option<Vec<PyObject>>> {
+        self.inner.get_item_tellers_effects(item_id).map(|e| tellers_effects_to_python(py, e)).transpose()
+    }
+    /// Replace every tellers effect of the clip `item_id` with `effects` (dicts like
+    /// `get_item_tellers_effects` returns); other effects stay. False, changing
+    /// nothing, when an `effect_name` is unknown or the id is unknown.
+    fn set_item_tellers_effects(&mut self, item_id: &str, effects: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.set_item_tellers_effects(item_id, tellers_effects_from_python(effects)?))
+    }
+    /// Append a tellers effect to the clip `item_id`; False when its `effect_name` is unknown.
+    fn push_item_tellers_effect(&mut self, item_id: &str, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.push_item_tellers_effect(item_id, tellers_effect_from_python(effect)?))
+    }
+    /// Insert a tellers effect into the clip `item_id` at `index` (counting tellers effects only).
+    fn insert_item_tellers_effect_at(&mut self, item_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.insert_item_tellers_effect_at(item_id, index, tellers_effect_from_python(effect)?))
+    }
+    /// Replace the tellers effect of the clip `item_id` at `index`, keeping its other keys;
+    /// returns the previous one, or None when out of range.
+    fn replace_item_tellers_effect_at(&mut self, py: Python<'_>, item_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+        let effect = tellers_effect_from_python(effect)?;
+        self.inner
+            .replace_item_tellers_effect_at(item_id, index, effect)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove and return the tellers effect of the clip `item_id` at `index`.
+    fn remove_item_tellers_effect_at(&mut self, py: Python<'_>, item_id: &str, index: usize) -> PyResult<Option<PyObject>> {
+        self.inner
+            .remove_item_tellers_effect_at(item_id, index)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove every tellers effect of the clip `item_id`, returning whether any was present.
+    fn clear_item_tellers_effects(&mut self, item_id: &str, ) -> bool {
+        self.inner.clear_item_tellers_effects(item_id)
+    }
+    /// Turn the tellers effect of the clip `item_id` at `index` on or off.
+    fn set_item_tellers_effect_enabled(&mut self, item_id: &str, index: usize, enabled: bool) -> bool {
+        self.inner.set_item_tellers_effect_enabled(item_id, index, enabled)
+    }
+    /// Set the parameter `key` of the tellers effect of the clip `item_id` at `index`
+    /// to `value` (a number, `{"keyframes": [...]}`, a string or a bool);
+    /// None removes it.
+    #[pyo3(signature = (item_id, index, key, value=None))]
+    fn set_item_tellers_effect_parameter(&mut self, item_id: &str, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
+        let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
+        Ok(self.inner.set_item_tellers_effect_parameter(item_id, index, key, value))
+    }
     /// Whether the player grades the LUTs of the track `track_id`: it is a
     /// video track. False for audio or other tracks and unknown ids. The
     /// by-id track LUT writers refuse other tracks, and URL resolution skips
@@ -2199,6 +2404,57 @@ impl PyTimeline {
     fn clear_track_color_luts(&mut self, track_id: &str) -> bool {
         self.inner.clear_track_color_luts(track_id)
     }
+    /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the track `track_id`,
+    /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
+    fn get_track_tellers_effects(&self, py: Python<'_>, track_id: &str, ) -> PyResult<Option<Vec<PyObject>>> {
+        self.inner.get_track_tellers_effects(track_id).map(|e| tellers_effects_to_python(py, e)).transpose()
+    }
+    /// Replace every tellers effect of the track `track_id` with `effects` (dicts like
+    /// `get_track_tellers_effects` returns); other effects stay. False, changing
+    /// nothing, when an `effect_name` is unknown or the id is unknown.
+    fn set_track_tellers_effects(&mut self, track_id: &str, effects: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.set_track_tellers_effects(track_id, tellers_effects_from_python(effects)?))
+    }
+    /// Append a tellers effect to the track `track_id`; False when its `effect_name` is unknown.
+    fn push_track_tellers_effect(&mut self, track_id: &str, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.push_track_tellers_effect(track_id, tellers_effect_from_python(effect)?))
+    }
+    /// Insert a tellers effect into the track `track_id` at `index` (counting tellers effects only).
+    fn insert_track_tellers_effect_at(&mut self, track_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<bool> {
+        Ok(self.inner.insert_track_tellers_effect_at(track_id, index, tellers_effect_from_python(effect)?))
+    }
+    /// Replace the tellers effect of the track `track_id` at `index`, keeping its other keys;
+    /// returns the previous one, or None when out of range.
+    fn replace_track_tellers_effect_at(&mut self, py: Python<'_>, track_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+        let effect = tellers_effect_from_python(effect)?;
+        self.inner
+            .replace_track_tellers_effect_at(track_id, index, effect)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove and return the tellers effect of the track `track_id` at `index`.
+    fn remove_track_tellers_effect_at(&mut self, py: Python<'_>, track_id: &str, index: usize) -> PyResult<Option<PyObject>> {
+        self.inner
+            .remove_track_tellers_effect_at(track_id, index)
+            .map(|e| tellers_effect_to_python(py, &e))
+            .transpose()
+    }
+    /// Remove every tellers effect of the track `track_id`, returning whether any was present.
+    fn clear_track_tellers_effects(&mut self, track_id: &str, ) -> bool {
+        self.inner.clear_track_tellers_effects(track_id)
+    }
+    /// Turn the tellers effect of the track `track_id` at `index` on or off.
+    fn set_track_tellers_effect_enabled(&mut self, track_id: &str, index: usize, enabled: bool) -> bool {
+        self.inner.set_track_tellers_effect_enabled(track_id, index, enabled)
+    }
+    /// Set the parameter `key` of the tellers effect of the track `track_id` at `index`
+    /// to `value` (a number, `{"keyframes": [...]}`, a string or a bool);
+    /// None removes it.
+    #[pyo3(signature = (track_id, index, key, value=None))]
+    fn set_track_tellers_effect_parameter(&mut self, track_id: &str, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
+        let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
+        Ok(self.inner.set_track_tellers_effect_parameter(track_id, index, key, value))
+    }
     fn get_metadata_json(&self) -> PyResult<String> {
         serde_json::to_string(&self.inner.metadata)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
@@ -2222,6 +2478,118 @@ impl PyTimeline {
     }
 }
 
+fn json_module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
+    PyModule::import_bound(py, "json")
+}
+
+/// A JSON-serializable Python value as JSON.
+fn json_from_python(value: &Bound<PyAny>) -> PyResult<serde_json::Value> {
+    let text: String = json_module(value.py())?.call_method1("dumps", (value,))?.extract()?;
+    serde_json::from_str(&text)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+}
+
+fn json_to_python(py: Python<'_>, value: &serde_json::Map<String, serde_json::Value>) -> PyResult<PyObject> {
+    let text = serde_json::to_string(value)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+    Ok(json_module(py)?.call_method1("loads", (text,))?.unbind())
+}
+
+fn tellers_effect_to_python(py: Python<'_>, effect: &TellersEffect) -> PyResult<PyObject> {
+    let dict = PyDict::new_bound(py);
+    dict.set_item("effect_name", &effect.effect_name)?;
+    dict.set_item("name", &effect.name)?;
+    dict.set_item("enabled", effect.enabled)?;
+    dict.set_item("parameters", json_to_python(py, &effect.parameters)?)?;
+    Ok(dict.into_py(py))
+}
+
+fn tellers_effects_to_python(py: Python<'_>, effects: Vec<TellersEffect>) -> PyResult<Vec<PyObject>> {
+    effects.iter().map(|e| tellers_effect_to_python(py, e)).collect()
+}
+
+/// A `{"effect_name", "name"?, "enabled"?, "parameters"?}` dict as a tellers effect.
+fn tellers_effect_from_python(effect: &Bound<PyAny>) -> PyResult<TellersEffect> {
+    if effect.downcast::<PyDict>().is_err() {
+        return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+            "tellers effects must be {\"effect_name\", \"name\", \"enabled\", \"parameters\"} dicts",
+        ));
+    }
+    let mut value = json_from_python(effect)?;
+    // `None` for `enabled` / `parameters` means the default.
+    if let Some(object) = value.as_object_mut() {
+        object.retain(|key, v| !(v.is_null() && (key == "enabled" || key == "parameters")));
+    }
+    serde_json::from_value(value)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("invalid tellers effect: {e}")))
+}
+
+fn tellers_effects_from_python(effects: &Bound<PyAny>) -> PyResult<Vec<TellersEffect>> {
+    effects
+        .iter()?
+        .map(|effect| tellers_effect_from_python(&effect?))
+        .collect()
+}
+
+/// The tellers effects the player renders, as `{"effect_name", "target",
+/// "parameters": [{"name", "kind", "options"?}]}` dicts.
+#[pyfunction]
+fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    use tellers_timeline_core::{EffectTarget, ParameterKind, EFFECT_SPECS};
+    EFFECT_SPECS
+        .iter()
+        .map(|spec| {
+            let dict = PyDict::new_bound(py);
+            dict.set_item("effect_name", spec.name)?;
+            let target = match spec.target {
+                EffectTarget::Video => "video",
+                EffectTarget::Audio => "audio",
+                EffectTarget::Text => "text",
+                EffectTarget::Time => "time",
+            };
+            dict.set_item("target", target)?;
+            let parameters = spec
+                .parameters
+                .iter()
+                .map(|param| {
+                    let p = PyDict::new_bound(py);
+                    p.set_item("name", param.name)?;
+                    let kind = match param.kind {
+                        ParameterKind::Animatable => "animatable",
+                        ParameterKind::Color => "color",
+                        ParameterKind::String => "string",
+                        ParameterKind::Choice(options) => {
+                            p.set_item("options", options.to_vec())?;
+                            "choice"
+                        }
+                        ParameterKind::Bool => "bool",
+                        ParameterKind::Points => "points",
+                    };
+                    p.set_item("kind", kind)?;
+                    Ok(p.into_py(py))
+                })
+                .collect::<PyResult<Vec<PyObject>>>()?;
+            dict.set_item("parameters", parameters)?;
+            Ok(dict.into_py(py))
+        })
+        .collect()
+}
+
+/// Why `effect` (a tellers effect dict) does not match the player's specs,
+/// or None when it does.
+#[pyfunction]
+fn validate_tellers_effect(effect: &Bound<PyAny>) -> PyResult<Option<String>> {
+    Ok(tellers_effect_from_python(effect)?.validate().err())
+}
+
+/// The value at `t` seconds from the clip start of an animatable parameter
+/// (a number or `{"keyframes": [...]}`), as the player evaluates it; None
+/// when it is not usable.
+#[pyfunction]
+fn evaluate_animatable(value: &Bound<PyAny>, t: f64) -> PyResult<Option<f64>> {
+    Ok(Animatable::from_value(&json_from_python(value)?).map(|a| a.value_at(t)))
+}
+
 #[pymodule]
 fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyMediaReference>()?;
@@ -2234,6 +2602,9 @@ fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyTrack>()?;
     m.add_class::<PyStack>()?;
     m.add_class::<PyTimeline>()?;
+    m.add_function(wrap_pyfunction!(tellers_effect_specs, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_tellers_effect, m)?)?;
+    m.add_function(wrap_pyfunction!(evaluate_animatable, m)?)?;
     m.add("MARKER_COLORS", tellers_timeline_core::MARKER_COLORS.to_vec())?;
     Ok(())
 }

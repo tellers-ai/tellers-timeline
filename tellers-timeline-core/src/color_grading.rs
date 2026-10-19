@@ -149,6 +149,7 @@ impl ColorLut {
                 resolve_otio: None,
                 other,
             },
+            ..Effect::default()
         }
     }
 
@@ -753,7 +754,7 @@ impl Item {
         self.clip_mut().is_some_and(|clip| clip.clear_color_luts())
     }
 
-    fn clip_mut(&mut self) -> Option<&mut Clip> {
+    pub(crate) fn clip_mut(&mut self) -> Option<&mut Clip> {
         match self {
             Item::Clip(clip) => Some(clip),
             Item::Gap(_) => None,
