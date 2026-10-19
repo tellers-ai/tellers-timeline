@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { workspace = true }
 tellers-timeline-core = { path = "../../tellers-timeline-core" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [build-dependencies]

@@ -545,7 +545,13 @@ impl Clip {
         let mut rotation = 0.0;
         let mut zoom_x = 1.0;
         let mut zoom_y = 1.0;
-        if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
+        // Text and Shape generators are placed by the clip's Transform effect,
+        // like video; only Rich Text keeps its position in Resolve parameters.
+        let placed_by_parameters = !active_media_reference.is_text_generator()
+            && !active_media_reference.is_shape_generator();
+        if let (true, MediaReference::GeneratorReference { parameters, .. }) =
+            (placed_by_parameters, active_media_reference)
+        {
             if let Some(resolve_otio_effects) = parameters.resolve_otio.as_ref() {
                 for effect in resolve_otio_effects {
                     if effect.effect_name == "Rich Text" {
@@ -615,8 +621,14 @@ impl Clip {
     pub fn set_position(&mut self, position: MediaReferencePosition) {
         let active_media_reference = self.media_references.get_mut(self.active_media_reference_key.as_ref().unwrap()).unwrap();
 
+        let placed_by_parameters = !active_media_reference.is_text_generator()
+            && !active_media_reference.is_shape_generator();
+
         // Case 1: GeneratorReference - uses "position" (PointF) for x/y coordinates
-        if let MediaReference::GeneratorReference { parameters, .. } = active_media_reference {
+        // (Text and Shape generators take the Transform effect, like video)
+        if let (true, MediaReference::GeneratorReference { parameters, .. }) =
+            (placed_by_parameters, active_media_reference)
+        {
             let (rich_x, rich_y) = (position.x + 0.5, position.y + 0.5);
 
             if let Some(resolve_otio_effects) = parameters.resolve_otio.as_mut() {
