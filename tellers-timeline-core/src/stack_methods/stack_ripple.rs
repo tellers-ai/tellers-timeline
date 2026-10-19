@@ -110,7 +110,7 @@ impl Stack {
         for (track_index, track) in self.children.iter().enumerate() {
             let mut pos = 0.0;
             for item in &track.items {
-                if pos >= time - EPS && matches!(item, Item::Clip(_)) {
+                if pos >= time - EPS && matches!(item, Item::Clip(_) | Item::Composite(_)) {
                     if let Some(id) = item.get_id() {
                         starts.insert(id, (track_index, pos));
                     }
@@ -137,13 +137,14 @@ impl Stack {
         for (track_index, track) in self.children.iter().enumerate() {
             let mut pos = 0.0;
             for item in &track.items {
-                if let (Item::Clip(clip), Some(id)) = (item, item.get_id()) {
+                let id = item.get_id().filter(|_| !matches!(item, Item::Gap(_)));
+                if let Some(id) = id {
                     let shifted = before.get(&id).is_some_and(|&(old_track, old_start)| {
                         old_track == track_index && (pos - old_start - duration).abs() <= EPS
                     });
                     if shifted {
                         pushed_tracks.insert(track_index);
-                        if let Some(sync_id) = clip.sync_clips_id() {
+                        if let Some(sync_id) = crate::item_link_group_id(item) {
                             pending.push(sync_id);
                         }
                     }
@@ -194,7 +195,7 @@ impl Stack {
     /// `time`, or the end of the clip straddling it.
     fn boundary_at_or_after(track: &crate::Track, time: Seconds) -> Seconds {
         match track.get_item_at_time(time) {
-            Some(index) if matches!(track.items[index], Item::Clip(_)) => {
+            Some(index) if !matches!(track.items[index], Item::Gap(_)) => {
                 let start = track.start_time_of_item(index);
                 if time - start <= EPS {
                     start
@@ -321,10 +322,8 @@ impl Stack {
                         index += 1;
                     }
                 }
-                Item::Clip(clip) => {
-                    if clip.sync_clips_id().is_some() {
-                        return None;
-                    }
+                Item::Clip(clip) if clip.sync_clips_id().is_some() => return None,
+                Item::Clip(_) | Item::Composite(_) => {
                     pos += item_duration;
                     index += 1;
                 }

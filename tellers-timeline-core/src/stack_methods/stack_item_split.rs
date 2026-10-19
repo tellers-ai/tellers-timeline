@@ -15,13 +15,12 @@ impl Stack {
         else {
             return false;
         };
-        let Item::Clip(selected_clip) = selected_item else {
+        if matches!(selected_item, Item::Gap(_)) {
             return false;
-        };
+        }
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
-        let selected_end =
-            selected_start + selected_clip.source_range.duration.to_seconds().max(0.0);
+        let selected_end = selected_start + selected_item.duration().max(0.0);
         if split_time < selected_start - EPS || split_time > selected_end + EPS {
             return false;
         }
@@ -29,8 +28,7 @@ impl Stack {
             return true;
         }
 
-        let selected_sync_clips_id = super::resolve_sync_clips_id(&selected_clip.metadata);
-        if let Some(sync_clips_id) = selected_sync_clips_id {
+        if let Some(sync_clips_id) = crate::item_link_group_id(selected_item) {
             let targets = self.synced_clips_targets(sync_clips_id);
             if targets.len() > 1 {
                 let ok = self.split_sync_clips_group_at_time(

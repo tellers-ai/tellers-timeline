@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, ColorLut, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
+    validate_timeline, Animatable, Clip, ColorLut, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -809,11 +809,38 @@ impl PyItem {
             inner: Item::Gap(g.inner),
         }
     }
+    /// A composite clip (a nested `Stack`) made of `children` tracks. It lasts
+    /// as long as its longest track until a source range is set.
+    #[staticmethod]
+    #[pyo3(signature = (children, name=None, id=None))]
+    fn from_composite(children: Vec<PyTrack>, name: Option<String>, id: Option<String>) -> Self {
+        Self {
+            inner: Item::Composite(CompositeStack::new(
+                children.into_iter().map(|t| t.inner).collect(),
+                name,
+                id,
+            )),
+        }
+    }
     fn is_clip(&self) -> bool {
         matches!(self.inner, Item::Clip(_))
     }
     fn is_gap(&self) -> bool {
         matches!(self.inner, Item::Gap(_))
+    }
+    fn is_composite(&self) -> bool {
+        matches!(self.inner, Item::Composite(_))
+    }
+    /// The tracks of a composite clip; empty for clips and gaps.
+    fn get_children(&self, py: Python<'_>) -> Vec<Py<PyTrack>> {
+        let Item::Composite(stack) = &self.inner else {
+            return Vec::new();
+        };
+        stack
+            .children
+            .iter()
+            .map(|t| Py::new(py, PyTrack { inner: t.clone() }).unwrap())
+            .collect()
     }
     fn duration(&self) -> f64 {
         self.inner.duration()
@@ -1911,6 +1938,7 @@ fn marker_info_to_python(py: Python<'_>, info: MarkerInfo) -> PyResult<PyObject>
             MarkerOwnerKind::Track => "track",
             MarkerOwnerKind::Clip => "clip",
             MarkerOwnerKind::Gap => "gap",
+            MarkerOwnerKind::Composite => "composite",
         },
     )?;
     dict.set_item("owner_id", info.owner_id)?;

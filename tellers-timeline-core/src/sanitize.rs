@@ -9,6 +9,7 @@ impl Timeline {
 
 impl Track {
     pub(crate) fn sanitize(&mut self) {
+        self.sanitize_composites();
         self.clamp_clips_to_available_ranges();
         self.clamp_negative_durations();
         self.remove_zero_length_items();
@@ -17,12 +18,31 @@ impl Track {
     }
 
     pub(crate) fn sanitize_preserving_all_gap_track(&mut self) {
+        self.sanitize_composites();
         self.clamp_clips_to_available_ranges();
         self.clamp_negative_durations();
         self.remove_zero_length_items();
         self.merge_adjacent_gaps();
         if !self.items.iter().all(|item| matches!(item, Item::Gap(_))) {
             self.remove_trailing_gap();
+        }
+    }
+
+    /// Sanitize the tracks of every composite on this track. Their trailing
+    /// gaps stay: without a source range they are part of the composite's
+    /// length.
+    fn sanitize_composites(&mut self) {
+        for item in &mut self.items {
+            let Item::Composite(stack) = item else {
+                continue;
+            };
+            for track in &mut stack.children {
+                track.sanitize_composites();
+                track.clamp_clips_to_available_ranges();
+                track.clamp_negative_durations();
+                track.remove_zero_length_items();
+                track.merge_adjacent_gaps();
+            }
         }
     }
 
@@ -110,9 +130,7 @@ impl Stack {
         let mut used_ids = HashSet::new();
         for track in &mut self.children {
             ensure_unique_timeline_id(track, &mut used_ids);
-            for item in &mut track.items {
-                ensure_unique_timeline_id(item, &mut used_ids);
-            }
+            ensure_unique_item_ids(&mut track.items, &mut used_ids);
         }
     }
 
@@ -140,6 +158,19 @@ impl Stack {
                 if counts.get(&sync_clips_id).copied().unwrap_or_default() < 2 {
                     remove_resolve_sync_clips_id(&mut clip.metadata);
                 }
+            }
+        }
+    }
+}
+
+/// Unique ids for `items`, and for the tracks and items nested in composites.
+fn ensure_unique_item_ids(items: &mut [Item], used_ids: &mut HashSet<String>) {
+    for item in items {
+        ensure_unique_timeline_id(item, used_ids);
+        if let Item::Composite(stack) = item {
+            for track in &mut stack.children {
+                ensure_unique_timeline_id(track, used_ids);
+                ensure_unique_item_ids(&mut track.items, used_ids);
             }
         }
     }

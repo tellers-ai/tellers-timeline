@@ -23,7 +23,7 @@ impl Track {
                 .unwrap_or(0.0);
             let previous = match &mut self.items[index - 1] {
                 Item::Gap(gap) => gap,
-                Item::Clip(_) => unreachable!("previous_gap was checked above"),
+                Item::Clip(_) | Item::Composite(_) => unreachable!("previous_gap was checked above"),
             };
             previous.source_range.duration.set_from_seconds(
                 previous.source_range.duration.to_seconds() + duration + next_duration,
@@ -37,7 +37,7 @@ impl Track {
         if next_gap {
             let next = match &mut self.items[index] {
                 Item::Gap(gap) => gap,
-                Item::Clip(_) => unreachable!("next_gap was checked above"),
+                Item::Clip(_) | Item::Composite(_) => unreachable!("next_gap was checked above"),
             };
             next.source_range
                 .duration
@@ -57,8 +57,8 @@ impl Track {
             return None;
         }
         match &self.items[index] {
-            Item::Clip(c) => {
-                let removed_duration = c.source_range.duration.to_seconds().max(0.0);
+            Item::Clip(_) | Item::Composite(_) => {
+                let removed_duration = self.items[index].duration().max(0.0);
                 let removed = self.items.remove(index);
                 if replace_with_gap && removed_duration > 0.0 {
                     self.insert_replacement_gap(index, removed_duration);

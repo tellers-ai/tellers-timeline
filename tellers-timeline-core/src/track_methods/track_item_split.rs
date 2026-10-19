@@ -80,6 +80,53 @@ impl Track {
                     split_time,
                 })
             }
+            crate::Item::Composite(mut stack) => {
+                let total = stack.duration().max(0.0);
+                if local_offset >= total - EPS {
+                    self.items.insert(item_index, crate::Item::Composite(stack));
+                    return None;
+                }
+
+                // Both halves play the same child tracks: the left one up to
+                // the split, the right one from there (its source start
+                // advances by the left part's length, like a clip's).
+                let left_duration = local_offset.max(0.0);
+                let right_duration = (total - left_duration).max(0.0);
+                let right_source_start = stack.source_start() + left_duration;
+
+                let mut left_stack = stack.clone();
+                left_stack.set_duration(left_duration);
+                stack.set_duration(right_duration);
+                stack.set_source_start(right_source_start);
+
+                left_stack
+                    .markers
+                    .retain(|m| m.start() < right_source_start - EPS);
+                stack
+                    .markers
+                    .retain(|m| m.start() >= right_source_start - EPS);
+
+                // The right-hand copy gets fresh ids, down to its nested items.
+                let old_clip_id = stack.get_id().unwrap_or_default();
+                stack.set_id(Some(crate::types::gen_hex_id_12()));
+                stack.assign_new_child_ids();
+                let right_clip_id = stack.get_id();
+
+                self.items.insert(item_index, crate::Item::Composite(left_stack));
+                self.items.insert(item_index + 1, crate::Item::Composite(stack));
+
+                if old_clip_id.is_empty() {
+                    return None;
+                }
+
+                Some(SplitClipInfo {
+                    old_clip_id,
+                    left_clip_id: self.items[item_index].get_id(),
+                    right_clip_id,
+                    sync_clips_id: None,
+                    split_time,
+                })
+            }
             crate::Item::Gap(mut gap) => {
                 let total = gap.source_range.duration.to_seconds().max(0.0);
                 if local_offset >= total - EPS {

@@ -185,6 +185,7 @@ pub enum MarkerOwnerKind {
     Track,
     Clip,
     Gap,
+    Composite,
 }
 
 /// A marker together with where it sits in the timeline.
@@ -227,6 +228,7 @@ fn item_markers(item: &Item) -> &Vec<Marker> {
     match item {
         Item::Clip(c) => &c.markers,
         Item::Gap(g) => &g.markers,
+        Item::Composite(s) => &s.markers,
     }
 }
 
@@ -234,6 +236,7 @@ fn item_markers_mut(item: &mut Item) -> &mut Vec<Marker> {
     match item {
         Item::Clip(c) => &mut c.markers,
         Item::Gap(g) => &mut g.markers,
+        Item::Composite(s) => &mut s.markers,
     }
 }
 
@@ -293,6 +296,7 @@ impl Stack {
                 let owner_kind = match item {
                     Item::Clip(_) => MarkerOwnerKind::Clip,
                     Item::Gap(_) => MarkerOwnerKind::Gap,
+                    Item::Composite(_) => MarkerOwnerKind::Composite,
                 };
                 for m in markers {
                     const EPS: Seconds = 1e-9;
@@ -397,14 +401,14 @@ impl Stack {
                     else {
                         continue;
                     };
-                    let offset = item_source_to_timeline_offset(track, ii);
-                    let Item::Clip(clip) = &mut track.items[ii] else {
+                    if matches!(track.items[ii], Item::Gap(_)) {
                         return None;
-                    };
+                    }
+                    let offset = item_source_to_timeline_offset(track, ii);
                     marker
                         .marked_range
                         .set_start_time(timeline_start - offset);
-                    clip.markers.push(marker);
+                    item_markers_mut(&mut track.items[ii]).push(marker);
                     return Some(marker_id);
                 }
                 None

@@ -54,7 +54,7 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
     ),
     (
         "Item",
-        "An entry of a track: a clip, or a gap of empty time.",
+        "An entry of a track: a clip, a gap of empty time, or a composite clip.",
     ),
     (
         "Clip",
@@ -64,6 +64,12 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
     (
         "Gap",
         "Empty time on a track: nothing is drawn or heard for its duration.",
+    ),
+    (
+        "CompositeStack",
+        "A composite clip: a `Stack.1` nested inside a video track, drawn as one clip made \
+         of its own tracks. It lasts `source_range.duration` when a source range is set, \
+         otherwise as long as its longest child track.",
     ),
     (
         "MediaReference",
@@ -203,6 +209,19 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     ("Gap", "effects", "Kept for OTIO round trips; nothing applies them."),
     ("Gap", "markers", "Kept for OTIO round trips; the API places no markers on gaps."),
     ("Gap", "metadata", "Free JSON. `tellers.ai.timeline_id` is the item id."),
+    ("CompositeStack", "OTIO_SCHEMA", "`Stack.1`."),
+    ("CompositeStack", "name", "Display name."),
+    ("CompositeStack", "children", "Its own tracks, bottom layer first, timed like the timeline's."),
+    (
+        "CompositeStack",
+        "source_range",
+        "Optional. `start_time` is where in its child tracks it starts playing, and \
+         `duration` how long it lasts on the outer track.",
+    ),
+    ("CompositeStack", "effects", "Effects applied to the composite as a whole, like a clip's."),
+    ("CompositeStack", "enabled", "A disabled composite is neither drawn nor heard; it still takes its time."),
+    ("CompositeStack", "markers", "Markers, kept for OTIO round trips."),
+    ("CompositeStack", "metadata", "Free JSON. `tellers.ai.timeline_id` is the item id."),
     ("MediaReference", "OTIO_SCHEMA", "Picks the kind of reference."),
     ("MediaReference", "name", "Display name."),
     (
