@@ -4,7 +4,11 @@ default:
   @just --list
 
 regen-schema:
-  cargo run -p tellers-timeline-schema --quiet
+  cargo run -p tellers-timeline-schema --bin tellers-timeline-schema --quiet
+
+# Regenerate docs/otio-reference.md (the format reference) from the core types
+regen-docs:
+  cargo run -p tellers-timeline-schema --bin otio-docs --quiet
 
 build-all:
   cargo build --workspace --all-targets --exclude tellers-timeline-wasm --exclude tellers-timeline-python

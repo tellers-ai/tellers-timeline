@@ -135,6 +135,8 @@ standardization work should be shaped by interoperability tests and adoption.
 
 ## Explore and build
 
+- **[Reading a timeline file](docs/reading-otio.md)** — the tree, time, layers, media, effects and `tellers.ai` metadata, with a worked example.
+- **[Format reference](docs/otio-reference.md)** — every object, field and tellers effect (generated from the code).
 - **[Developer guide](DEVELOPMENT.md)** — architecture, local setup, editing semantics, visual test UI, and releases.
 - **[Contributing](CONTRIBUTING.md)** — bug reports, feature proposals, compatibility fixtures, and pull requests.
 - **[Rust API](https://docs.rs/tellers-timeline-core)** · **[Python type signatures](bindings/python/python/tellers_timeline/__init__.pyi)** · **[Example timelines](spec/examples)** · **[JSON Schema](spec/otio.schema.json)**
