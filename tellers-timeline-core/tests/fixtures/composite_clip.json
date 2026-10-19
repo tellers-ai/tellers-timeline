@@ -1,0 +1,526 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "Composite clips",
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "name": null,
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "enabled": true,
+        "kind": "video",
+        "name": "V1",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Clip.2",
+            "enabled": true,
+            "name": "Video",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1.0,
+                "value": 0.0
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1.0,
+                "value": 2.0
+              }
+            },
+            "media_references": {
+              "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "target_url": "https://example.com/intro.mp4",
+                "available_range": {
+                  "OTIO_SCHEMA": "TimeRange.1",
+                  "start_time": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "rate": 1.0,
+                    "value": 0.0
+                  },
+                  "duration": {
+                    "OTIO_SCHEMA": "RationalTime.1",
+                    "rate": 1.0,
+                    "value": 60.0
+                  }
+                },
+                "available_image_bounds": null,
+                "metadata": {
+                  "tellers.ai": {}
+                },
+                "name": null
+              }
+            },
+            "active_media_reference_key": "DEFAULT_MEDIA",
+            "metadata": {
+              "tellers.ai": {
+                "timeline_id": "intro"
+              }
+            },
+            "effects": []
+          },
+          {
+            "OTIO_SCHEMA": "Stack.1",
+            "name": "Lower third",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1.0,
+                "value": 0.0
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1.0,
+                "value": 5.0
+              }
+            },
+            "children": [
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "enabled": true,
+                "kind": "video",
+                "name": "bar",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "enabled": true,
+                    "name": "Bar",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 0.0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 5.0
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Shape",
+                        "name": "Shape",
+                        "parameters": {
+                          "shape": "rectangle",
+                          "fill": "#101820",
+                          "corner_radius": 18
+                        },
+                        "available_image_bounds": null,
+                        "available_range": null,
+                        "metadata": {
+                          "tellers.ai": {}
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {
+                      "tellers.ai": {
+                        "timeline_id": "lt-bar-clip"
+                      }
+                    },
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "x": -0.18,
+                              "y": 0.33,
+                              "scaleX": 0.6,
+                              "scaleY": 0.2
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "metadata": {
+                  "tellers.ai": {
+                    "timeline_id": "lt-bar"
+                  }
+                }
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "enabled": true,
+                "kind": "video",
+                "name": "accent",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Gap.1",
+                    "name": null,
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 0.0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 0.3
+                      }
+                    },
+                    "metadata": {
+                      "tellers.ai": {
+                        "timeline_id": "lt-gap"
+                      }
+                    },
+                    "effects": []
+                  },
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "enabled": true,
+                    "name": "Accent",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 0.0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 4.7
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Shape",
+                        "name": "Shape",
+                        "parameters": {
+                          "shape": "line",
+                          "stroke": "#ffd400",
+                          "stroke_width": 8,
+                          "x1": 0,
+                          "y1": 0,
+                          "x2": 1,
+                          "y2": 0
+                        },
+                        "available_image_bounds": null,
+                        "available_range": null,
+                        "metadata": {
+                          "tellers.ai": {}
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {
+                      "tellers.ai": {
+                        "timeline_id": "lt-accent-clip"
+                      }
+                    },
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "x": -0.18,
+                              "y": 0.33,
+                              "scaleX": 0.6,
+                              "scaleY": 0.2
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "metadata": {
+                  "tellers.ai": {
+                    "timeline_id": "lt-accent"
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "tellers.ai": {
+                "timeline_id": "lower-third"
+              }
+            },
+            "effects": [
+              {
+                "OTIO_SCHEMA": "Effect.1",
+                "name": "Opacity",
+                "effect_name": "Opacity",
+                "metadata": {
+                  "tellers.ai": {
+                    "parameters": {
+                      "opacity": 0.8
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "OTIO_SCHEMA": "Gap.1",
+            "name": null,
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1.0,
+                "value": 0.0
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1.0,
+                "value": 1.0
+              }
+            },
+            "metadata": {
+              "tellers.ai": {
+                "timeline_id": "g1"
+              }
+            },
+            "effects": []
+          },
+          {
+            "OTIO_SCHEMA": "Stack.1",
+            "enabled": false,
+            "name": "Montage",
+            "children": [
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "enabled": true,
+                "kind": "video",
+                "name": "video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "enabled": true,
+                    "name": "Video",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 10.0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 3.0
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "ExternalReference.1",
+                        "target_url": "https://example.com/a.mp4",
+                        "available_range": {
+                          "OTIO_SCHEMA": "TimeRange.1",
+                          "start_time": {
+                            "OTIO_SCHEMA": "RationalTime.1",
+                            "rate": 1.0,
+                            "value": 0.0
+                          },
+                          "duration": {
+                            "OTIO_SCHEMA": "RationalTime.1",
+                            "rate": 1.0,
+                            "value": 60.0
+                          }
+                        },
+                        "available_image_bounds": null,
+                        "metadata": {
+                          "tellers.ai": {}
+                        },
+                        "name": null
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {
+                      "tellers.ai": {
+                        "timeline_id": "m-a"
+                      }
+                    },
+                    "effects": []
+                  },
+                  {
+                    "OTIO_SCHEMA": "Gap.1",
+                    "name": null,
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 0.0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 1.0
+                      }
+                    },
+                    "metadata": {
+                      "tellers.ai": {
+                        "timeline_id": "m-gap"
+                      }
+                    },
+                    "effects": []
+                  }
+                ],
+                "metadata": {
+                  "tellers.ai": {
+                    "timeline_id": "m-v"
+                  }
+                }
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "enabled": true,
+                "kind": "video",
+                "name": "nested",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Gap.1",
+                    "name": null,
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 0.0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1.0,
+                        "value": 1.5
+                      }
+                    },
+                    "metadata": {
+                      "tellers.ai": {
+                        "timeline_id": "m-gap2"
+                      }
+                    },
+                    "effects": []
+                  },
+                  {
+                    "OTIO_SCHEMA": "Stack.1",
+                    "name": "Inner",
+                    "children": [
+                      {
+                        "OTIO_SCHEMA": "Track.1",
+                        "enabled": true,
+                        "kind": "video",
+                        "name": "inner",
+                        "children": [
+                          {
+                            "OTIO_SCHEMA": "Clip.2",
+                            "enabled": true,
+                            "name": "Dot",
+                            "source_range": {
+                              "OTIO_SCHEMA": "TimeRange.1",
+                              "start_time": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1.0,
+                                "value": 0.0
+                              },
+                              "duration": {
+                                "OTIO_SCHEMA": "RationalTime.1",
+                                "rate": 1.0,
+                                "value": 2.0
+                              }
+                            },
+                            "media_references": {
+                              "DEFAULT_MEDIA": {
+                                "OTIO_SCHEMA": "GeneratorReference.1",
+                                "generator_kind": "Shape",
+                                "name": "Shape",
+                                "parameters": {
+                                  "shape": "ellipse",
+                                  "fill": "#ffffff"
+                                },
+                                "available_image_bounds": null,
+                                "available_range": null,
+                                "metadata": {
+                                  "tellers.ai": {}
+                                }
+                              }
+                            },
+                            "active_media_reference_key": "DEFAULT_MEDIA",
+                            "metadata": {
+                              "tellers.ai": {
+                                "timeline_id": "in-clip"
+                              }
+                            },
+                            "effects": [
+                              {
+                                "OTIO_SCHEMA": "Effect.1",
+                                "name": "Transform",
+                                "effect_name": "Transform",
+                                "metadata": {
+                                  "tellers.ai": {
+                                    "parameters": {
+                                      "x": -0.18,
+                                      "y": 0.33,
+                                      "scaleX": 0.6,
+                                      "scaleY": 0.2
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "metadata": {
+                          "tellers.ai": {
+                            "timeline_id": "in-t"
+                          }
+                        }
+                      }
+                    ],
+                    "metadata": {
+                      "tellers.ai": {
+                        "timeline_id": "inner"
+                      }
+                    }
+                  }
+                ],
+                "metadata": {
+                  "tellers.ai": {
+                    "timeline_id": "m-n"
+                  }
+                }
+              }
+            ],
+            "metadata": {
+              "tellers.ai": {
+                "timeline_id": "montage"
+              }
+            }
+          }
+        ],
+        "metadata": {
+          "tellers.ai": {
+            "timeline_id": "v1"
+          }
+        }
+      }
+    ],
+    "metadata": {
+      "tellers.ai": {
+        "timeline_id": "stack"
+      }
+    }
+  },
+  "metadata": {
+    "tellers.ai": {
+      "timeline_id": "timeline"
+    }
+  }
+}

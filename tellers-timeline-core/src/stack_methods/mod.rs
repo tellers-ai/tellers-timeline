@@ -160,7 +160,7 @@ impl Stack {
             .flat_map(|track| track.items.iter())
             .filter_map(|item| match item {
                 Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-                Item::Gap(_) => None,
+                Item::Gap(_) | Item::Composite(_) => None,
             })
             .max()
             .unwrap_or(0)
@@ -173,7 +173,7 @@ impl Stack {
             .flat_map(|track| track.items.iter())
             .filter_map(|item| match item {
                 Item::Clip(clip) => resolve_tellers_group_id(&clip.metadata),
-                Item::Gap(_) => None,
+                Item::Gap(_) | Item::Composite(_) => None,
             })
             .max()
             .unwrap_or(0)
@@ -531,7 +531,7 @@ impl Stack {
         }
         let sync_clips_id = match &item {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         };
         if let Some(sync_id) = sync_clips_id {
             Some(self.synced_clips_targets(sync_id))
@@ -807,7 +807,7 @@ impl Stack {
     fn item_is_unsynced(item: &Item) -> bool {
         match item {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata).is_none(),
-            Item::Gap(_) => true,
+            Item::Gap(_) | Item::Composite(_) => true,
         }
     }
 
@@ -1165,7 +1165,7 @@ impl Stack {
             .iter()
             .filter_map(|item| match item {
                 Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-                Item::Gap(_) => None,
+                Item::Gap(_) | Item::Composite(_) => None,
             })
             .collect()
     }
@@ -1742,6 +1742,11 @@ impl Stack {
                 let id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
                 (item, id)
             }
+            // A composite cannot be synced: it lands as is, under a unique id.
+            mut item @ Item::Composite(_) => {
+                let id = Self::ensure_unique_item_id(&mut item, &mut used_ids);
+                (item, id)
+            }
         };
         let mut column = Vec::new();
 
@@ -1860,7 +1865,7 @@ impl Stack {
                 })
                 .filter(|ids: &Vec<String>| ids.len() > 1)
                 .unwrap_or_else(|| vec![item_id.to_string()]),
-            Item::Gap(_) => vec![item_id.to_string()],
+            Item::Gap(_) | Item::Composite(_) => vec![item_id.to_string()],
         };
         if target_ids.is_empty() {
             return false;
@@ -2189,6 +2194,7 @@ impl Stack {
         let old_timeline_start = self.children[track_index].start_time_of_item(item_index);
         let old_source_start = match &self.children[track_index].items[item_index] {
             Item::Clip(clip) => clip.source_range.start_time.to_seconds(),
+            Item::Composite(stack) => stack.source_start(),
             Item::Gap(_) => 0.0,
         };
         let old_duration = self.children[track_index].items[item_index].duration();
@@ -2323,6 +2329,7 @@ impl Stack {
         };
         let source_delta = match item {
             Item::Clip(clip) => source_start_time - clip.source_range.start_time.to_seconds(),
+            Item::Composite(stack) => source_start_time - stack.source_start(),
             Item::Gap(_) => 0.0,
         };
         if source_delta.abs() > EPS {
@@ -2391,7 +2398,7 @@ impl Stack {
         };
         let Some(sync_clips_id) = (match selected_item {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         }) else {
             return vec![(selected_track_index, selected_item_index)];
         };
@@ -2424,7 +2431,8 @@ impl Stack {
                 // A ripple delete of an unsynced clip pulls every track whose
                 // sync columns shift with it, by the clip's duration.
                 if !replace_with_gap
-                    && matches!(item, Item::Clip(clip) if clip.sync_clips_id().is_none())
+                    && (matches!(item, Item::Clip(clip) if clip.sync_clips_id().is_none())
+                        || matches!(item, Item::Composite(_)))
                 {
                     let (mut removed, _) = self.ripple_remove_items(&[(ti, ii)])?;
                     return removed.pop();
@@ -2481,7 +2489,7 @@ impl Stack {
         let (selected_track_index, selected_item_index, selected_item) = self.get_item(item_id)?;
         let sync_clips_id = match selected_item {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         }?;
         let selected_start = self.children[selected_track_index]
             .start_time_of_item(selected_item_index);
@@ -2565,7 +2573,7 @@ impl Stack {
         }
         let sync_clips_id = match &selected.item {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         };
         let source_owner = self.group_owner_of(selected.track_index);
         let dest_owner = self.group_owner_of(dest_track_index);
@@ -2617,7 +2625,7 @@ impl Stack {
         track.items.iter().all(|item| {
             let (item_start, item_end) = (cursor, cursor + item.duration());
             cursor = item_end;
-            !matches!(item, Item::Clip(_))
+            matches!(item, Item::Gap(_))
                 || item_end <= start + EPS
                 || item_start >= end - EPS
                 || item.get_id().is_some_and(|id| moving_ids.contains(&id))
@@ -2644,7 +2652,7 @@ impl Stack {
         track.items.iter().find_map(|item| {
             let (start, end) = (cursor, cursor + item.duration());
             cursor = end;
-            let contains = matches!(item, Item::Clip(_))
+            let contains = !matches!(item, Item::Gap(_))
                 && start + EPS < time
                 && time < end - EPS
                 && !item.get_id().is_some_and(|id| moving_ids.contains(&id));
@@ -2703,7 +2711,7 @@ impl Stack {
         let primary_duration = item_to_move.duration().max(0.0);
         let primary_sync_id = match item_to_move {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         };
 
         let mut selected_ids = HashSet::from([item_timeline_id.to_string()]);
@@ -2733,7 +2741,7 @@ impl Stack {
                     if let Some(sync_id) = primary_sync_id {
                         if resolve_sync_clips_id(match item {
                             Item::Clip(clip) => &clip.metadata,
-                            Item::Gap(_) => {
+                            Item::Gap(_) | Item::Composite(_) => {
                                 pos += item.duration().max(0.0);
                                 continue;
                             }
@@ -3552,7 +3560,7 @@ impl Stack {
         };
         let Some(sync_clips_id) = (match &selected_item.item {
             Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         }) else {
             return false;
         };
@@ -3952,7 +3960,7 @@ fn range_has_blocking_clip(
                 Item::Clip(clip)
                     if sync_clips_id.is_some()
                         && resolve_sync_clips_id(&clip.metadata) == sync_clips_id => {}
-                Item::Clip(_) => return true,
+                Item::Clip(_) | Item::Composite(_) => return true,
             }
         }
         pos = item_end;
@@ -4016,6 +4024,7 @@ fn item_source_start(item: &Item) -> Seconds {
     match item {
         Item::Clip(clip) => clip.source_range.start_time.to_seconds(),
         Item::Gap(gap) => gap.source_range.start_time.to_seconds(),
+        Item::Composite(stack) => stack.source_start(),
     }
 }
 
@@ -4031,6 +4040,7 @@ fn set_item_source_start(item: &mut Item, source_start_time: Seconds) {
                 .start_time
                 .set_from_seconds(source_start_time);
         }
+        Item::Composite(stack) => stack.set_source_start(source_start_time),
     }
 }
 

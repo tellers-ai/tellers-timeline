@@ -127,7 +127,8 @@ impl Track {
         if end_index > insert_index {
             let remove_count = end_index - insert_index;
             for _ in 0..remove_count {
-                if let Item::Clip(clip) = &self.items[insert_index] {
+                let clip = &self.items[insert_index];
+                if !matches!(clip, Item::Gap(_)) {
                     let clip_id = clip.get_id().unwrap_or_default();
                     // The head of a clip cut by the end boundary is not a
                     // deletion: its tail survives and keeps the clip's id.
@@ -137,7 +138,7 @@ impl Track {
                     if !is_trimmed_head {
                         result.deleted_clips.push(DeletedClipInfo {
                             clip_id,
-                            sync_clips_id: clip.sync_clips_id(),
+                            sync_clips_id: crate::item_link_group_id(clip),
                         });
                     }
                 }

@@ -56,9 +56,9 @@ Values: `"video"` \| `"audio"` \| `"other"`.
 
 ### Item
 
-An entry of a track: a clip, or a gap of empty time.
+An entry of a track: a clip, a gap of empty time, or a composite clip.
 
-One of [Clip](#clip), [Gap](#gap).
+One of [Clip](#clip), [Gap](#gap), [CompositeStack](#compositestack).
 
 ### Clip
 
@@ -88,6 +88,21 @@ Empty time on a track: nothing is drawn or heard for its duration.
 | `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id. |
 | `name` | string \| null |  |  | Display name. |
 | `source_range` | [TimeRange](#timerange) | yes |  | Only `duration` matters: how long the gap lasts. |
+
+### CompositeStack
+
+A composite clip: a `Stack.1` nested inside a video track, drawn as one clip made of its own tracks. It lasts `source_range.duration` when a source range is set, otherwise as long as its longest child track.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `OTIO_SCHEMA` | string |  | `"Stack.1"` | `Stack.1`. |
+| `children` | array of [Track](#track) |  |  | Its own tracks, bottom layer first, timed like the timeline's. |
+| `effects` | array of [Effect](#effect) |  |  | Effects applied to the composite as a whole, like a clip's. |
+| `enabled` | boolean \| null |  |  | A disabled composite is neither drawn nor heard; it still takes its time. |
+| `markers` | array of [Marker](#marker) |  |  | Markers, kept for OTIO round trips. |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id. |
+| `name` | string \| null |  |  | Display name. |
+| `source_range` | [TimeRange](#timerange) \| null |  |  | Optional. `start_time` is where in its child tracks it starts playing, and `duration` how long it lasts on the outer track. |
 
 ### MediaReference
 

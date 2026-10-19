@@ -350,11 +350,14 @@ where
 pub enum Item {
     Clip(Clip),
     Gap(Gap),
+    /// A nested `Stack.*` inside a track: a composite clip drawn as one clip
+    /// made of its own tracks (see [`CompositeStack`]).
+    Composite(CompositeStack),
 }
 
 impl<'de> Deserialize<'de> for Item {
-    /// Dispatch on `OTIO_SCHEMA`: a `Gap.*` schema deserializes as [`Gap`],
-    /// everything else as [`Clip`].
+    /// Dispatch on `OTIO_SCHEMA`: a `Gap.*` schema deserializes as [`Gap`], a
+    /// `Stack.*` schema as [`CompositeStack`], everything else as [`Clip`].
     ///
     /// A plain `#[serde(untagged)]` deserialize would always match [`Clip`]
     /// first — every `Clip` field but `source_range` is `#[serde(default)]`, so
@@ -365,14 +368,16 @@ impl<'de> Deserialize<'de> for Item {
         D: Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        let is_gap = value
+        let schema_name = value
             .get("OTIO_SCHEMA")
             .and_then(|schema| schema.as_str())
-            .is_some_and(|schema| {
-                schema.eq_ignore_ascii_case("Gap.1") || schema.eq_ignore_ascii_case("Gap")
-            });
-        if is_gap {
+            .map(|schema| schema.split('.').next().unwrap_or(schema));
+        if schema_name.is_some_and(|name| name.eq_ignore_ascii_case("Gap")) {
             Gap::deserialize(value).map(Item::Gap).map_err(D::Error::custom)
+        } else if schema_name.is_some_and(|name| name.eq_ignore_ascii_case("Stack")) {
+            CompositeStack::deserialize(value)
+                .map(Item::Composite)
+                .map_err(D::Error::custom)
         } else {
             Clip::deserialize(value)
                 .map(Item::Clip)
@@ -385,54 +390,73 @@ impl<'de> Deserialize<'de> for Item {
 
 impl Item {
     pub fn bind_default_media_reference_when_needed(&mut self) {
-        if let Item::Clip(c) = self {
-            c.bind_default_media_reference_when_needed();
+        match self {
+            Item::Clip(c) => c.bind_default_media_reference_when_needed(),
+            Item::Gap(_) => {}
+            Item::Composite(s) => s.for_each_item_mut(&mut |item| {
+                item.bind_default_media_reference_when_needed()
+            }),
         }
     }
     pub fn clamp_to_active_available_range(&mut self) {
-        if let Item::Clip(c) = self {
-            c.clamp_to_active_available_range();
+        match self {
+            Item::Clip(c) => c.clamp_to_active_available_range(),
+            Item::Gap(_) => {}
+            Item::Composite(s) => {
+                for track in &mut s.children {
+                    track.clamp_clips_to_available_ranges();
+                }
+            }
         }
     }
     pub fn duration(&self) -> Seconds {
         match self {
             Item::Clip(c) => c.source_range.duration.to_seconds(),
             Item::Gap(g) => g.source_range.duration.to_seconds(),
+            Item::Composite(s) => s.duration(),
         }
     }
     pub fn set_duration(&mut self, dur: Seconds) {
         match self {
             Item::Clip(c) => c.source_range.duration.set_from_seconds(dur),
             Item::Gap(g) => g.source_range.duration.set_from_seconds(dur),
+            Item::Composite(s) => s.set_duration(dur),
         }
     }
     pub fn get_enabled(&self) -> bool {
         match self {
             Item::Clip(c) => c.enabled,
             Item::Gap(_g) => true,
+            Item::Composite(s) => s.enabled.unwrap_or(true),
         }
     }
     pub fn set_enabled(&mut self, enabled: bool) {
-        if let Item::Clip(c) = self {
-            c.enabled = enabled;
+        match self {
+            Item::Clip(c) => c.enabled = enabled,
+            Item::Gap(_) => {}
+            // Leave an absent key absent when it already means "enabled".
+            Item::Composite(s) if s.enabled.is_none() && enabled => {}
+            Item::Composite(s) => s.enabled = Some(enabled),
         }
     }
     pub fn get_source_range(&self) -> TimeRange {
         match self {
             Item::Clip(c) => c.source_range.clone(),
             Item::Gap(g) => g.source_range.clone(),
+            Item::Composite(s) => s.resolved_source_range(),
         }
     }
     pub fn set_source_range(&mut self, source_range: TimeRange) {
         match self {
             Item::Clip(c) => c.source_range = source_range,
             Item::Gap(g) => g.source_range = source_range,
+            Item::Composite(s) => s.source_range = Some(source_range),
         }
     }
     pub fn get_active_media_reference_key(&self) -> Option<String> {
         match self {
             Item::Clip(c) => c.active_media_reference_key.clone(),
-            Item::Gap(_g) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         }
     }
     pub fn set_active_media_reference_key(&mut self, key: Option<String>) {
@@ -443,7 +467,7 @@ impl Item {
     pub fn get_media_references(&self) -> HashMap<String, MediaReference> {
         match self {
             Item::Clip(c) => c.media_references.clone(),
-            Item::Gap(_g) => HashMap::new(),
+            Item::Gap(_) | Item::Composite(_) => HashMap::new(),
         }
     }
     pub fn set_media_references(&mut self, references: HashMap<String, MediaReference>) {
@@ -451,32 +475,41 @@ impl Item {
             c.media_references = references;
         }
     }
-    /// Clear the `target_url` on every media reference of this item.
+    /// Clear the `target_url` on every media reference of this item, including
+    /// the clips nested inside a composite.
     ///
     /// No-op for gaps, which have no media references.
     pub fn clear_target_urls(&mut self) {
-        if let Item::Clip(c) = self {
-            for reference in c.media_references.values_mut() {
-                reference.clear_target_url();
+        match self {
+            Item::Clip(c) => {
+                for reference in c.media_references.values_mut() {
+                    reference.clear_target_url();
+                }
             }
+            Item::Gap(_) => {}
+            Item::Composite(s) => s.for_each_item_mut(&mut Item::clear_target_urls),
         }
     }
     pub fn get_effects(&self) -> Vec<Effect> {
         match self {
             Item::Clip(c) => c.effects.clone(),
             Item::Gap(g) => g.effects.clone(),
+            Item::Composite(s) => s.effects.clone(),
         }
     }
     pub fn set_effects(&mut self, effects: Vec<Effect>) {
         match self {
             Item::Clip(c) => c.effects = effects,
             Item::Gap(g) => g.effects = effects,
+            Item::Composite(s) => s.effects = effects,
         }
     }
+    /// The clip's position; the identity for gaps and composites, which have
+    /// no media reference to place.
     pub fn get_position(&self) -> MediaReferencePosition {
         match self {
             Item::Clip(c) => c.get_position(),
-            Item::Gap(_g) => MediaReferencePosition {
+            Item::Gap(_) | Item::Composite(_) => MediaReferencePosition {
                 x: 0.0,
                 y: 0.0,
                 rotation: 0.0,
@@ -493,15 +526,15 @@ impl Item {
     pub fn get_volume(&self) -> f64 {
         match self {
             Item::Clip(c) => c.get_volume(),
-            Item::Gap(_g) => 1.0,
+            Item::Gap(_) | Item::Composite(_) => 1.0,
         }
     }
     /// The Rich Text Title HTML of this item's active media reference, if any.
-    /// None for gaps and non-rich-text clips.
+    /// None for gaps, composites and non-rich-text clips.
     pub fn get_rich_text(&self) -> Option<String> {
         match self {
             Item::Clip(c) => c.get_rich_text(),
-            Item::Gap(_g) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         }
     }
     pub fn set_volume(&mut self, volume: f64) {
@@ -512,12 +545,129 @@ impl Item {
     pub fn get_crop(&self) -> MediaReferenceCrop {
         match self {
             Item::Clip(c) => c.get_crop(),
-            Item::Gap(_g) => MediaReferenceCrop::default(),
+            Item::Gap(_) | Item::Composite(_) => MediaReferenceCrop::default(),
         }
     }
     pub fn set_crop(&mut self, crop: MediaReferenceCrop) {
         if let Item::Clip(c) = self {
             c.set_crop(crop);
+        }
+    }
+}
+
+/// A `Stack` nested inside a track: a composite clip, drawn as one clip made
+/// of its own tracks (the player's `CompositeStack`).
+///
+/// Its length is `source_range.duration` when a source range is set, otherwise
+/// the length of its longest child track. `source_range.start_time` is the
+/// offset into the child tracks where the composite starts playing.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct CompositeStack {
+    #[serde(rename = "OTIO_SCHEMA", default = "default_stack_schema")]
+    pub otio_schema: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_range: Option<TimeRange>,
+    #[serde(default)]
+    pub children: Vec<Track>,
+    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    pub metadata: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<crate::Marker>,
+}
+
+impl CompositeStack {
+    pub fn new(children: Vec<Track>, name: Option<String>, id: Option<String>) -> Self {
+        let mut s = CompositeStack {
+            otio_schema: default_stack_schema(),
+            enabled: None,
+            name,
+            source_range: None,
+            children,
+            metadata: serde_json::Value::Object(serde_json::Map::new()),
+            effects: Vec::new(),
+            markers: Vec::new(),
+        };
+        crate::metadata::IdMetadataExt::set_id(&mut s, Some(id.unwrap_or_else(gen_hex_id_12)));
+        s
+    }
+
+    /// The length of the longest child track.
+    pub fn content_duration(&self) -> Seconds {
+        self.children
+            .iter()
+            .map(Track::total_duration)
+            .fold(0.0, Seconds::max)
+    }
+
+    /// `source_range.duration` when set, otherwise [`Self::content_duration`].
+    pub fn duration(&self) -> Seconds {
+        match &self.source_range {
+            Some(range) => range.duration.to_seconds(),
+            None => self.content_duration(),
+        }
+    }
+
+    /// Set the composite's length. Without a source range one is added,
+    /// starting at the beginning of the child tracks.
+    pub fn set_duration(&mut self, duration: Seconds) {
+        let content_duration = self.content_duration();
+        self.source_range
+            .get_or_insert_with(|| TimeRange::new(content_duration, 0.0))
+            .duration
+            .set_from_seconds(duration);
+    }
+
+    /// The offset into the child tracks where the composite starts playing.
+    pub fn source_start(&self) -> Seconds {
+        self.source_range
+            .as_ref()
+            .map_or(0.0, |range| range.start_time.to_seconds())
+    }
+
+    /// Set the offset into the child tracks. Without a source range one is
+    /// added that keeps the current duration.
+    pub fn set_source_start(&mut self, start: Seconds) {
+        let duration = self.duration();
+        self.source_range
+            .get_or_insert_with(|| TimeRange::new(duration, 0.0))
+            .start_time
+            .set_from_seconds(start);
+    }
+
+    /// The source range, or the implicit one (whole content from 0) when unset.
+    pub fn resolved_source_range(&self) -> TimeRange {
+        self.source_range
+            .clone()
+            .unwrap_or_else(|| TimeRange::new(self.content_duration(), 0.0))
+    }
+
+    /// Give every child track and item (recursively) a fresh id, as for a copy.
+    pub fn assign_new_child_ids(&mut self) {
+        use crate::metadata::IdMetadataExt;
+        for track in &mut self.children {
+            track.set_id(Some(gen_hex_id_12()));
+            for item in &mut track.items {
+                item.set_id(Some(gen_hex_id_12()));
+                if let Item::Composite(nested) = item {
+                    nested.assign_new_child_ids();
+                }
+            }
+        }
+    }
+
+    /// Visit every item of the child tracks (callers recurse into nested
+    /// composites through the item itself).
+    pub fn for_each_item_mut(&mut self, f: &mut dyn FnMut(&mut Item)) {
+        for track in &mut self.children {
+            for item in &mut track.items {
+                f(item);
+            }
         }
     }
 }

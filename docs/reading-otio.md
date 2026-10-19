@@ -203,9 +203,10 @@ Any other metadata is kept as it is.
 - **Composite clips:** a `Stack.1` placed inside a video track is drawn as
   one clip made of its own tracks.
 
-> **Library support.** `tellers-timeline-core` cannot load either of these
-> yet. It fails with ``missing field `source_range` `` on a timeline
-> containing one. Transition support is in progress in
+> **Library support.** `tellers-timeline-core` loads, round-trips and times
+> composite clips. It cannot load transitions yet: a timeline containing one
+> fails with ``missing field `source_range` ``. Transition support is in
+> progress in
 > [tellers-timeline#71](https://github.com/tellers-ai/tellers-timeline/pull/71).
 
 ## A worked example

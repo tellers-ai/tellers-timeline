@@ -994,7 +994,7 @@ impl Timeline {
             .iter()
             .find_map(|track| match track.get_item_by_id(item_id)?.1 {
                 Item::Clip(clip) => Some(clip),
-                Item::Gap(_) => None,
+                Item::Gap(_) | Item::Composite(_) => None,
             })
     }
 

@@ -146,7 +146,7 @@ pub fn sync_clips_id(item: &Item) -> Option<i64> {
             .get("Resolve_OTIO")
             .and_then(|v| v.get("Link Group ID"))
             .and_then(|v| v.as_i64()),
-        Item::Gap(_) => None,
+        Item::Gap(_) | Item::Composite(_) => None,
     }
 }
 
@@ -154,6 +154,7 @@ pub fn source_start(item: &Item) -> f64 {
     match item {
         Item::Clip(clip) => clip.source_range.start_time.value,
         Item::Gap(gap) => gap.source_range.start_time.value,
+        Item::Composite(stack) => stack.source_range.as_ref().map_or(0.0, |r| r.start_time.value),
     }
 }
 

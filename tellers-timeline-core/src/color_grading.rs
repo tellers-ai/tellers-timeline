@@ -688,7 +688,7 @@ impl Timeline {
             .iter()
             .find_map(|track| match track.get_item_by_id(item_id)?.1 {
                 Item::Clip(clip) => Some((track.kind.clone(), clip)),
-                Item::Gap(_) => None,
+                Item::Gap(_) | Item::Composite(_) => None,
             })
     }
 
@@ -715,7 +715,7 @@ impl Item {
     pub fn is_color_gradable(&self) -> bool {
         match self {
             Item::Clip(clip) => clip.is_color_gradable(),
-            Item::Gap(_) => false,
+            Item::Gap(_) | Item::Composite(_) => false,
         }
     }
 
@@ -723,7 +723,7 @@ impl Item {
     pub fn get_color_luts(&self) -> Vec<ColorLut> {
         match self {
             Item::Clip(clip) => clip.get_color_luts(),
-            Item::Gap(_) => Vec::new(),
+            Item::Gap(_) | Item::Composite(_) => Vec::new(),
         }
     }
 
@@ -762,7 +762,7 @@ impl Item {
     pub(crate) fn clip_mut(&mut self) -> Option<&mut Clip> {
         match self {
             Item::Clip(clip) => Some(clip),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Composite(_) => None,
         }
     }
 }
