@@ -11,7 +11,7 @@ use serde_json::json;
 use tellers_timeline_core::{
     clear_color_lut_urls, clear_color_luts, insert_color_lut_at, push_color_lut,
     remove_color_lut_at, replace_color_lut_at, resolve_color_luts, set_color_lut_urls,
-    set_color_luts, Clip, ColorLut, Effect, Gap, IdMetadataExt, Item, MediaReference, TimeRange,
+    set_color_luts, upgrade_legacy_color_lut_effects, Clip, ColorLut, Effect, Gap, IdMetadataExt, Item, MediaReference, TimeRange,
     Timeline, Track, TrackKind,
 };
 
@@ -82,13 +82,13 @@ fn push_writes_color_lut_effects() {
                 "OTIO_SCHEMA": "Effect.1",
                 "name": "slog3_to_709.cube",
                 "effect_name": "tellers.ai.ColorLut",
-                "metadata": {"tellers.ai": {"asset_id": "slog3"}}
+                "metadata": {"tellers.ai": {"parameters": {"asset_id": "slog3"}}}
             },
             {
                 "OTIO_SCHEMA": "Effect.1",
                 "name": "",
                 "effect_name": "tellers.ai.ColorLut",
-                "metadata": {"tellers.ai": {"asset_id": "warm", "parameters": {"cube_url": "https://cdn/warm.cube"}}}
+                "metadata": {"tellers.ai": {"parameters": {"asset_id": "warm", "cube_url": "https://cdn/warm.cube"}}}
             }
         ])
     );
@@ -231,12 +231,13 @@ fn set_and_clear_urls_by_asset_id() {
             .map(|effect| effect.metadata.other["tellers.ai"].clone())
             .collect()
     };
+    // Setting a URL also moves the legacy asset id into `parameters`.
     assert_eq!(
         ai(&effects),
         [
-            json!({"asset_id": "a", "intensity": 0.5, "parameters": {"cube_url": "https://cdn/a.cube"}}),
+            json!({"intensity": 0.5, "parameters": {"asset_id": "a", "cube_url": "https://cdn/a.cube"}}),
             json!({"asset_id": "b"}),
-            json!({"asset_id": "a", "parameters": {"cube_url": "https://cdn/a.cube"}})
+            json!({"parameters": {"asset_id": "a", "cube_url": "https://cdn/a.cube"}})
         ]
     );
 
@@ -244,9 +245,9 @@ fn set_and_clear_urls_by_asset_id() {
     assert_eq!(
         ai(&effects),
         [
-            json!({"asset_id": "a", "intensity": 0.5}),
+            json!({"intensity": 0.5, "parameters": {"asset_id": "a"}}),
             json!({"asset_id": "b"}),
-            json!({"asset_id": "a"})
+            json!({"parameters": {"asset_id": "a"}})
         ]
     );
     assert_eq!(clear_color_lut_urls(&mut effects), 0);
@@ -626,7 +627,7 @@ fn reads_and_clears_a_cube_url_beside_parameters() {
 }
 
 #[test]
-fn sanitize_renames_legacy_lut_effects_on_every_stage() {
+fn sanitize_upgrades_legacy_lut_effects_on_every_stage() {
     let legacy = || {
         effects_from(json!([
             {"effect_name": "ColorLut", "name": "look.cube", "metadata": {"tellers.ai": {"asset_id": "a"}}},
@@ -643,7 +644,7 @@ fn sanitize_renames_legacy_lut_effects_on_every_stage() {
     tl.sanitize();
 
     let renamed = json!([
-        {"OTIO_SCHEMA": "Effect.1", "name": "look.cube", "effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"asset_id": "a"}}},
+        {"OTIO_SCHEMA": "Effect.1", "name": "look.cube", "effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"parameters": {"asset_id": "a"}}}},
         {"OTIO_SCHEMA": "Effect.1", "name": "", "effect_name": "Blur", "metadata": {}}
     ]);
     assert_eq!(effects_json(&tl.tracks.effects), renamed);
@@ -653,4 +654,44 @@ fn sanitize_renames_legacy_lut_effects_on_every_stage() {
     };
     assert_eq!(effects_json(&clip.effects), renamed);
     assert_eq!(ids(&tl.get_color_luts()), ["a"]);
+}
+
+#[test]
+fn upgrade_moves_legacy_keys_into_parameters() {
+    let mut effects = effects_from(json!([
+        // Both keys beside `parameters`, under the current name.
+        {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"asset_id": "a", "cube_url": "https://old/a.cube", "note": 1}}},
+        // A key already in `parameters` wins over the legacy one.
+        {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"asset_id": "stale", "parameters": {"asset_id": "b"}}}},
+        // Already current: untouched.
+        {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"parameters": {"asset_id": "c"}}}},
+        // Not a LUT: untouched even with an asset_id.
+        {"effect_name": "tellers.ai.Blur", "metadata": {"tellers.ai": {"asset_id": "x"}}}
+    ]));
+    assert_eq!(upgrade_legacy_color_lut_effects(&mut effects), 2);
+    let ai: Vec<serde_json::Value> = effects
+        .iter()
+        .map(|effect| effect.metadata.other["tellers.ai"].clone())
+        .collect();
+    assert_eq!(
+        ai,
+        [
+            json!({"note": 1, "parameters": {"asset_id": "a", "cube_url": "https://old/a.cube"}}),
+            json!({"parameters": {"asset_id": "b"}}),
+            json!({"parameters": {"asset_id": "c"}}),
+            json!({"asset_id": "x"})
+        ]
+    );
+    assert_eq!(upgrade_legacy_color_lut_effects(&mut effects), 0);
+    assert_eq!(ids(&resolve_color_luts(&effects)), ["a", "b", "c"]);
+}
+
+#[test]
+fn reads_asset_id_from_parameters_or_beside_them() {
+    let effects = effects_from(json!([
+        {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"parameters": {"asset_id": "new"}}}},
+        {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "old"}}},
+        {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"asset_id": "beside", "parameters": {"asset_id": "inside"}}}}
+    ]));
+    assert_eq!(ids(&resolve_color_luts(&effects)), ["new", "old", "inside"]);
 }

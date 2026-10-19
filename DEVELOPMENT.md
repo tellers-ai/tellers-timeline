@@ -138,10 +138,12 @@ Relevant Rust/Python APIs: `associated_track_ids`, `track_groups`,
 
 ### Effects and assets
 
-LUTs use `Effect.1` / `tellers.ai.ColorLut`. The asset ID is stored under the
-effect's `metadata["tellers.ai"]["asset_id"]`; the resolved delivery URL is
-`metadata["tellers.ai"]["parameters"]["cube_url"]`. Resolve URLs before playback;
-clear temporary media and LUT URLs before persistence when appropriate.
+LUTs use `Effect.1` / `tellers.ai.ColorLut`. Like every tellers effect, all
+their data is in `metadata["tellers.ai"]["parameters"]`: the persistent
+`asset_id` and the resolved delivery URL `cube_url`. Both used to be written
+beside `parameters`; they are still read there, and `sanitize` moves them in.
+Resolve URLs before playback; clear temporary media and LUT URLs before
+persistence when appropriate.
 
 Grading stages are clip → video track → stack. Clip/track grading helpers at the
 timeline level exclude ineligible items, while object-level helpers lack that
