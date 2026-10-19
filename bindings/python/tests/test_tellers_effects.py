@@ -57,7 +57,22 @@ def test_clip_effects_round_trip():
     ]
     raw = json.loads(str(clip))["effects"][0]
     assert raw["OTIO_SCHEMA"] == "Effect.1"
+    assert raw["effect_name"] == "tellers.ai.Blur"
     assert raw["metadata"]["tellers.ai"]["parameters"]["strength"] == FADE_IN
+
+
+def test_bare_names_are_read_and_rewritten_prefixed():
+    tl = Timeline.parse_json(make_timeline().to_json())
+    data = json.loads(tl.to_json())
+    data["tracks"]["effects"] = [
+        {"OTIO_SCHEMA": "Effect.1", "effect_name": "Pan", "metadata": {"tellers.ai": {"parameters": {"pan": -1}}}}
+    ]
+    tl = Timeline.parse_json(json.dumps(data))
+    assert tl.get_tellers_effects()[0]["effect_name"] == "Pan"
+    assert tl.set_tellers_effect_parameter(0, "pan", 1)
+    assert json.loads(tl.to_json())["tracks"]["effects"][0]["effect_name"] == "tellers.ai.Pan"
+    assert tl.push_tellers_effect({"effect_name": "tellers.ai.TimeWarp", "parameters": {"preserve_pitch": False}})
+    assert tl.get_tellers_effects()[1]["effect_name"] == "TimeWarp"
 
 
 def test_unknown_effect_names_are_refused():

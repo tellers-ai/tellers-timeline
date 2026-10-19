@@ -8,7 +8,7 @@
 //! ```json
 //! {
 //!   "OTIO_SCHEMA": "Effect.1",
-//!   "effect_name": "Blur",
+//!   "effect_name": "tellers.ai.Blur",
 //!   "name": "soft focus",
 //!   "enabled": true,
 //!   "metadata": { "tellers.ai": { "parameters": {
@@ -18,7 +18,10 @@
 //! }
 //! ```
 //!
-//! - `effect_name` picks the effect; [`EFFECT_SPECS`] lists the ones the
+//! - `effect_name` is `tellers.ai.<Effect>`; a bare `<Effect>`, written
+//!   before tellers effects were prefixed, is still read, and rewritten with
+//!   the prefix when the effect is next written. [`TellersEffect`] holds the
+//!   bare name. [`EFFECT_SPECS`] lists the effects the
 //!   player knows and their parameters. The player ignores other names.
 //! - `enabled: false` turns the effect off without removing it; absent means
 //!   enabled.
@@ -40,6 +43,16 @@ use crate::{Clip, Effect, Item, Timeline, Track, TrackKind};
 /// Key, inside a tellers effect's `tellers.ai` object, holding its
 /// parameters.
 const PARAMETERS_KEY: &str = "parameters";
+
+/// Prefix of a tellers effect's `effect_name`, as in `tellers.ai.Blur`.
+pub const TELLERS_EFFECT_PREFIX: &str = "tellers.ai.";
+
+/// `effect_name` without its [`TELLERS_EFFECT_PREFIX`].
+pub fn bare_effect_name(effect_name: &str) -> &str {
+    effect_name
+        .strip_prefix(TELLERS_EFFECT_PREFIX)
+        .unwrap_or(effect_name)
+}
 
 /// What a tellers effect applies to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,7 +295,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
     ),
     effect("Volume", Audio, &[anim("volume"), anim("fadeIn"), anim("fadeOut")]),
     effect("Pan", Audio, &[anim("pan")]),
-    effect("TimeWarp", Time, &[anim("speed")]),
+    effect("TimeWarp", Time, &[anim("speed"), boolean("preserve_pitch")]),
     effect("TextTypewriter", Text, &[anim("progress")]),
     effect(
         "TextWordReveal",
@@ -310,9 +323,11 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
     ),
 ];
 
-/// The spec of the tellers effect `effect_name`, if the player knows it.
+/// The spec of the tellers effect `effect_name` (prefixed or bare), if the
+/// player knows it.
 pub fn effect_spec(effect_name: &str) -> Option<&'static EffectSpec> {
-    EFFECT_SPECS.iter().find(|spec| spec.name == effect_name)
+    let name = bare_effect_name(effect_name);
+    EFFECT_SPECS.iter().find(|spec| spec.name == name)
 }
 
 /// Whether `effect` is a tellers effect: its `effect_name` is in
@@ -452,7 +467,8 @@ impl Animatable {
 /// parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TellersEffect {
-    /// Which effect this is, e.g. `Blur`; see [`EFFECT_SPECS`].
+    /// Which effect this is, bare, e.g. `Blur` (stored as `tellers.ai.Blur`);
+    /// see [`EFFECT_SPECS`].
     pub effect_name: String,
     /// Optional display label, stored as the OTIO `name`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -560,7 +576,7 @@ impl TellersEffect {
             .cloned()
             .unwrap_or_default();
         Some(TellersEffect {
-            effect_name: effect.effect_name.clone(),
+            effect_name: bare_effect_name(&effect.effect_name).to_string(),
             name: Some(effect.name.clone()).filter(|name| !name.is_empty()),
             enabled: effect.enabled != Some(false),
             parameters,
@@ -570,7 +586,10 @@ impl TellersEffect {
     /// Write this effect into `effect`, keeping its other keys (other
     /// `tellers.ai` keys, Resolve data, extra OTIO fields).
     fn write_into(&self, effect: &mut Effect) {
-        effect.effect_name = self.effect_name.clone();
+        effect.effect_name = format!(
+            "{TELLERS_EFFECT_PREFIX}{}",
+            bare_effect_name(&self.effect_name)
+        );
         effect.name = self.name.clone().unwrap_or_default();
         // Keep an explicit `enabled: true` as it was; only write what differs.
         effect.enabled = match (self.enabled, effect.enabled) {
@@ -792,7 +811,7 @@ macro_rules! impl_tellers_effects {
                 self.get_tellers_effects()
                     .into_iter()
                     .enumerate()
-                    .find(|(_, effect)| effect.effect_name == effect_name)
+                    .find(|(_, effect)| effect.effect_name == bare_effect_name(effect_name))
             }
 
             #[doc = concat!("Replace every tellers effect of ", $stage, "; see [`set_tellers_effects`].")]
@@ -1043,6 +1062,29 @@ mod tests {
     }
 
     #[test]
+    fn writes_prefixed_names_and_reads_both() {
+        let prefixed = effect_json(json!({ "OTIO_SCHEMA": "Effect.1", "effect_name": "tellers.ai.Pan" }));
+        let bare = effect_json(json!({ "OTIO_SCHEMA": "Effect.1", "effect_name": "Pan" }));
+        assert_eq!(TellersEffect::from_effect(&prefixed).unwrap().effect_name, "Pan");
+        assert_eq!(TellersEffect::from_effect(&bare).unwrap().effect_name, "Pan");
+        assert_eq!(TellersEffect::new("Pan").to_effect().effect_name, "tellers.ai.Pan");
+        assert_eq!(
+            TellersEffect::new("tellers.ai.Pan").to_effect().effect_name,
+            "tellers.ai.Pan"
+        );
+
+        let mut clip = test_clip();
+        clip.effects = vec![bare];
+        assert!(clip.set_tellers_effect_enabled(0, false));
+        assert_eq!(clip.effects[0].effect_name, "tellers.ai.Pan");
+        assert_eq!(clip.find_tellers_effect("tellers.ai.Pan").unwrap().0, 0);
+        assert!(TellersEffect::new("TimeWarp")
+            .with_parameter("preserve_pitch", false)
+            .validate()
+            .is_ok());
+    }
+
+    #[test]
     fn hold_keeps_value_until_next_keyframe() {
         let a = Animatable::from(vec![
             Keyframe::new(0.0, 1.0).with_ease(Ease::Hold),
@@ -1092,7 +1134,7 @@ mod tests {
             .unwrap();
         assert_eq!(previous.effect_name, "Blur");
         let raw = serde_json::to_value(&clip.effects[0]).unwrap();
-        assert_eq!(raw["effect_name"], "Pixelate");
+        assert_eq!(raw["effect_name"], "tellers.ai.Pixelate");
         assert_eq!(raw["metadata"]["tellers.ai"]["note"], "keep");
         assert_eq!(raw["metadata"]["other"], 1);
         assert_eq!(raw["metadata"]["tellers.ai"]["parameters"], json!({ "size": 10.0 }));

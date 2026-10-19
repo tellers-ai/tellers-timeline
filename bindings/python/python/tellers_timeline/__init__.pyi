@@ -58,6 +58,7 @@ EffectParameter = Union[Animatable, str, bool, list[Any]]
 class TellersEffect(TypedDict):
     """A player effect: `Effect.1` with `metadata["tellers.ai"].parameters`."""
     effect_name: str
+    """Bare name, e.g. "Blur"; stored as "tellers.ai.Blur" (a "tellers.ai." prefix is accepted on input)."""
     name: Optional[str]
     enabled: bool
     parameters: dict[str, EffectParameter]
