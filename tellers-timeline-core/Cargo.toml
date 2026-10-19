@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 authors = ["tellers-oss"]
 license = "MIT OR Apache-2.0"
+description = "An OpenTimelineIO timeline engine with policy-driven editing, sync, sanitization, and effect conventions."
+repository = "https://github.com/tellers-ai/tellers-timeline"
+documentation = "https://docs.rs/tellers-timeline-core"
+readme = "../README.md"
+keywords = ["opentimelineio", "otio", "timeline", "video", "editing"]
+categories = ["multimedia::video", "data-structures"]
 
 [dependencies]
 serde = { workspace = true }

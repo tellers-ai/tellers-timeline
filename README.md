@@ -1,96 +1,142 @@
-### tellers-timeline
+<div align="center">
 
-Open-source, cross-language library for reading, writing, validating, and editing a simplified subset of OTIO (OpenTimelineIO) JSON files.
+# tellers-timeline
 
-#### Quick start
-- Build everything: `just build-all`
-- Run tests: `just test-all`
-- Regenerate schema: `just regen-schema` (writes to `spec/otio.schema.json`)
+**The timeline engine for tools that make the cut.**
 
-#### Publishing the Python package
+[![PyPI](https://img.shields.io/pypi/v/tellers-timeline?logo=pypi&logoColor=white)](https://pypi.org/project/tellers-timeline/)
+[![crates.io](https://img.shields.io/crates/v/tellers-timeline-core?logo=rust&logoColor=white)](https://crates.io/crates/tellers-timeline-core)
+[![Rust docs](https://docs.rs/tellers-timeline-core/badge.svg)](https://docs.rs/tellers-timeline-core)
+[![CI](https://github.com/tellers-ai/tellers-timeline/actions/workflows/ci.yml/badge.svg)](https://github.com/tellers-ai/tellers-timeline/actions/workflows/ci.yml)
 
-The `Publish Python package` GitHub Actions workflow builds and tests wheels for
-Linux x86-64, macOS Intel and Apple Silicon, and Windows x86-64, plus a source
-distribution. A manual run builds downloadable artifacts by default. Check
-`Publish the built distributions to PyPI` to upload them; publishing runs only
-from the repository's default branch.
+Read timelines. Make edits. Keep everything in sync.
 
-One-time setup:
+[Install](#install) · [Try it](#make-your-first-edit) · [Features](#what-works-today) · [Standardization](#building-a-shared-language-for-editing) · [Contribute](CONTRIBUTING.md)
 
-1. Verify your PyPI email and enable two-factor authentication.
-2. Create the GitHub environment `pypi` in this repository's settings.
-3. At <https://pypi.org/manage/account/publishing/>, add a pending GitHub publisher:
-   project `tellers-timeline`, owner `tellers-ai`, repository `tellers-timeline`,
-   workflow `publish-python.yml`, environment `pypi`.
-4. Commit and push the workflow, then run it from the repository's Actions tab.
+</div>
 
-Trusted Publishing creates the PyPI project on the first upload and needs no
-stored API token. See [PyPI's setup instructions](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/).
-Before each new release, update the version in both
-`bindings/python/pyproject.toml` and `bindings/python/Cargo.toml`. PyPI does not
-allow reusing an uploaded distribution filename.
+`tellers-timeline` is an open-source timeline engine, written in Rust and available
+in Python, built around [OpenTimelineIO](https://opentimelineio.readthedocs.io/).
+Use it to build editors, automate cuts, and exchange timelines between tools.
 
-#### Subset implemented
-- Timeline, Tracks, Clips, Gaps, MediaReference, Metadata
-- Time values are seconds (`f64`)
-- IDs are optional UUIDs (may be omitted/null for portability)
+Our ambition is **full OTIO coverage**, with an editing API that handles the work
+around the format: insert and overlap policies, linked audio and video, stable
+identity, media bounds, and document cleanup. We're also developing shared
+conventions for effects and IDs so more of an edit can travel between applications.
 
-#### Associated tracks (sync partners)
-Which tracks a clip's sync partners go to is computed from the sync clips
-(the Resolve `Link Group ID` on clips), never stored: the saved document is
-plain OTIO. Every sync column has an owner, its video track, or for an
-audio-only column the member track holding the most clips (highest on a tie).
-The owner's *associated tracks* are the tracks holding the other clips of its
-columns, nearest first; a track belongs to one owner (the one it shares the
-most columns with), and a track holding no sync clip is *free*. A *video
-group* is a video track with its audio tracks; an *audio group* is audio
-tracks only.
+## Install
 
-Placement of a column's partners, in order: on a horizontal move or replace
-the partner's own track; the nearest associated track that is free over the
-column (the owner itself counts for audio groups); the nearest free track in
-no group; on a move onto a track with no partners, the source track; otherwise
-a new track created past the existing partners (and the slots already used
-by the column), so slot order is also stack order once normalized.
+**Python** — prebuilt wheels for Linux x86-64, macOS Intel and Apple Silicon, and Windows x86-64:
 
-Rules: a column with a video clip is inserted on a video track (its primary is
-the video); a plain audio clip or an audio-only column never lands on a video
-group's audio track (a track with no sync clip is free and always accepts
-them); the audio partner of a video column never leaves its video's group: it
-moves in time, or onto a sibling track where it swaps with the channel there
-(refused when the slot holds anything else), and a drop on any other track is
-refused; the video clip moves the whole column to another video track; audio
-groups and video groups never mix. Deleting a track drops only its channel.
-Resizes mirror on the partners what happened on the primary track, and a
-clip whose head is trimmed keeps its id. Syncing clips by hand gathers them
-into one group, moving clips off other groups onto new partner tracks.
+```sh
+pip install tellers-timeline
+```
 
-`normalize_track_order` is the only call that reorders tracks: each group
-becomes contiguous, owner on top with its partners right below in slot order.
-`prune_empty_partner_tracks` removes the audio tracks the library created
-once they hold no clip. The library marks the tracks it creates at
-`metadata["tellers.ai"]["created_by"] = "auto"` (`Track.is_auto_created()`);
-renaming a track with `Track.set_name` clears the mark, so a track the user
-named is kept. Both are separate steps the host runs when it wants, e.g. once
-per request or on save.
+**Rust** — add the library to your application:
 
-API: `Stack.associated_track_ids(track_id)`, `Stack.track_groups()` (every
-group as one object: owner, kind, partners in slot order; tracks in no group
-are groups of one), `Stack.free_audio_track_for(start, duration)`,
-`Stack.normalize_track_order()`, `Stack.prune_empty_partner_tracks()`,
-`Stack.insert_item_at_time_by_id(...)`, in Rust and Python.
-`tools/audit_associated_tracks.py` reports what these rules see in a set of
-project documents.
+```sh
+cargo add tellers-timeline-core
+```
 
-#### Visual test UI
-A small browser timeline backed by the Python bindings, for trying the editing
-API by hand without any media: drag clips between tracks, resize edges, split,
-link/group, insert clips or gaps with the per-track `+` button, add tracks with
-`+ Track`. Every action shows the exact library call and result, plus
-`validate()` output and the timeline JSON.
+Python imports `tellers_timeline`; Rust imports `tellers_timeline_core`.
+Building the Python package from source requires Rust and Cargo.
 
-- VS Code: press F5 and pick "Timeline test UI (browser)"
-- CLI: `just ui` (or `tools/timeline-ui/run.sh`), then open http://127.0.0.1:8765/
+## Make your first edit
 
-The launcher runs `maturin develop` first so the UI always uses the current
-Rust code. Use `SKIP_BUILD=1` to skip that step.
+Create a video track, insert a clip at two seconds, and serialize the timeline:
+
+```python
+from tellers_timeline import Clip, MediaReference, Stack, Timeline, Track
+
+stack = Stack([Track(kind="video", id="main-video")])
+clip = Clip(
+    5.0,
+    {"DEFAULT_MEDIA": MediaReference("file:///media/shot.mov")},
+    id="opening-shot",
+)
+
+stack.insert_item_at_time_by_id(
+    "main-video",
+    2.0,
+    clip,
+    "override",          # Replace material overlapping the new clip.
+    "split_and_insert",  # Split a gap when inserting inside one.
+)
+
+timeline = Timeline(stack)
+timeline.sanitize()
+assert not timeline.validate()
+print(timeline.to_json())
+```
+
+Editing APIs take time in seconds; OTIO serialization carries `RationalTime`
+values and rates. Load an existing document with `Timeline.parse_json(text)`.
+
+In Rust, work directly with the core types and shared effect conventions:
+
+```rust
+use tellers_timeline_core::{ColorLut, Timeline, Track, TrackKind};
+
+let mut timeline = Timeline::default();
+timeline.add_track(Track::new(TrackKind::Video, Some("main-video".into())));
+timeline.push_color_lut(ColorLut::new("film-look").with_name("Film look"));
+timeline.sanitize();
+
+println!("{}", timeline.to_json().unwrap());
+```
+
+## What works today
+
+Full coverage is the goal. This table tracks the current implementation and the
+remaining work; it is not a claim of complete OTIO conformance.
+
+| Area | Status | Available today / remaining work |
+| --- | --- | --- |
+| Timeline structure | ✅ Supported | Timelines, stacks of audio/video/other tracks, clips, gaps, and enabled state. |
+| Time and ranges | 🟡 Partial | `RationalTime`, `TimeRange`, rate conversion, and editing in seconds. Broader OTIO time APIs remain. |
+| Media references | 🟡 Partial | External and generator references, multiple references per clip, and available ranges. Missing references load as empty external references; image sequences remain. |
+| Metadata and serialization | ✅ Supported | Arbitrary JSON metadata, OTIO JSON reading/writing, configurable numeric precision, and JSON Schema generation. |
+| Markers | ✅ Supported | Point/range markers, names, comments, colors, IDs, and source-to-timeline time conversion. |
+| Effect data | 🟡 Partial | Effect lists on clips, tracks, and stacks; Resolve parameter parsing; transform, crop, volume, and LUT helpers. Portable effect schemas remain a standardization target. |
+| Insert and overlap policies | ✅ Supported | Push or override overlaps; insert before, after, nearest boundary, or split a gap to insert. |
+| Timeline editing | ✅ Supported | Move, replace, split, resize, delete, reorder tracks, and find snap targets. |
+| Audio/video sync and groups | ✅ Supported | Linked editing, sync partner placement, associated tracks, group discovery, and optional track normalization. |
+| Sanitization | ✅ Supported | Clamp clips to available media, repair missing/duplicate track and item IDs, merge gaps, remove zero-length items/trailing gaps, and clean dangling sync links. |
+| Validation | 🟡 Partial | Negative item-duration checks. Comprehensive structural and schema validation remains. |
+| Rich text and styling | ✅ Supported | Resolve rich-text generators, timeline font declarations, named CSS text styles, and LUT asset/URL helpers. |
+| Nested compositions | ⬜ Missing | Arbitrary stacks and tracks nested inside other compositions. |
+| Transitions and time effects | ⬜ Missing | Transition-aware editing, speed changes, time warps, and freeze-frame semantics. |
+| Full OTIO schema coverage | ⬜ Missing | Remaining object types, schema-version handling, and comprehensive interoperability fixtures. |
+| Format adapters | ⬜ Missing | Native AAF, EDL, FCPXML, and other format adapters. Use the OTIO ecosystem to convert to/from `.otio`. |
+| Language bindings | 🟡 Partial | Rust and typed Python APIs today; additional bindings are future work. |
+
+The library manipulates edit data. Media playback, effect rendering, and export
+encoding belong to the application using it.
+
+## Building a shared language for editing
+
+OTIO is the foundation. Alongside broader format support, we want applications to
+agree on **what an effect means**, **which object an edit addresses**, and **how
+related clips stay together**. These are project conventions and proposals for
+wider interoperability; they are not ratified OTIO standards.
+
+| Convention | Implemented today | Standardization direction |
+| --- | --- | --- |
+| Object identity | `metadata["tellers.ai"]["timeline_id"]`; IDs on tracks, items, and markers; missing/duplicate track and item IDs repaired during sanitization. | Stable identity and clear rules for moves, copies, splits, and imports across tools. IDs are strings, not a UUID requirement. |
+| Effect identity and parameters | LUTs use `Effect.1` with `effect_name: "tellers.ai.ColorLut"` and parameters under `metadata["tellers.ai"]["parameters"]`. | A documented, versioned vocabulary for portable effects, parameter units, defaults, and evaluation order. |
+| Transform, crop, and volume | Read/write helpers currently use Resolve representations. | Shared effect schemas and mappings between application-specific encodings. |
+| Color grading assets | Ordered LUTs on clips, video tracks, and the stack; persistent `asset_id`, resolvable `parameters.cube_url`. | Predictable grading stages and a common distinction between asset identity and temporary delivery URLs. |
+| Sync and edit groups | Sync links use `Resolve_OTIO["Link Group ID"]`; edit groups use `tellers.ai["Tellers Group ID"]`. Associated tracks are computed. | Portable sync/group semantics without persisting redundant track associations. |
+| Text and fonts | `tellers.ai.availableFonts` and `tellers.ai.textStyles`; rich-text generator helpers. | Portable typography, named styles, and text generator conventions. |
+| Provenance | `tellers.ai.created_by` on markers and automatically created tracks. | Documented creator/provenance semantics, with room to separate user identity from automatic creation. |
+
+Bring real timelines, editor integrations, and competing representations. The
+standardization work should be shaped by interoperability tests and adoption.
+
+## Explore and build
+
+- **[Developer guide](DEVELOPMENT.md)** — architecture, local setup, editing semantics, visual test UI, and releases.
+- **[Contributing](CONTRIBUTING.md)** — bug reports, feature proposals, compatibility fixtures, and pull requests.
+- **[Rust API](https://docs.rs/tellers-timeline-core)** · **[Python type signatures](bindings/python/python/tellers_timeline/__init__.pyi)** · **[Example timelines](spec/examples)** · **[JSON Schema](spec/otio.schema.json)**
+
+Built by [Tellers](https://tellers.ai) for timelines that can move between tools.
