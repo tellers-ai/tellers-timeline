@@ -1,12 +1,18 @@
 [build-system]
-requires = ["maturin>=1.4"]
+requires = ["maturin>=1.4,<2"]
 build-backend = "maturin"
 
 [project]
 name = "tellers-timeline"
 version = "0.1.3"
+description = "Read, write, validate, and edit a simplified subset of OpenTimelineIO JSON."
+readme = "README.md"
 requires-python = ">=3.8"
 classifiers = ["Programming Language :: Python", "Programming Language :: Rust"]
+
+[project.urls]
+Repository = "https://github.com/tellers-ai/tellers-timeline"
+Issues = "https://github.com/tellers-ai/tellers-timeline/issues"
 
 [tool.maturin]
 include = ["python/**/*.pyi", "python/**/py.typed"]
