@@ -88,6 +88,61 @@
         }
       }
     },
+    "CompositeStack": {
+      "description": "A `Stack` nested inside a track: a composite clip, drawn as one clip made of its own tracks (the player's `CompositeStack`).\n\nIts length is `source_range.duration` when a source range is set, otherwise the length of its longest child track. `source_range.start_time` is the offset into the child tracks where the composite starts playing.",
+      "type": "object",
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "Stack.1",
+          "type": "string"
+        },
+        "children": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Track"
+          }
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Effect"
+          }
+        },
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Marker"
+          }
+        },
+        "metadata": {
+          "default": null
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_range": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TimeRange"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "Effect": {
       "type": "object",
       "properties": {
@@ -199,6 +254,17 @@
         },
         {
           "$ref": "#/definitions/Gap"
+        },
+        {
+          "description": "A nested `Stack.*` inside a track: a composite clip drawn as one clip made of its own tracks (see [`CompositeStack`]).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/CompositeStack"
+            }
+          ]
+        },
+        {
+          "$ref": "#/definitions/Transition"
         }
       ]
     },
@@ -240,7 +306,7 @@
         "metadata": {
           "default": {
             "tellers.ai": {
-              "timeline_id": "ba42c57e1143"
+              "timeline_id": "99e747eeb388"
             }
           }
         },
@@ -854,6 +920,54 @@
         "audio",
         "other"
       ]
+    },
+    "Transition": {
+      "description": "An OTIO `Transition.1` sitting between two neighbouring track items.\n\nA transition takes no track time: `in_offset` says how far it reaches back into the item before it and `out_offset` how far it reaches into the item after it. The neighbours' `source_range`s do not include that overlap, so a renderer has to read extra media handles past each cut. `transition_type` is `SMPTE_Dissolve` for a standard dissolve; NLE-specific effects (e.g. DaVinci Resolve Fusion transitions) export as `Custom_Transition` with the details under `metadata`.",
+      "type": "object",
+      "properties": {
+        "OTIO_SCHEMA": {
+          "default": "Transition.1",
+          "type": "string"
+        },
+        "in_offset": {
+          "default": {
+            "OTIO_SCHEMA": "RationalTime.1",
+            "rate": 1.0,
+            "value": 0.0
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/RationalTime"
+            }
+          ]
+        },
+        "metadata": {
+          "default": null
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "out_offset": {
+          "default": {
+            "OTIO_SCHEMA": "RationalTime.1",
+            "rate": 1.0,
+            "value": 0.0
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/RationalTime"
+            }
+          ]
+        },
+        "transition_type": {
+          "default": "SMPTE_Dissolve",
+          "type": "string"
+        }
+      }
     }
   }
 }

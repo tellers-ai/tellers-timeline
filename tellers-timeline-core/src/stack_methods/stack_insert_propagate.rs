@@ -404,7 +404,7 @@ impl Stack {
                     .and_then(|item_index| track.items.get(item_index))
                     .and_then(|item| match item {
                         Item::Clip(clip) => resolve_sync_clips_id(&clip.metadata),
-                        Item::Gap(_) | Item::Composite(_) => None,
+                        Item::Gap(_) | Item::Composite(_) | Item::Transition(_) => None,
                     })
                     .is_some_and(|id| id == sync_clips_id)
             });

@@ -794,20 +794,20 @@ impl_effect_stage!(Track, |t| t.effects);
 // OTIO timelines have no effects of their own; the root stack holds them.
 impl_effect_stage!(Timeline, |t| t.tracks.effects);
 
-/// A clip's or a composite clip's effects; a gap has none.
+/// A clip's or a composite clip's effects; gaps and transitions have none.
 impl EffectStage for Item {
     fn stage_effects(&self) -> Option<&[Effect]> {
         match self {
             Item::Clip(clip) => clip.stage_effects(),
             Item::Composite(stack) => stack.stage_effects(),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Transition(_) => None,
         }
     }
     fn stage_effects_mut(&mut self) -> Option<&mut Vec<Effect>> {
         match self {
             Item::Clip(clip) => clip.stage_effects_mut(),
             Item::Composite(stack) => stack.stage_effects_mut(),
-            Item::Gap(_) => None,
+            Item::Gap(_) | Item::Transition(_) => None,
         }
     }
 }

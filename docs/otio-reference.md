@@ -56,9 +56,9 @@ Values: `"video"` \| `"audio"` \| `"other"`.
 
 ### Item
 
-An entry of a track: a clip, a gap of empty time, or a composite clip.
+An entry of a track: a clip, a gap of empty time, a composite clip, or a transition between two neighbours.
 
-One of [Clip](#clip), [Gap](#gap), [CompositeStack](#compositestack).
+One of [Clip](#clip), [Gap](#gap), [CompositeStack](#compositestack), [Transition](#transition).
 
 ### Clip
 
@@ -103,6 +103,19 @@ A composite clip: a `Stack.1` nested inside a video track, drawn as one clip mad
 | `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id. |
 | `name` | string \| null |  |  | Display name. |
 | `source_range` | [TimeRange](#timerange) \| null |  |  | Optional. `start_time` is where in its child tracks it starts playing, and `duration` how long it lasts on the outer track. |
+
+### Transition
+
+A transition between the two items around it on a track. It takes no time of its own: it overlaps the end of the item before it by `in_offset` and the start of the item after it by `out_offset`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `OTIO_SCHEMA` | string |  | `"Transition.1"` | `Transition.1`. |
+| `in_offset` | [RationalTime](#rationaltime) |  |  | How far it reaches back into the item before it. |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.parameters` holds the player's `color` (dips) and `direction` (`left`, `right`, `up`, `down`). |
+| `name` | string \| null |  |  | Display name. |
+| `out_offset` | [RationalTime](#rationaltime) |  |  | How far it reaches into the item after it. |
+| `transition_type` | string |  | `"SMPTE_Dissolve"` | OTIO's `SMPTE_Dissolve` (a dissolve) or `Custom_Transition`. The player also reads `Dissolve`, `DipToBlack`, `DipToWhite`, `DipToColor`, `Wipe`, `Push`, `Slide` and `Zoom`, and dissolves on anything else. |
 
 ### MediaReference
 

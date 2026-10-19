@@ -224,19 +224,26 @@ fn item_source_to_timeline_offset(track: &Track, index: usize) -> Seconds {
     track.start_time_of_item(index) - item.get_source_range().get_start_time()
 }
 
+/// No markers: what a transition holds (OTIO transitions carry none).
+static NO_MARKERS: Vec<Marker> = Vec::new();
+
 fn item_markers(item: &Item) -> &Vec<Marker> {
     match item {
         Item::Clip(c) => &c.markers,
         Item::Gap(g) => &g.markers,
         Item::Composite(s) => &s.markers,
+        Item::Transition(_) => &NO_MARKERS,
     }
 }
 
+/// Callers look a marker up with [`item_markers`] first, which finds none on
+/// a transition, so they never reach one here.
 fn item_markers_mut(item: &mut Item) -> &mut Vec<Marker> {
     match item {
         Item::Clip(c) => &mut c.markers,
         Item::Gap(g) => &mut g.markers,
         Item::Composite(s) => &mut s.markers,
+        Item::Transition(_) => unreachable!("transitions hold no markers"),
     }
 }
 
@@ -297,6 +304,8 @@ impl Stack {
                     Item::Clip(_) => MarkerOwnerKind::Clip,
                     Item::Gap(_) => MarkerOwnerKind::Gap,
                     Item::Composite(_) => MarkerOwnerKind::Composite,
+                    // Unreachable: a transition has no markers (skipped above).
+                    Item::Transition(_) => continue,
                 };
                 for m in markers {
                     const EPS: Seconds = 1e-9;
@@ -401,7 +410,7 @@ impl Stack {
                     else {
                         continue;
                     };
-                    if matches!(track.items[ii], Item::Gap(_)) {
+                    if matches!(track.items[ii], Item::Gap(_) | Item::Transition(_)) {
                         return None;
                     }
                     let offset = item_source_to_timeline_offset(track, ii);

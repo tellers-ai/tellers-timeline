@@ -128,7 +128,7 @@ impl Track {
             let remove_count = end_index - insert_index;
             for _ in 0..remove_count {
                 let clip = &self.items[insert_index];
-                if !matches!(clip, Item::Gap(_)) {
+                if !matches!(clip, Item::Gap(_) | Item::Transition(_)) {
                     let clip_id = clip.get_id().unwrap_or_default();
                     // The head of a clip cut by the end boundary is not a
                     // deletion: its tail survives and keeps the clip's id.

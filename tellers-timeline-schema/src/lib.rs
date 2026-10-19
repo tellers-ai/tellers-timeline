@@ -54,7 +54,8 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
     ),
     (
         "Item",
-        "An entry of a track: a clip, a gap of empty time, or a composite clip.",
+        "An entry of a track: a clip, a gap of empty time, a composite clip, or a \
+         transition between two neighbours.",
     ),
     (
         "Clip",
@@ -70,6 +71,12 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
         "A composite clip: a `Stack.1` nested inside a video track, drawn as one clip made \
          of its own tracks. It lasts `source_range.duration` when a source range is set, \
          otherwise as long as its longest child track.",
+    ),
+    (
+        "Transition",
+        "A transition between the two items around it on a track. It takes no time of its \
+         own: it overlaps the end of the item before it by `in_offset` and the start of the \
+         item after it by `out_offset`.",
     ),
     (
         "MediaReference",
@@ -222,6 +229,23 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     ("CompositeStack", "enabled", "A disabled composite is neither drawn nor heard; it still takes its time."),
     ("CompositeStack", "markers", "Markers, kept for OTIO round trips."),
     ("CompositeStack", "metadata", "Free JSON. `tellers.ai.timeline_id` is the item id."),
+    ("Transition", "OTIO_SCHEMA", "`Transition.1`."),
+    ("Transition", "name", "Display name."),
+    (
+        "Transition",
+        "transition_type",
+        "OTIO's `SMPTE_Dissolve` (a dissolve) or `Custom_Transition`. The player also reads \
+         `Dissolve`, `DipToBlack`, `DipToWhite`, `DipToColor`, `Wipe`, `Push`, `Slide` and \
+         `Zoom`, and dissolves on anything else.",
+    ),
+    ("Transition", "in_offset", "How far it reaches back into the item before it."),
+    ("Transition", "out_offset", "How far it reaches into the item after it."),
+    (
+        "Transition",
+        "metadata",
+        "Free JSON. `tellers.ai.parameters` holds the player's `color` (dips) and `direction` \
+         (`left`, `right`, `up`, `down`).",
+    ),
     ("MediaReference", "OTIO_SCHEMA", "Picks the kind of reference."),
     ("MediaReference", "name", "Display name."),
     (

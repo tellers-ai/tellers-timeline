@@ -23,7 +23,7 @@ impl Track {
                 .unwrap_or(0.0);
             let previous = match &mut self.items[index - 1] {
                 Item::Gap(gap) => gap,
-                Item::Clip(_) | Item::Composite(_) => unreachable!("previous_gap was checked above"),
+                Item::Clip(_) | Item::Composite(_) | Item::Transition(_) => unreachable!("previous_gap was checked above"),
             };
             previous.source_range.duration.set_from_seconds(
                 previous.source_range.duration.to_seconds() + duration + next_duration,
@@ -37,7 +37,7 @@ impl Track {
         if next_gap {
             let next = match &mut self.items[index] {
                 Item::Gap(gap) => gap,
-                Item::Clip(_) | Item::Composite(_) => unreachable!("next_gap was checked above"),
+                Item::Clip(_) | Item::Composite(_) | Item::Transition(_) => unreachable!("next_gap was checked above"),
             };
             next.source_range
                 .duration
@@ -60,6 +60,7 @@ impl Track {
             Item::Clip(_) | Item::Composite(_) => {
                 let removed_duration = self.items[index].duration().max(0.0);
                 let removed = self.items.remove(index);
+                let index = self.remove_transitions_around(index);
                 if replace_with_gap && removed_duration > 0.0 {
                     self.insert_replacement_gap(index, removed_duration);
                 }
@@ -67,7 +68,24 @@ impl Track {
             }
             Item::Gap(_) if !replace_with_gap => Some(self.items.remove(index)),
             Item::Gap(_) => None,
+            Item::Transition(_) => Some(self.items.remove(index)),
         }
+    }
+
+    /// After removing an item at `index`, drop any transition that was attached
+    /// to it (the one now at `index - 1` and the one now at `index`). A
+    /// transition only makes sense between the two items it was created for.
+    /// Returns the index where the removed item's slot now starts.
+    pub(crate) fn remove_transitions_around(&mut self, index: usize) -> usize {
+        let mut index = index;
+        if index < self.items.len() && self.items[index].is_transition() {
+            self.items.remove(index);
+        }
+        if index > 0 && index <= self.items.len() && self.items[index - 1].is_transition() {
+            self.items.remove(index - 1);
+            index -= 1;
+        }
+        index
     }
 
     /// Delete every item fully contained in `[start_time, end_time)`.
@@ -92,10 +110,15 @@ impl Track {
 
         let start_index = self.get_item_at_time(start).unwrap_or(self.items.len());
         let end_index = self.get_item_at_time(end).unwrap_or(self.items.len());
-        let removed = if end_index > start_index {
+        let removed: Vec<Item> = if end_index > start_index {
             self.items.drain(start_index..end_index).collect()
         } else {
             Vec::new()
+        };
+        let start_index = if removed.is_empty() {
+            start_index
+        } else {
+            self.remove_transitions_around(start_index)
         };
 
         if replace_with_gap && end - start > EPS {
