@@ -604,7 +604,14 @@ The same effect can sit on a clip, a track (applied to each of its clips) or the
 
 ### ColorLut
 
-`tellers.ai.ColorLut`: a `.cube` LUT graded on a clip, a track or the whole timeline. Unlike the effects above it is identified by `metadata["tellers.ai"].asset_id`; the player downloads `parameters.cube_url`, which is resolved from the asset id before playback and stripped before saving.
+`tellers.ai.ColorLut`: a `.cube` LUT graded on a clip, a track or the whole timeline. Like the effects above, its data is in `parameters`:
+
+| Parameter | Value |
+|---|---|
+| `asset_id` | string: the `.cube` asset, what the timeline stores |
+| `cube_url` | string: the URL the player downloads, resolved from `asset_id` before playback and stripped before saving |
+
+Both used to be written beside `parameters`, directly in `tellers.ai`; they are still read there, and `sanitize` moves them in.
 
 ### Animatable parameters
 

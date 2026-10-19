@@ -174,7 +174,8 @@ fast). `FreezeFrame.1` holds a single frame. They work like
 
 ### Colour grading (`tellers.ai.ColorLut`)
 
-A `.cube` LUT, identified by `metadata["tellers.ai"].asset_id`. It grades a
+A `.cube` LUT, identified by its `asset_id` parameter; `cube_url`, the file
+the player downloads, is filled in from it before playback. It grades a
 clip, every clip of a track, or the whole image when it is on the stack.
 Clip LUTs apply first, then the track's, then the timeline's.
 
@@ -188,7 +189,6 @@ Clip LUTs apply first, then the track's, then the timeline's.
 | markers | `created_by` | The user who left the note. |
 | timeline, tracks | `textStyles` | Named CSS classes for Rich Text HTML. A track's override the timeline's. |
 | timeline | `availableFonts` | `[{family, url, weight?, style?}]` fonts that text clips may use. |
-| LUT effects | `asset_id` | The `.cube` asset. |
 
 Any other metadata is kept as it is.
 
