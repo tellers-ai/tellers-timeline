@@ -259,7 +259,6 @@ def test_track_luts_on_a_track_object():
     assert track.push_color_lut("warm", name="warm.cube")
     assert track.insert_color_lut_at(0, "film")
     assert track.get_color_luts() == [lut("film"), lut("warm", name="warm.cube")]
-    assert "color_grading" not in json.loads(track.get_metadata_json()).get("tellers.ai", {})
     assert track.set_color_lut_urls({"film": "https://cdn/f.cube"}) == 1
     assert track.clear_color_lut_urls() == 1
     assert track.remove_color_lut_at(0) == lut("film")
@@ -298,19 +297,3 @@ def test_timeline_edits_tracks_by_id():
     assert tl.clear_color_lut_urls() == 2
     assert tl.clear_track_color_luts("v")
     assert not tl.clear_track_color_luts("missing")
-
-
-def test_legacy_metadata_luts_are_read_and_moved_on_write():
-    tl = Timeline()
-    data = json.loads(tl.to_json())
-    data["metadata"].setdefault("tellers.ai", {})["color_grading"] = [
-        {"asset_id": "old", "name": "old.cube"}
-    ]
-    tl = Timeline.parse_json(json.dumps(data))
-    assert tl.get_color_luts() == [lut("old", "old.cube")]
-    assert tl.color_lut_asset_ids() == ["old"]
-
-    assert tl.push_color_lut("new")
-    data = json.loads(tl.to_json())
-    assert "color_grading" not in data["metadata"]["tellers.ai"]
-    assert data["tracks"]["effects"] == [lut_effect("old", "old.cube"), lut_effect("new")]

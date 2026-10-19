@@ -3,8 +3,7 @@
 // `metadata["tellers.ai"]` holds `{ "asset_id", "cube_url"? }`, where `cube_url` is
 // the URL the player (video-player-js) reads, resolved from the asset id; the
 // effect's `name` is the display name. The stored JSON is part of the
-// contract with the player. Timelines written before LUTs were effects hold
-// `metadata["tellers.ai"]["color_grading"]` instead, which is still read.
+// contract with the player.
 
 use std::collections::HashMap;
 
@@ -68,15 +67,12 @@ fn effects_from(value: serde_json::Value) -> Vec<Effect> {
 #[test]
 fn push_writes_color_lut_effects() {
     let mut effects = Vec::new();
-    let mut metadata = json!({"tellers.ai": {"timeline_id": "x"}, "other": 1});
     assert!(push_color_lut(
         &mut effects,
-        &mut metadata,
         lut("slog3").with_name("slog3_to_709.cube")
     ));
     assert!(push_color_lut(
         &mut effects,
-        &mut metadata,
         lut("warm").with_url("https://cdn/warm.cube")
     ));
     assert_eq!(
@@ -96,10 +92,6 @@ fn push_writes_color_lut_effects() {
             }
         ])
     );
-    assert_eq!(
-        metadata,
-        json!({"tellers.ai": {"timeline_id": "x"}, "other": 1})
-    );
 }
 
 #[test]
@@ -113,76 +105,13 @@ fn reads_trim_and_skip_effects_without_an_asset_id() {
         {"effect_name": "ColorLut", "name": "b.cube", "metadata": {"tellers.ai": {"asset_id": "b", "cube_url": ""}}}
     ]));
     assert_eq!(
-        resolve_color_luts(&effects, &json!({})),
+        resolve_color_luts(&effects),
         vec![
             lut("a").with_url("/luts/a.cube"),
             lut("b").with_name("b.cube")
         ]
     );
-    assert!(resolve_color_luts(&[], &json!(null)).is_empty());
-}
-
-#[test]
-fn legacy_metadata_list_is_read_when_there_is_no_lut_effect() {
-    let metadata = json!({"tellers.ai": {"color_grading": [
-        {"asset_id": " a ", "name": "  ", "cube": " /luts/a.cube "},
-        {"asset_id": "   "},
-        {"asset_id": 3},
-        {"cube": "https://cdn/no-id.cube"},
-        "b",
-        {"asset_id": "b", "name": "b.cube", "cube": ""}
-    ]}});
-    assert_eq!(
-        resolve_color_luts(&[], &metadata),
-        vec![
-            lut("a").with_url("/luts/a.cube"),
-            lut("b").with_name("b.cube")
-        ]
-    );
-    assert!(resolve_color_luts(
-        &[],
-        &json!({"tellers.ai": {"color_grading": {"asset_id": "a"}}})
-    )
-    .is_empty());
-
-    // Any LUT effect, even an unusable one, shadows the legacy list.
-    let effects = effects_from(json!([{"effect_name": "ColorLut", "metadata": {}}]));
-    assert!(resolve_color_luts(&effects, &metadata).is_empty());
-}
-
-#[test]
-fn writes_move_the_legacy_list_into_effects() {
-    let mut effects = Vec::new();
-    let mut metadata = json!({"tellers.ai": {"timeline_id": "x", "color_grading": [
-        {"cube": "orphan.cube"},
-        {"asset_id": "a", "name": "a.cube", "cube": "https://cdn/a.cube", "intensity": 0.5},
-        {"asset_id": "b"}
-    ]}});
-    assert!(push_color_lut(&mut effects, &mut metadata, lut("c")));
-    assert_eq!(metadata, json!({"tellers.ai": {"timeline_id": "x"}}));
-    assert_eq!(
-        effects_json(&effects),
-        json!([
-            {
-                "OTIO_SCHEMA": "Effect.1",
-                "name": "a.cube",
-                "effect_name": "ColorLut",
-                "metadata": {"tellers.ai": {"asset_id": "a", "cube_url": "https://cdn/a.cube", "intensity": 0.5}}
-            },
-            {
-                "OTIO_SCHEMA": "Effect.1",
-                "name": "",
-                "effect_name": "ColorLut",
-                "metadata": {"tellers.ai": {"asset_id": "b"}}
-            },
-            {
-                "OTIO_SCHEMA": "Effect.1",
-                "name": "",
-                "effect_name": "ColorLut",
-                "metadata": {"tellers.ai": {"asset_id": "c"}}
-            }
-        ])
-    );
+    assert!(resolve_color_luts(&[]).is_empty());
 }
 
 #[test]
@@ -197,13 +126,7 @@ fn writes_keep_other_effects_in_place() {
         sharpen.clone(),
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "b"}}}
     ]));
-    let mut metadata = json!({});
-    assert!(insert_color_lut_at(
-        &mut effects,
-        &mut metadata,
-        1,
-        lut("mid")
-    ));
+    assert!(insert_color_lut_at(&mut effects, 1, lut("mid")));
     let names: Vec<&str> = effects
         .iter()
         .map(|effect| effect.effect_name.as_str())
@@ -214,33 +137,27 @@ fn writes_keep_other_effects_in_place() {
     );
     assert_eq!(effects_json(&effects)[0], blur);
     assert_eq!(effects_json(&effects)[4], sharpen);
-    assert_eq!(
-        ids(&resolve_color_luts(&effects, &metadata)),
-        ["a", "mid", "b"]
-    );
+    assert_eq!(ids(&resolve_color_luts(&effects)), ["a", "mid", "b"]);
 
-    assert!(clear_color_luts(&mut effects, &mut metadata));
+    assert!(clear_color_luts(&mut effects));
     assert_eq!(effects_json(&effects), json!([blur, sharpen]));
 }
 
 #[test]
 fn insert_replace_remove_by_index() {
-    let (mut e, mut m) = (Vec::new(), json!({}));
-    assert!(push_color_lut(&mut e, &mut m, lut("b")));
-    assert!(insert_color_lut_at(&mut e, &mut m, 0, lut("a")));
-    assert!(insert_color_lut_at(&mut e, &mut m, 2, lut("c")));
-    assert!(!insert_color_lut_at(&mut e, &mut m, 4, lut("x")));
-    assert_eq!(ids(&resolve_color_luts(&e, &m)), ["a", "b", "c"]);
+    let mut e = Vec::new();
+    assert!(push_color_lut(&mut e, lut("b")));
+    assert!(insert_color_lut_at(&mut e, 0, lut("a")));
+    assert!(insert_color_lut_at(&mut e, 2, lut("c")));
+    assert!(!insert_color_lut_at(&mut e, 4, lut("x")));
+    assert_eq!(ids(&resolve_color_luts(&e)), ["a", "b", "c"]);
 
-    assert_eq!(
-        replace_color_lut_at(&mut e, &mut m, 1, lut("B")),
-        Some(lut("b"))
-    );
-    assert_eq!(replace_color_lut_at(&mut e, &mut m, 3, lut("x")), None);
+    assert_eq!(replace_color_lut_at(&mut e, 1, lut("B")), Some(lut("b")));
+    assert_eq!(replace_color_lut_at(&mut e, 3, lut("x")), None);
 
-    assert_eq!(remove_color_lut_at(&mut e, &mut m, 0), Some(lut("a")));
-    assert_eq!(remove_color_lut_at(&mut e, &mut m, 5), None);
-    assert_eq!(ids(&resolve_color_luts(&e, &m)), ["B", "c"]);
+    assert_eq!(remove_color_lut_at(&mut e, 0), Some(lut("a")));
+    assert_eq!(remove_color_lut_at(&mut e, 5), None);
+    assert_eq!(ids(&resolve_color_luts(&e)), ["B", "c"]);
 }
 
 #[test]
@@ -250,10 +167,7 @@ fn indices_skip_unusable_effects_and_writes_drop_them() {
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "a", "intensity": 0.5}}},
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "b"}}}
     ]));
-    assert_eq!(
-        remove_color_lut_at(&mut effects, &mut json!({}), 1),
-        Some(lut("b"))
-    );
+    assert_eq!(remove_color_lut_at(&mut effects, 1), Some(lut("b")));
     // The unusable effect is gone; untouched effects keep their other keys.
     assert_eq!(
         effects_json(&effects),
@@ -269,39 +183,25 @@ fn indices_skip_unusable_effects_and_writes_drop_them() {
 #[test]
 fn empty_asset_ids_are_rejected_without_changes() {
     let mut effects = vec![lut("a").to_effect()];
-    let mut metadata = json!({"tellers.ai": {"color_grading": [{"asset_id": "legacy"}]}});
-    let before = (effects.clone(), metadata.clone());
-    assert!(!push_color_lut(&mut effects, &mut metadata, lut("  ")));
-    assert!(!insert_color_lut_at(
-        &mut effects,
-        &mut metadata,
-        0,
-        lut("")
-    ));
-    assert_eq!(
-        replace_color_lut_at(&mut effects, &mut metadata, 0, lut(" ")),
-        None
-    );
-    assert!(!set_color_luts(
-        &mut effects,
-        &mut metadata,
-        vec![lut("ok"), lut("")]
-    ));
-    assert_eq!((effects, metadata), before);
+    let before = effects.clone();
+    assert!(!push_color_lut(&mut effects, lut("  ")));
+    assert!(!insert_color_lut_at(&mut effects, 0, lut("")));
+    assert_eq!(replace_color_lut_at(&mut effects, 0, lut(" ")), None);
+    assert!(!set_color_luts(&mut effects, vec![lut("ok"), lut("")]));
+    assert_eq!(effects, before);
 }
 
 #[test]
 fn removing_the_last_lut_leaves_no_effect() {
-    let (mut e, mut m) = (Vec::new(), json!({"tellers.ai": {"timeline_id": "x"}}));
-    assert!(!clear_color_luts(&mut e, &mut m));
-    push_color_lut(&mut e, &mut m, lut("a"));
-    assert_eq!(remove_color_lut_at(&mut e, &mut m, 0), Some(lut("a")));
+    let mut e = Vec::new();
+    assert!(!clear_color_luts(&mut e));
+    push_color_lut(&mut e, lut("a"));
+    assert_eq!(remove_color_lut_at(&mut e, 0), Some(lut("a")));
     assert!(e.is_empty());
 
-    push_color_lut(&mut e, &mut m, lut("a"));
-    assert!(set_color_luts(&mut e, &mut m, vec![]));
+    push_color_lut(&mut e, lut("a"));
+    assert!(set_color_luts(&mut e, vec![]));
     assert!(e.is_empty());
-    assert_eq!(m, json!({"tellers.ai": {"timeline_id": "x"}}));
 }
 
 #[test]
@@ -311,14 +211,13 @@ fn set_and_clear_urls_by_asset_id() {
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "b"}}},
         {"effect_name": "ColorLut", "metadata": {"tellers.ai": {"asset_id": "a"}}}
     ]));
-    let mut metadata = json!({});
     let urls = HashMap::from([
         ("a".to_string(), " https://cdn/a.cube ".to_string()),
         ("b".to_string(), "  ".to_string()),
         ("zzz".to_string(), "https://cdn/zzz.cube".to_string()),
     ]);
     // Both "a" effects; the empty URL for "b" is ignored.
-    assert_eq!(set_color_lut_urls(&mut effects, &mut metadata, &urls), 2);
+    assert_eq!(set_color_lut_urls(&mut effects, &urls), 2);
     let ai = |effects: &[Effect]| -> Vec<serde_json::Value> {
         effects
             .iter()
@@ -334,7 +233,7 @@ fn set_and_clear_urls_by_asset_id() {
         ]
     );
 
-    assert_eq!(clear_color_lut_urls(&mut effects, &mut metadata), 2);
+    assert_eq!(clear_color_lut_urls(&mut effects), 2);
     assert_eq!(
         ai(&effects),
         [
@@ -343,23 +242,7 @@ fn set_and_clear_urls_by_asset_id() {
             json!({"asset_id": "a"})
         ]
     );
-    assert_eq!(clear_color_lut_urls(&mut effects, &mut metadata), 0);
-}
-
-#[test]
-fn urls_resolve_on_a_legacy_list() {
-    let mut metadata = json!({"tellers.ai": {"color_grading": [{"asset_id": "a"}]}});
-    let urls = HashMap::from([("a".to_string(), "https://cdn/a.cube".to_string())]);
-    assert_eq!(set_color_lut_urls(&mut [], &mut metadata, &urls), 1);
-    assert_eq!(
-        resolve_color_luts(&[], &metadata),
-        vec![lut("a").with_url("https://cdn/a.cube")]
-    );
-    assert_eq!(clear_color_lut_urls(&mut [], &mut metadata), 1);
-    assert_eq!(
-        metadata,
-        json!({"tellers.ai": {"color_grading": [{"asset_id": "a"}]}})
-    );
+    assert_eq!(clear_color_lut_urls(&mut effects), 0);
 }
 
 #[test]
@@ -460,10 +343,7 @@ fn track_stage_is_stored_on_the_track_effects() {
         track.effects,
         vec![lut("track").with_name("track.cube").to_effect()]
     );
-    assert_eq!(
-        resolve_color_luts(&track.effects, &track.metadata),
-        track.get_color_luts()
-    );
+    assert_eq!(resolve_color_luts(&track.effects), track.get_color_luts());
 
     let reparsed: Track = serde_json::from_str(&serde_json::to_string(&track).unwrap()).unwrap();
     assert_eq!(
@@ -707,67 +587,10 @@ fn clip_gradability_follows_the_active_media_reference() {
 }
 
 #[test]
-fn every_stage_reads_its_legacy_list() {
-    let legacy = json!([{"asset_id": "old", "name": "old.cube"}]);
-    let mut tl = timeline_with_clip("c1");
-    tl.metadata["tellers.ai"]["color_grading"] = legacy.clone();
-    tl.tracks.children[0].metadata["tellers.ai"]["color_grading"] = legacy.clone();
-    if let Item::Clip(c) = &mut tl.tracks.children[0].items[0] {
-        c.metadata["tellers.ai"]["color_grading"] = legacy.clone();
-    }
-    let track_id = tl.tracks.children[0].get_id().unwrap();
-    let old = vec![lut("old").with_name("old.cube")];
-    assert_eq!(tl.get_color_luts(), old);
-    assert_eq!(tl.get_track_color_luts(&track_id), Some(old.clone()));
-    assert_eq!(tl.get_item_color_luts("c1"), Some(old.clone()));
-    assert_eq!(tl.color_lut_asset_ids(), ["old"]);
-    assert_eq!(tl.set_color_lut_url("old", "https://cdn/old.cube"), 3);
-
-    assert!(tl.push_item_color_lut("c1", lut("new")));
-    assert_eq!(
-        tl.get_item_color_luts("c1"),
-        Some(vec![
-            lut("old")
-                .with_name("old.cube")
-                .with_url("https://cdn/old.cube"),
-            lut("new")
-        ])
-    );
-    let Item::Clip(c) = &tl.tracks.children[0].items[0] else {
-        unreachable!()
-    };
-    assert_eq!(c.effects.len(), 2);
-    assert!(c.metadata["tellers.ai"].get("color_grading").is_none());
-}
-
-#[test]
 fn stacks_and_tracks_without_effects_serialize_as_before() {
     let tl = timeline_with_clip("c1");
     let json: serde_json::Value =
         serde_json::from_str(&tl.to_json_with_options(None, false).unwrap()).unwrap();
     assert!(json["tracks"].get("effects").is_none());
     assert!(json["tracks"]["children"][0].get("effects").is_none());
-}
-
-#[test]
-fn a_legacy_list_beside_lut_effects_is_ignored() {
-    let mut effects = vec![lut("new").to_effect()];
-    let mut metadata = json!({"tellers.ai": {"color_grading": [
-        {"asset_id": "old", "cube": "https://cdn/stale.cube"}
-    ]}});
-    let legacy = metadata.clone();
-    assert_eq!(resolve_color_luts(&effects, &metadata), vec![lut("new")]);
-
-    let urls = HashMap::from([
-        ("new".to_string(), "https://cdn/new.cube".to_string()),
-        ("old".to_string(), "https://cdn/old.cube".to_string()),
-    ]);
-    assert_eq!(set_color_lut_urls(&mut effects, &mut metadata, &urls), 1);
-    assert_eq!(clear_color_lut_urls(&mut effects, &mut metadata), 1);
-    assert_eq!(metadata, legacy);
-
-    let mut tl = timeline_with_clip("c1");
-    tl.tracks.effects = vec![lut("look").to_effect()];
-    tl.metadata["tellers.ai"]["color_grading"] = json!([{"asset_id": "old"}]);
-    assert_eq!(tl.color_lut_asset_ids(), ["look"]);
 }
