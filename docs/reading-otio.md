@@ -12,7 +12,7 @@ full list of objects, fields and effects, see the generated
 ```
 Timeline.1
 └── tracks: Stack.1                 every track, composited together
-    ├── effects: [...]              applied over the whole picture
+    ├── effects: [...]              LUTs over the whole picture
     └── children:
         ├── Track.1  kind: video    bottom layer
         │   ├── effects: [...]      applied to each clip of the track
@@ -90,7 +90,9 @@ items:
     before saving, so a stored timeline often has `"target_url": ""`.
   - `available_range` is the part of the file that exists. The clip's
     `source_range` stays inside it.
-  - `MissingReference.1` is read as an external reference with no URL.
+  - `MissingReference.1` is drawn as a gap by the player. The library reads
+    it as an external reference with no URL and writes it back as
+    `ExternalReference.1`.
 - **Generated content** uses `GeneratorReference.1`, and `generator_kind` says
   which generator:
   - `Rich`: Resolve **Rich Text**. The HTML is in
@@ -102,8 +104,8 @@ items:
     - `parameters.text`, or `parameters.words` (`[{text, start, end?}]` with
       times in seconds, for karaoke-style captions)
     - `maxWidth` and `wrap`
-    - `style`: font, fill, align, stroke, dropShadow, and a background box
-      with `mode` `block` / `line` / `word`. Sizes are in pixels of the
+    - `style`: `fontFamily`, `fontSize`, `fill`, `align`, `stroke`,
+      `dropShadow`, and a `background` box with `mode` `block` / `line` / `word`. Sizes are in pixels of the
       timeline's text render size.
   - `Shape`: a **shape**.
     - `parameters.shape` is `rectangle`, `ellipse` or `line`
@@ -114,7 +116,9 @@ items:
 ## Effects: how a clip looks and sounds
 
 Effects are listed in `effects` on a clip, a track or the stack. The player
-applies a clip's own effects first, then its track's, then the timeline's.
+applies a clip's own effects first, then its track's. On the stack it only
+grades `ColorLut`s over the whole image and uses a `MotionBlur` as every
+clip's default.
 There are three families.
 
 ### 1. Tellers effects (`tellers.ai.<Effect>`)
@@ -162,7 +166,8 @@ The player reads three of them:
 | `Cropping` | crop insets | Crops the picture. |
 | volume | the clip's gain | Sets the clip's volume. |
 
-Text and Shape clips are placed by the tellers `Transform` effect instead. A
+Text clips are placed by the tellers `Transform` effect instead. Shape clips
+take it too, on top of any Resolve `Transform` and `Cropping`. A
 Rich Text clip uses its own `position`, with the tellers `Transform` applied
 on top.
 
@@ -184,13 +189,16 @@ Clip LUTs apply first, then the track's, then the timeline's.
 | Where | Key under `metadata["tellers.ai"]` | Meaning |
 |---|---|---|
 | tracks, clips, gaps, markers | `timeline_id` | Stable id that edits use to address the object. |
-| clips | `group_id` | Clips that move together as a group. |
-| tracks | `created_by: "auto"` | The library created the track. It is removed once empty. |
+| clips | `group_id` | The player group the clip belongs to (see `groups`). The library's edit groups use `Tellers Group ID` instead. |
+| timeline | `groups` | `{ <group_id>: { parameters } }`: a keyframable transform (`x`, `y`, `scale`, `rotation`, `opacity`, …) applied to the group's clips together. |
+| tracks | `created_by: "auto"` | The library created the track; `prune_empty_partner_tracks` removes it once it is an empty audio track. |
 | markers | `created_by` | The user who left the note. |
 | timeline, tracks | `textStyles` | Named CSS classes for Rich Text HTML. A track's override the timeline's. |
 | timeline | `availableFonts` | `[{family, url, weight?, style?}]` fonts that text clips may use. |
 
-Any other metadata is kept as it is.
+The player also reads `tellers_aspect_ratio` (`16_9`, `9_16`, …) directly in
+the timeline's `metadata`: the output aspect ratio, 16:9 when absent. Any other
+metadata is kept as it is.
 
 ## Other objects the player understands
 
@@ -201,10 +209,13 @@ Any other metadata is kept as it is.
   `DipToColor`, `Wipe`, `Push`, `Slide` or `Zoom`. A `direction` and a
   `color` are set in `metadata["tellers.ai"].parameters`.
 - **Composite clips:** a `Stack.1` placed inside a video track is drawn as
-  one clip made of its own tracks.
+  one clip made of its own video tracks. Inside it, the player draws video,
+  image, Text and Shape clips; it skips Rich Text clips and transitions.
 
 > **Library support.** `tellers-timeline-core` loads, round-trips and edits
-> both transitions and composite clips.
+> both transitions and composite clips. A transition's `direction` and
+> `color`, group transforms (`groups`) and `tellers_aspect_ratio` have no
+> typed API: they are kept as plain metadata.
 
 ## A worked example
 
@@ -297,7 +308,7 @@ for track in tl.get_stack().tracks():
         kind = "clip" if item.is_clip() else "gap"
         print(f"  {start:5.2f}s – {end:5.2f}s  {kind}  {item.get_id()}")
         start = end
-print(tl.get_tellers_effects())                    # effects on the whole picture
+print(tl.get_tellers_effects())                    # effects on the stack
 print(tl.get_item_tellers_effects("a1b2c3d4e5f6"))  # effects on one clip, by id
 ```
 

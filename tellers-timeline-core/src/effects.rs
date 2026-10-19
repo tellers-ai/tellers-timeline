@@ -29,6 +29,10 @@
 //!   `t` in seconds from the start of the clip on the timeline. Strings
 //!   (colors, presets, modes) and booleans are fixed.
 //!
+//! The player applies a clip's effects first, then its track's. Tellers
+//! effects can be written on the root stack, but the player applies only a
+//! `MotionBlur` there, as every clip's default.
+//!
 //! A composite clip (a nested `Stack`, [`crate::CompositeStack`]) is an item
 //! like a clip: the player applies its filters, `Transform` and `Blend` to
 //! the composited image, so the item accessors (`*_item_tellers_effect*`)

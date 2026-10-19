@@ -50,7 +50,7 @@ tests outside the source package and tests installed wheels.
 Generate the JSON Schema after changing modeled types:
 
 ```sh
-cargo run -p tellers-timeline-schema --quiet
+cargo run -p tellers-timeline-schema --bin tellers-timeline-schema --quiet  # or: just regen-schema
 ```
 
 Inspect the generated diff before committing. The schema describes the modeled
@@ -94,8 +94,10 @@ sync partners.
 ### Sanitization
 
 `Timeline.sanitize()` delegates to the stack. It clamps clips to available media,
-clamps negative durations, removes zero-length items, merges adjacent gaps,
-removes trailing gaps, ensures track/item IDs are nonempty and unique within the
+clamps negative durations, removes zero-length items, drops a transition that
+follows another one or stands alone on its track, merges adjacent gaps, removes
+trailing gaps (composite clips' tracks get the same cleanup, keeping their
+trailing gaps), ensures track/item IDs are nonempty and unique within the
 stack, and cleans dangling sync links. These operations can change a document;
 call them deliberately at the host's chosen boundary.
 
@@ -129,7 +131,7 @@ Syncing clips by hand gathers them into one group and creates partner tracks whe
 needed to move clips out of other groups.
 
 `normalize_track_order()` makes groups contiguous with the owner followed by its
-partners. `prune_empty_partner_tracks()` removes empty tracks marked
+partners. `prune_empty_partner_tracks()` removes empty audio tracks marked
 `metadata["tellers.ai"]["created_by"] = "auto"`. Renaming a track clears that mark,
 so tracks explicitly named by a user are retained.
 

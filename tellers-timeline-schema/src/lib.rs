@@ -38,8 +38,10 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
     (
         "Stack",
         "The tracks of the timeline, composited together. Tracks render in list order: the \
-         first is the bottom layer, the last the top one (painter's order). Its `effects` \
-         apply to the whole composited image.",
+         first is the bottom layer, the last the top one (painter's order). Of its `effects`, \
+         the player applies `ColorLut`s to the whole composited image and uses a `MotionBlur` \
+         as every clip's default; it ignores the others there. The player also reads \
+         `enabled: false` on this stack (nothing plays), a field this library drops on load.",
     ),
     (
         "Track",
@@ -81,7 +83,8 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
     (
         "MediaReference",
         "What a clip plays, chosen by `OTIO_SCHEMA`. `MissingReference.1` is also accepted \
-         and read as an external reference with an empty `target_url`.",
+         and read as an external reference with an empty `target_url` (and written back as \
+         `ExternalReference.1`); the player draws it as a gap.",
     ),
     (
         "GeneratorParameters",
@@ -165,12 +168,21 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
         "Timeline",
         "metadata",
         "Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, \
-         `tellers.ai.textStyles` the shared CSS classes of rich-text clips.",
+         `tellers.ai.textStyles` the shared CSS classes of rich-text clips. The player also \
+         reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip \
+         group: `x`, `y`, `scale`, `rotation`, `opacity`, …) and the top-level \
+         `tellers_aspect_ratio` (`16_9`, `9_16`, …); this library keeps both as plain metadata, \
+         with no typed API.",
     ),
     ("Stack", "OTIO_SCHEMA", "Always `Stack.1`."),
     ("Stack", "name", "Display name."),
     ("Stack", "children", "The tracks, bottom layer first."),
-    ("Stack", "effects", "Effects applied over the whole composited image (the timeline stage)."),
+    (
+        "Stack",
+        "effects",
+        "The timeline stage: `ColorLut`s grade the whole composited image and a `MotionBlur` \
+         is every clip's default; the player applies no other effect here.",
+    ),
     ("Stack", "markers", "Timeline markers, in timeline time."),
     ("Stack", "metadata", "Free JSON."),
     ("Track", "OTIO_SCHEMA", "Always `Track.1`."),
@@ -206,9 +218,10 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     (
         "Clip",
         "metadata",
-        "Free JSON. `tellers.ai.timeline_id` is the item id, `tellers.ai.group_id` links clips \
-         that move together, and the Resolve `Link Group ID` ties a video to its audio \
-         (sync partners).",
+        "Free JSON. `tellers.ai.timeline_id` is the item id, `tellers.ai.group_id` names the \
+         player group whose transform applies (see the timeline's `tellers.ai.groups`), \
+         `tellers.ai[\"Tellers Group ID\"]` is this library's edit group, and the Resolve \
+         `Link Group ID` ties a video to its audio (sync partners).",
     ),
     ("Gap", "OTIO_SCHEMA", "`Gap.1`."),
     ("Gap", "name", "Display name."),
@@ -543,9 +556,9 @@ fn effects_section(out: &mut String) {
          {{\n  \"OTIO_SCHEMA\": \"Effect.1\",\n  \"effect_name\": \"{TELLERS_EFFECT_PREFIX}Blur\",\n  \
          \"metadata\": {{ \"tellers.ai\": {{ \"parameters\": {{ \"strength\": 6 }} }} }}\n}}\n\
          ```\n\n\
-         The same effect can sit on a clip, a track (applied to each of its clips) or the \
-         stack (applied over the whole image); clip effects apply first, then the track's, \
-         then the timeline's. Where an effect applies once (`Transform`, `Blend`, `Volume`, \
+         The same effect can sit on a clip or a track (applied to each of its clips); clip \
+         effects apply first, then the track's. On the stack the player applies only a \
+         `MotionBlur` (every clip's default) and `ColorLut`s. Where an effect applies once (`Transform`, `Blend`, `Volume`, \
          ...), the first enabled one wins. Parameters left out take the player's defaults.\n"
     );
     out.push_str("| Effect | `effect_name` | Applies to | Parameters |\n|---|---|---|---|\n");
