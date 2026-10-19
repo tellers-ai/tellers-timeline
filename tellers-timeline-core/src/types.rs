@@ -25,6 +25,134 @@ fn default_time_range_schema() -> String {
 fn default_rational_time_schema() -> String {
     "RationalTime.1".to_string()
 }
+/// `effect_name`s of the tellers `Transform` effect (prefixed, and bare as
+/// written before tellers effects were prefixed).
+const TELLERS_TRANSFORM_NAMES: [&str; 2] = ["tellers.ai.Transform", "Transform"];
+
+/// The placement a Rich Text generator carries in its own Resolve
+/// parameters (`position` in [0, 1], zoom, rotation), as an offset from the
+/// center; the identity for other references. Only ever read.
+fn rich_text_placement(reference: &MediaReference) -> MediaReferencePosition {
+    let mut placement = MediaReferencePosition {
+        x: 0.0,
+        y: 0.0,
+        rotation: 0.0,
+        zoom_x: 1.0,
+        zoom_y: 1.0,
+    };
+    let MediaReference::GeneratorReference { parameters, .. } = reference else {
+        return placement;
+    };
+    let rich_text = parameters
+        .resolve_otio
+        .iter()
+        .flatten()
+        .filter(|effect| effect.effect_name == "Rich Text");
+    for parameter in rich_text.flat_map(|effect| &effect.parameters) {
+        match parameter {
+            ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
+                if let Some([x, y]) = param.parameter_value {
+                    placement.x = x - 0.5;
+                    placement.y = y - 0.5;
+                }
+            }
+            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                placement.zoom_x = param.parameter_value;
+            }
+            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
+                placement.zoom_y = param.parameter_value;
+            }
+            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                placement.rotation = param.parameter_value;
+            }
+            _ => {}
+        }
+    }
+    placement
+}
+
+/// The parameters of the first tellers `Transform` effect in `effects`.
+fn tellers_transform_parameters(
+    effects: &[Effect],
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
+    effects
+        .iter()
+        .filter(|effect| TELLERS_TRANSFORM_NAMES.contains(&effect.effect_name.as_str()))
+        .find_map(|effect| {
+            effect
+                .metadata
+                .other
+                .get("tellers.ai")?
+                .get("parameters")?
+                .as_object()
+        })
+}
+
+/// A tellers animatable parameter's value at the start of the clip: the
+/// number, or the value of its earliest keyframe.
+fn animatable_start_value(value: &serde_json::Value) -> Option<f64> {
+    if let Some(number) = value.as_f64() {
+        return Some(number);
+    }
+    value
+        .get("keyframes")?
+        .as_array()?
+        .iter()
+        .filter_map(|k| Some((k.get("t")?.as_f64()?, k.get("v")?.as_f64()?)))
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, v)| v)
+}
+
+/// Write `values` into the first tellers `Transform` effect of `effects`
+/// (appended when there is none), under its `tellers.ai.Transform` name,
+/// dropping `scale` and keeping its other parameters and keys.
+fn set_tellers_transform_parameters<const N: usize>(
+    effects: &mut Vec<Effect>,
+    values: [(&str, f64); N],
+) {
+    let index = match effects
+        .iter()
+        .position(|effect| TELLERS_TRANSFORM_NAMES.contains(&effect.effect_name.as_str()))
+    {
+        Some(index) => index,
+        None => {
+            // Built from JSON so that every other field takes its default.
+            let effect: Effect = serde_json::from_value(serde_json::json!({
+                "OTIO_SCHEMA": "Effect.1",
+                "name": "",
+                "effect_name": TELLERS_TRANSFORM_NAMES[0],
+                "metadata": {},
+            }))
+            .expect("a tellers Transform effect");
+            effects.push(effect);
+            effects.len() - 1
+        }
+    };
+    let effect = &mut effects[index];
+    effect.effect_name = TELLERS_TRANSFORM_NAMES[0].to_string();
+    let ai = effect
+        .metadata
+        .other
+        .entry("tellers.ai")
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if !ai.is_object() {
+        *ai = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let parameters = ai
+        .as_object_mut()
+        .expect("tellers.ai is an object")
+        .entry("parameters")
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if !parameters.is_object() {
+        *parameters = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let parameters = parameters.as_object_mut().expect("parameters is an object");
+    parameters.remove("scale");
+    for (key, value) in values {
+        parameters.insert(key.to_string(), serde_json::json!(value));
+    }
+}
+
 fn default_effect_schema() -> String {
     "Effect.1".to_string()
 }
@@ -540,73 +668,58 @@ impl Clip {
         let active_media_reference = self.media_references.get(self.active_media_reference_key.as_ref().unwrap()).unwrap();
         // MediaReferencePosition uses [-0.5, +0.5] with (0, 0) at the screen center,
         // matching Resolve's transformationPan/Tilt space where 0 is centered.
+        if let MediaReference::GeneratorReference { .. } = active_media_reference {
+            // Generators (Text, Shape, Rich Text) are placed by the tellers
+            // `Transform` effect, composed on top of a Rich Text clip's own
+            // Resolve placement, as the player does.
+            let base = rich_text_placement(active_media_reference);
+            let transform = tellers_transform_parameters(&self.effects);
+            let value = |key: &str, fallback: f64| {
+                transform
+                    .and_then(|t| t.get(key))
+                    .and_then(animatable_start_value)
+                    .unwrap_or(fallback)
+            };
+            let scale = value("scale", 1.0);
+            return MediaReferencePosition {
+                x: base.x + value("x", 0.0),
+                y: base.y + value("y", 0.0),
+                rotation: base.rotation + value("rotation", 0.0),
+                zoom_x: base.zoom_x * scale * value("scaleX", 1.0),
+                zoom_y: base.zoom_y * scale * value("scaleY", 1.0),
+            };
+        }
         let mut x = 0.0;
         let mut y = 0.0;
         let mut rotation = 0.0;
         let mut zoom_x = 1.0;
         let mut zoom_y = 1.0;
-        // Text and Shape generators are placed by the clip's Transform effect,
-        // like video; only Rich Text keeps its position in Resolve parameters.
-        let placed_by_parameters = !active_media_reference.is_text_generator()
-            && !active_media_reference.is_shape_generator();
-        if let (true, MediaReference::GeneratorReference { parameters, .. }) =
-            (placed_by_parameters, active_media_reference)
-        {
-            if let Some(resolve_otio_effects) = parameters.resolve_otio.as_ref() {
-                for effect in resolve_otio_effects {
-                    if effect.effect_name == "Rich Text" {
-                        for parameter in &effect.parameters {
-                            match parameter {
-                                ResolveOTIOParameter::PointF(param) if param.parameter_id == "position" => {
-                                    if let Some([x_val, y_val]) = param.parameter_value {
-                                        // Rich Text uses [0, 1] coordinate system, MediaReferencePosition uses [-0.5, +0.5]
-                                        x = x_val - 0.5;
-                                        y = y_val - 0.5;
-                                    }
-                                }
-                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
-                                    zoom_x = param.parameter_value;
-                                }
-                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
-                                    zoom_y = param.parameter_value;
-                                }
-                                ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
-                                    rotation = param.parameter_value;
-                                }
-                                _ => {}
-                            }
+        for effect in &self.effects {
+            if effect.effect_name == "Resolve Effect" {
+                if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_ref(){
+                    if resolve_otio_effect.effect_name == "Transform" {
+                    for parameter in &resolve_otio_effect.parameters {
+                    match parameter {
+                        ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationPan" => {
+                            x = param.parameter_value;
                         }
+                        ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationTilt" => {
+                            y = param.parameter_value;
+                        }
+                        ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
+                            zoom_x = param.parameter_value;
+                        }
+                        ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
+                            zoom_y = param.parameter_value;
+                        }
+                        ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
+                            rotation = param.parameter_value;
+                        }
+                        _ => {}
                     }
                 }
             }
-        } else {
-            for effect in &self.effects {
-                if effect.effect_name == "Resolve Effect" {
-                    if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_ref(){
-                        if resolve_otio_effect.effect_name == "Transform" {
-                        for parameter in &resolve_otio_effect.parameters {
-                        match parameter {
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationPan" => {
-                                x = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationTilt" => {
-                                y = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomX" => {
-                                zoom_x = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationZoomY" => {
-                                zoom_y = param.parameter_value;
-                            }
-                            ResolveOTIOParameter::Double(param) if param.parameter_id == "transformationRotationAngle" => {
-                                rotation = param.parameter_value;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                }
-                }
+            }
             }
         }
         MediaReferencePosition {
@@ -618,155 +731,31 @@ impl Clip {
         }
     }
 
+    /// Place this clip at `position`.
+    ///
+    /// Video and image clips take a Resolve Transform effect. Generators
+    /// (Text, Shape, Rich Text) take the tellers `Transform` effect the player
+    /// reads for them; a Rich Text clip's own Resolve placement is only read,
+    /// never written: the effect holds the difference from it. Its `x`, `y`,
+    /// `scaleX`, `scaleY` and `rotation` become plain numbers (keyframes on
+    /// them are replaced), `scale` is folded into `scaleX`/`scaleY`, and other
+    /// parameters such as `opacity` are kept.
     pub fn set_position(&mut self, position: MediaReferencePosition) {
-        let active_media_reference = self.media_references.get_mut(self.active_media_reference_key.as_ref().unwrap()).unwrap();
+        let active_media_reference = self.media_references.get(self.active_media_reference_key.as_ref().unwrap()).unwrap();
 
-        let placed_by_parameters = !active_media_reference.is_text_generator()
-            && !active_media_reference.is_shape_generator();
-
-        // Case 1: GeneratorReference - uses "position" (PointF) for x/y coordinates
-        // (Text and Shape generators take the Transform effect, like video)
-        if let (true, MediaReference::GeneratorReference { parameters, .. }) =
-            (placed_by_parameters, active_media_reference)
-        {
-            let (rich_x, rich_y) = (position.x + 0.5, position.y + 0.5);
-
-            if let Some(resolve_otio_effects) = parameters.resolve_otio.as_mut() {
-                let mut found_rich_text_effect = false;
-                for effect in resolve_otio_effects.iter_mut() {
-                    if effect.effect_name == "Rich Text" && effect.effect_type == 24 {
-                        found_rich_text_effect = true;
-
-                        effect.parameters.retain(|param| {
-                            match param {
-                                ResolveOTIOParameter::PointF(p) if p.parameter_id == "position" => false,
-                                ResolveOTIOParameter::Double(p) if p.parameter_id == "transformationZoomX" => false,
-                                ResolveOTIOParameter::Double(p) if p.parameter_id == "transformationZoomY" => false,
-                                ResolveOTIOParameter::Double(p) if p.parameter_id == "transformationRotationAngle" => false,
-                                _ => true,
-                            }
-                        });
-
-                        effect.parameters.push(ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
-                            variant_type: "POINTF".to_string(),
-                            parameter_id: "position".to_string(),
-                            parameter_value: Some([rich_x, rich_y]),
-                            default_parameter_value: Some([0.5, 0.5]),
-                            key_frames: None,
-                        }));
-                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                            variant_type: "Double".to_string(),
-                            parameter_id: "transformationZoomX".to_string(),
-                            parameter_value: position.zoom_x,
-                            default_parameter_value: Some(1.0),
-                            max_value: Some(100.0),
-                            min_value: Some(0.0),
-                        }));
-                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                            variant_type: "Double".to_string(),
-                            parameter_id: "transformationZoomY".to_string(),
-                            parameter_value: position.zoom_y,
-                            default_parameter_value: Some(1.0),
-                            max_value: Some(100.0),
-                            min_value: Some(0.0),
-                        }));
-                        effect.parameters.push(ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                            variant_type: "Double".to_string(),
-                            parameter_id: "transformationRotationAngle".to_string(),
-                            parameter_value: position.rotation,
-                            default_parameter_value: Some(0.0),
-                            max_value: Some(100000.0),
-                            min_value: Some(-100000.0),
-                        }));
-                        break;
-                    }
-                }
-                if !found_rich_text_effect {
-                    resolve_otio_effects.push(ResolveOTIOEffect {
-                        effect_name: "Rich Text".to_string(),
-                        enabled: true,
-                        name: "Rich Text".to_string(),
-                        parameters: vec![
-                            ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
-                                variant_type: "POINTF".to_string(),
-                                parameter_id: "position".to_string(),
-                                parameter_value: Some([rich_x, rich_y]),
-                                default_parameter_value: Some([0.5, 0.5]),
-                                key_frames: None,
-                            }),
-                            ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                                variant_type: "Double".to_string(),
-                                parameter_id: "transformationZoomX".to_string(),
-                                parameter_value: position.zoom_x,
-                                default_parameter_value: Some(1.0),
-                                max_value: Some(100.0),
-                                min_value: Some(0.0),
-                            }),
-                            ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                                variant_type: "Double".to_string(),
-                                parameter_id: "transformationZoomY".to_string(),
-                                parameter_value: position.zoom_y,
-                                default_parameter_value: Some(1.0),
-                                max_value: Some(100.0),
-                                min_value: Some(0.0),
-                            }),
-                            ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                                variant_type: "Double".to_string(),
-                                parameter_id: "transformationRotationAngle".to_string(),
-                                parameter_value: position.rotation,
-                                default_parameter_value: Some(0.0),
-                                max_value: Some(100000.0),
-                                min_value: Some(-100000.0),
-                            }),
-                        ],
-                        effect_type: 24,
-                    });
-                }
-
-                resolve_otio_effects.retain(|effect| {
-                    effect.effect_name != "Transform"
-                });
-            } else {
-                parameters.resolve_otio = Some(vec![ResolveOTIOEffect {
-                    effect_name: "Rich Text".to_string(),
-                    enabled: true,
-                    name: "Rich Text".to_string(),
-                    parameters: vec![
-                        ResolveOTIOParameter::PointF(ResolveOTIOParameterPointF {
-                            variant_type: "POINTF".to_string(),
-                            parameter_id: "position".to_string(),
-                            parameter_value: Some([rich_x, rich_y]),
-                            default_parameter_value: Some([0.5, 0.5]),
-                            key_frames: None,
-                        }),
-                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                            variant_type: "Double".to_string(),
-                            parameter_id: "transformationZoomX".to_string(),
-                            parameter_value: position.zoom_x,
-                            default_parameter_value: Some(1.0),
-                            max_value: Some(100.0),
-                            min_value: Some(0.0),
-                        }),
-                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                            variant_type: "Double".to_string(),
-                            parameter_id: "transformationZoomY".to_string(),
-                            parameter_value: position.zoom_y,
-                            default_parameter_value: Some(1.0),
-                            max_value: Some(100.0),
-                            min_value: Some(0.0),
-                        }),
-                        ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                            variant_type: "Double".to_string(),
-                            parameter_id: "transformationRotationAngle".to_string(),
-                            parameter_value: position.rotation,
-                            default_parameter_value: Some(0.0),
-                            max_value: Some(100000.0),
-                            min_value: Some(-100000.0),
-                        }),
-                    ],
-                    effect_type: 24,
-                }]);
-            }
+        if let MediaReference::GeneratorReference { .. } = active_media_reference {
+            let base = rich_text_placement(active_media_reference);
+            let ratio = |value: f64, base: f64| if base != 0.0 { value / base } else { value };
+            set_tellers_transform_parameters(
+                &mut self.effects,
+                [
+                    ("x", position.x - base.x),
+                    ("y", position.y - base.y),
+                    ("scaleX", ratio(position.zoom_x, base.zoom_x)),
+                    ("scaleY", ratio(position.zoom_y, base.zoom_y)),
+                    ("rotation", position.rotation - base.rotation),
+                ],
+            );
         } else {
             // Case 2: ExternalReference - uses "transformationPan" and "transformationTilt" (Double) for x/y coordinates
             self.effects.retain(|effect| {

@@ -134,3 +134,98 @@ def test_text_clip_position_uses_transform_effect_and_survives_timeline_round_tr
     reparsed = Timeline.parse_json(timeline.to_json())
     item = json.loads(reparsed.to_json())["tracks"]["children"][0]["children"][0]
     assert item["media_references"]["DEFAULT_MEDIA"]["parameters"] == {"text": "x"}
+
+
+def rich_text_clip(position=(0.7, 0.4), zoom=(2.0, 1.5), rotation=10.0):
+    clip_json = {
+        "OTIO_SCHEMA": "Clip.2",
+        "name": "Title",
+        "source_range": {
+            "OTIO_SCHEMA": "TimeRange.1",
+            "start_time": {"OTIO_SCHEMA": "RationalTime.1", "rate": 1.0, "value": 0.0},
+            "duration": {"OTIO_SCHEMA": "RationalTime.1", "rate": 1.0, "value": 2.0},
+        },
+        "effects": [],
+        "active_media_reference_key": "DEFAULT_MEDIA",
+        "media_references": {
+            "DEFAULT_MEDIA": {
+                "OTIO_SCHEMA": "GeneratorReference.1",
+                "name": "Text",
+                "generator_kind": "Rich",
+                "metadata": {},
+                "parameters": {
+                    "Resolve_OTIO": [
+                        {
+                            "Effect Name": "Rich Text",
+                            "Enabled": True,
+                            "Name": "Rich Text",
+                            "Type": 24,
+                            "Parameters": [
+                                {"Parameter ID": "title blob", "Title HTML": "<p>Hi</p>"},
+                                {"Variant Type": "POINTF", "Parameter ID": "position", "Parameter Value": list(position)},
+                                {"Variant Type": "Double", "Parameter ID": "transformationZoomX", "Parameter Value": zoom[0]},
+                                {"Variant Type": "Double", "Parameter ID": "transformationZoomY", "Parameter Value": zoom[1]},
+                                {"Variant Type": "Double", "Parameter ID": "transformationRotationAngle", "Parameter Value": rotation},
+                            ],
+                        }
+                    ]
+                },
+            }
+        },
+    }
+    return Clip.parse_json(json.dumps(clip_json))
+
+
+def transform_effects(clip: Clip) -> list:
+    return [
+        e for e in json.loads(clip.to_json())["effects"]
+        if e.get("effect_name") in ("tellers.ai.Transform", "Transform")
+    ]
+
+
+def test_rich_text_placement_is_read_only():
+    clip = rich_text_clip()
+    before = media_ref(clip)["parameters"]
+
+    pos = clip.get_position()
+    assert (pos.get_x(), pos.get_y()) == pytest.approx((0.2, -0.1))
+    assert (pos.get_zoom_x(), pos.get_zoom_y(), pos.get_rotation()) == pytest.approx((2.0, 1.5, 10.0))
+
+    clip.set_position(MediaReferencePosition(0.3, 0.1, 25.0, 3.0, 1.5))
+    # The Rich Text block is never written; the Transform effect holds the difference.
+    assert media_ref(clip)["parameters"] == before
+    [effect] = transform_effects(clip)
+    assert effect["effect_name"] == "tellers.ai.Transform"
+    assert effect["metadata"]["tellers.ai"]["parameters"] == pytest.approx(
+        {"x": 0.1, "y": 0.2, "scaleX": 1.5, "scaleY": 1.0, "rotation": 15.0}
+    )
+
+    pos = Clip.parse_json(clip.to_json()).get_position()
+    assert (pos.get_x(), pos.get_y()) == pytest.approx((0.3, 0.1))
+    assert (pos.get_zoom_x(), pos.get_zoom_y(), pos.get_rotation()) == pytest.approx((3.0, 1.5, 25.0))
+
+
+def test_generator_position_writes_tellers_transform_and_keeps_other_parameters():
+    clip = Clip.new_shape(1.0, {"shape": "rectangle"})
+    data = json.loads(clip.to_json())
+    data["effects"] = [
+        {
+            "OTIO_SCHEMA": "Effect.1",
+            "name": "",
+            "effect_name": "Transform",
+            "metadata": {"tellers.ai": {"parameters": {"opacity": 0.5, "scale": 2.0, "x": {"keyframes": [{"t": 1, "v": 0.3}, {"t": 0, "v": 0.1}]}}}},
+        }
+    ]
+    clip = Clip.parse_json(json.dumps(data))
+    pos = clip.get_position()
+    # Keyframed values are read at the clip start; `scale` multiplies.
+    assert pos.get_x() == pytest.approx(0.1)
+    assert (pos.get_zoom_x(), pos.get_zoom_y()) == pytest.approx((2.0, 2.0))
+
+    clip.set_position(MediaReferencePosition(-0.2, 0.0, 0.0, 1.0, 0.5))
+    [effect] = transform_effects(clip)
+    assert effect["effect_name"] == "tellers.ai.Transform"
+    assert effect["metadata"]["tellers.ai"]["parameters"] == {
+        "opacity": 0.5, "x": -0.2, "y": 0.0, "scaleX": 1.0, "scaleY": 0.5, "rotation": 0.0,
+    }
+    assert not any(e.get("effect_name") == "Resolve Effect" for e in json.loads(clip.to_json())["effects"])
