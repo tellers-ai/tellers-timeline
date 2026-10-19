@@ -12,6 +12,7 @@ pub mod text_styles;
 pub mod track_methods;
 pub mod types;
 pub mod validate;
+pub mod volume;
 
 pub use associated_tracks::*;
 pub use color_grading::*;
@@ -26,3 +27,4 @@ pub use text_styles::*;
 pub use track_methods::*;
 pub use types::*;
 pub use validate::*;
+pub use volume::*;

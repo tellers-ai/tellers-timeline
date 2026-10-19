@@ -154,7 +154,7 @@ The parameters of a generator reference: a Resolve `Rich Text` block for `genera
 
 ### Effect
 
-An effect on a clip, a track or the stack. Tellers effects are named `tellers.ai.<Effect>` and keep their parameters in `metadata["tellers.ai"].parameters` (see [Tellers effects](#tellers-effects)); Resolve transforms, volume and crop are `Resolve Effect`s with a `Resolve_OTIO` block. Other OTIO keys (e.g. `time_scalar`) are kept as they are.
+An effect on a clip, a track or the stack. Tellers effects are named `tellers.ai.<Effect>` and keep their parameters in `metadata["tellers.ai"].parameters` (see [Tellers effects](#tellers-effects)); Resolve transforms and crop are `Resolve Effect`s with a `Resolve_OTIO` block, as is the legacy clip volume (read, never written: the volume is `tellers.ai.Volume`). Other OTIO keys (e.g. `time_scalar`) are kept as they are.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -170,7 +170,7 @@ The metadata of an effect. Keys other than `Resolve_OTIO` (notably `tellers.ai`)
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `Resolve_OTIO` | [ResolveOTIOEffect](#resolveotioeffect) \| null |  |  | The Resolve effect of a `Resolve Effect` (Transform, volume, Cropping). |
+| `Resolve_OTIO` | [ResolveOTIOEffect](#resolveotioeffect) \| null |  |  | The Resolve effect of a `Resolve Effect` (Transform, Cropping, legacy volume). |
 
 ### Marker
 
