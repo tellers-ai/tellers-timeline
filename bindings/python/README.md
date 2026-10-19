@@ -1,7 +1,10 @@
 # tellers-timeline
 
-Python bindings for reading, writing, validating, and editing a simplified subset
-of OpenTimelineIO (OTIO) JSON. The implementation uses Rust and PyO3.
+An OpenTimelineIO (OTIO) timeline engine for building editors and automating edits,
+powered by Rust and PyO3. Read and write timelines, insert with explicit policies,
+move and resize synced clips, sanitize documents, and work with effects, markers,
+and stable IDs. Full OTIO coverage and portable effect/ID conventions are the
+project's goals; see the repository's feature table for current support.
 
 ```sh
 pip install tellers-timeline
