@@ -1,0 +1,105 @@
+name: Publish Python package
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the built distributions to PyPI
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  wheels:
+    name: Wheel (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: '2014'
+          args: --release --locked -m bindings/python/Cargo.toml --out dist -i ${{ runner.os == 'Linux' && 'python3.11' || 'python' }}
+      - name: Test installed wheel
+        shell: bash
+        run: |
+          python -m pip install dist/*.whl pytest
+          # Copy tests so conftest.py cannot import the checkout's extension.
+          cp -R bindings/python/tests "$RUNNER_TEMP/python-package-tests"
+          python -m pytest -q "$RUNNER_TEMP/python-package-tests"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.target }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build source distribution and verify it builds a wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          manylinux: '2014'
+          args: --release --locked --sdist -m bindings/python/Cargo.toml --out dist -i python3.11
+      - name: Rebuild from the source archive
+        run: python -m pip wheel --no-deps dist/*.tar.gz --wheel-dir rebuilt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  check:
+    needs: [wheels, sdist]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: python -m pip install twine
+      - run: python -m twine check --strict dist/*
+
+  publish:
+    if: inputs.publish && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: check
+    runs-on: ubuntu-22.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tellers-timeline
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1

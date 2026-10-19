@@ -7,6 +7,29 @@ Open-source, cross-language library for reading, writing, validating, and editin
 - Run tests: `just test-all`
 - Regenerate schema: `just regen-schema` (writes to `spec/otio.schema.json`)
 
+#### Publishing the Python package
+
+The `Publish Python package` GitHub Actions workflow builds and tests wheels for
+Linux x86-64, macOS Intel and Apple Silicon, and Windows x86-64, plus a source
+distribution. A manual run builds downloadable artifacts by default. Check
+`Publish the built distributions to PyPI` to upload them; publishing runs only
+from the repository's default branch.
+
+One-time setup:
+
+1. Verify your PyPI email and enable two-factor authentication.
+2. Create the GitHub environment `pypi` in this repository's settings.
+3. At <https://pypi.org/manage/account/publishing/>, add a pending GitHub publisher:
+   project `tellers-timeline`, owner `tellers-ai`, repository `tellers-timeline`,
+   workflow `publish-python.yml`, environment `pypi`.
+4. Commit and push the workflow, then run it from the repository's Actions tab.
+
+Trusted Publishing creates the PyPI project on the first upload and needs no
+stored API token. See [PyPI's setup instructions](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/).
+Before each new release, update the version in both
+`bindings/python/pyproject.toml` and `bindings/python/Cargo.toml`. PyPI does not
+allow reusing an uploaded distribution filename.
+
 #### Subset implemented
 - Timeline, Tracks, Clips, Gaps, MediaReference, Metadata
 - Time values are seconds (`f64`)
