@@ -106,6 +106,74 @@ class ColorLutInput(TypedDict, total=False):
     name: Optional[str]
     url: Optional[str]
 
+class TextWord(TypedDict, total=False):
+    text: Required[str]
+    start: Required[float]
+    end: float
+
+class TextStroke(TypedDict, total=False):
+    color: str
+    width: float
+
+class TextDropShadow(TypedDict, total=False):
+    color: str
+    alpha: float
+    blur: float
+    distance: float
+    angle: float
+
+class TextBackground(TypedDict, total=False):
+    mode: Literal["block", "line", "word"]
+    color: str
+    opacity: float
+    padding: Union[float, list[float]]
+    radius: float
+
+TextClipStyle = TypedDict(
+    "TextClipStyle",
+    {
+        "fontFamily": str,
+        "fontSize": float,
+        "fontWeight": Union[str, float],
+        "fontStyle": Literal["normal", "italic"],
+        "fill": str,
+        "align": Literal["left", "center", "right"],
+        "lineHeight": float,
+        "letterSpacing": float,
+        "stroke": TextStroke,
+        "dropShadow": TextDropShadow,
+        "background": TextBackground,
+    },
+    total=False,
+)
+
+# `parameters` of a `generator_kind: "Text"` reference (player schema key
+# names). Unknown keys are kept on a read-modify-write.
+TextParameters = TypedDict(
+    "TextParameters",
+    {
+        "text": str,
+        "words": list[TextWord],
+        "maxWidth": float,
+        "wrap": bool,
+        "style": TextClipStyle,
+    },
+    total=False,
+)
+
+# `parameters` of a `generator_kind: "Shape"` reference. Widths and radii are
+# pixels of a 1080-high frame; line ends are fractions of the clip's box.
+class ShapeParameters(TypedDict, total=False):
+    shape: Required[Literal["rectangle", "ellipse", "line"]]
+    fill: str
+    stroke: str
+    stroke_width: float
+    corner_radius: float
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
 class MediaReference:
     def __init__(
         self,
@@ -128,6 +196,17 @@ class MediaReference:
     def get_rich_text(self) -> Optional[str]: ...
     @staticmethod
     def create_rich_text_reference(title_html: str) -> MediaReference: ...
+    def get_generator_kind(self) -> Optional[str]: ...
+    def is_text_generator(self) -> bool: ...
+    def is_shape_generator(self) -> bool: ...
+    @staticmethod
+    def create_text_reference(parameters: TextParameters, name: Optional[str] = None) -> MediaReference: ...
+    @staticmethod
+    def create_shape_reference(parameters: ShapeParameters, name: Optional[str] = None) -> MediaReference: ...
+    def get_text_parameters(self) -> TextParameters: ...
+    def set_text_parameters(self, parameters: TextParameters) -> None: ...
+    def get_shape_parameters(self) -> ShapeParameters: ...
+    def set_shape_parameters(self, parameters: ShapeParameters) -> None: ...
     def __str__(self) -> str: ...
 
 class MediaReferencePosition:
@@ -199,6 +278,28 @@ class Clip:
     def set_volume(self, volume: float) -> None: ...
     def get_crop(self) -> MediaReferenceCrop: ...
     def set_crop(self, crop: MediaReferenceCrop) -> None: ...
+    @staticmethod
+    def new_text(
+        duration: float,
+        parameters: TextParameters,
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+    ) -> Clip: ...
+    @staticmethod
+    def new_shape(
+        duration: float,
+        parameters: ShapeParameters,
+        name: Optional[str] = None,
+        id: Optional[str] = None,
+    ) -> Clip: ...
+    def is_text_clip(self) -> bool: ...
+    def is_shape_clip(self) -> bool: ...
+    def get_text_parameters(self) -> TextParameters: ...
+    def set_text_parameters(self, parameters: TextParameters) -> None: ...
+    def get_shape_parameters(self) -> ShapeParameters: ...
+    def set_shape_parameters(self, parameters: ShapeParameters) -> None: ...
+    def get_text(self) -> Optional[str]: ...
+    def set_text(self, text: str) -> None: ...
     def is_color_gradable(self) -> bool: ...
     def get_color_luts(self) -> list[ColorLut]: ...
     def set_color_luts(self, luts: list[ColorLutInput]) -> bool: ...

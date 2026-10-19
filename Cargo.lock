@@ -370,6 +370,7 @@ version = "0.1.4"
 dependencies = [
  "pyo3",
  "pyo3-build-config",
+ "serde",
  "serde_json",
  "tellers-timeline-core",
 ]

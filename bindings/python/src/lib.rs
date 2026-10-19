@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, ColorLut, TellersEffect, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
+    validate_timeline, Animatable, Clip, ColorLut, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup,
     Track, TrackKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
@@ -115,6 +115,50 @@ impl PyMediaReference {
         Self {
             inner: MediaReference::create_rich_text_reference(title_html),
         }
+    }
+    fn get_generator_kind(&self) -> Option<String> {
+        self.inner.generator_kind().cloned()
+    }
+    fn is_text_generator(&self) -> bool {
+        self.inner.is_text_generator()
+    }
+    fn is_shape_generator(&self) -> bool {
+        self.inner.is_shape_generator()
+    }
+    /// A `generator_kind: "Text"` reference from a parameters dict
+    /// (`text` or `words`, `maxWidth`, `wrap`, `style`).
+    #[staticmethod]
+    #[pyo3(signature = (parameters, name=None))]
+    fn create_text_reference(parameters: &Bound<PyAny>, name: Option<String>) -> PyResult<Self> {
+        let parameters: TextParameters = generator_parameters_from_python(parameters)?;
+        let inner = MediaReference::new_text(&parameters, name.or_else(|| Some("Text".to_string())))
+            .map_err(generator_error)?;
+        Ok(Self { inner })
+    }
+    /// A `generator_kind: "Shape"` reference from a parameters dict.
+    #[staticmethod]
+    #[pyo3(signature = (parameters, name=None))]
+    fn create_shape_reference(parameters: &Bound<PyAny>, name: Option<String>) -> PyResult<Self> {
+        let parameters: ShapeParameters = generator_parameters_from_python(parameters)?;
+        let inner = MediaReference::new_shape(&parameters, name.or_else(|| Some("Shape".to_string())))
+            .map_err(generator_error)?;
+        Ok(Self { inner })
+    }
+    fn get_text_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let parameters = self.inner.text_parameters().map_err(generator_error)?;
+        generator_parameters_to_python(py, &parameters)
+    }
+    fn set_text_parameters(&mut self, parameters: &Bound<PyAny>) -> PyResult<()> {
+        let parameters: TextParameters = generator_parameters_from_python(parameters)?;
+        self.inner.set_text_parameters(&parameters).map_err(generator_error)
+    }
+    fn get_shape_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let parameters = self.inner.shape_parameters().map_err(generator_error)?;
+        generator_parameters_to_python(py, &parameters)
+    }
+    fn set_shape_parameters(&mut self, parameters: &Bound<PyAny>) -> PyResult<()> {
+        let parameters: ShapeParameters = generator_parameters_from_python(parameters)?;
+        self.inner.set_shape_parameters(&parameters).map_err(generator_error)
     }
     #[staticmethod]
     fn parse_json(s: &str) -> PyResult<Self> {
@@ -469,6 +513,62 @@ impl PyClip {
     }
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
+    }
+    /// A clip playing a Text generator built from a parameters dict.
+    #[staticmethod]
+    #[pyo3(signature = (duration, parameters, name=None, id=None))]
+    fn new_text(
+        duration: f64,
+        parameters: &Bound<PyAny>,
+        name: Option<String>,
+        id: Option<String>,
+    ) -> PyResult<Self> {
+        let parameters: TextParameters = generator_parameters_from_python(parameters)?;
+        let inner = Clip::new_text(duration, &parameters, name, id).map_err(generator_error)?;
+        Ok(Self { inner })
+    }
+    /// A clip playing a Shape generator built from a parameters dict.
+    #[staticmethod]
+    #[pyo3(signature = (duration, parameters, name=None, id=None))]
+    fn new_shape(
+        duration: f64,
+        parameters: &Bound<PyAny>,
+        name: Option<String>,
+        id: Option<String>,
+    ) -> PyResult<Self> {
+        let parameters: ShapeParameters = generator_parameters_from_python(parameters)?;
+        let inner = Clip::new_shape(duration, &parameters, name, id).map_err(generator_error)?;
+        Ok(Self { inner })
+    }
+    fn is_text_clip(&self) -> bool {
+        self.inner.is_text_clip()
+    }
+    fn is_shape_clip(&self) -> bool {
+        self.inner.is_shape_clip()
+    }
+    fn get_text_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let parameters = self.inner.text_parameters().map_err(generator_error)?;
+        generator_parameters_to_python(py, &parameters)
+    }
+    fn set_text_parameters(&mut self, parameters: &Bound<PyAny>) -> PyResult<()> {
+        let parameters: TextParameters = generator_parameters_from_python(parameters)?;
+        self.inner.set_text_parameters(&parameters).map_err(generator_error)
+    }
+    fn get_shape_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let parameters = self.inner.shape_parameters().map_err(generator_error)?;
+        generator_parameters_to_python(py, &parameters)
+    }
+    fn set_shape_parameters(&mut self, parameters: &Bound<PyAny>) -> PyResult<()> {
+        let parameters: ShapeParameters = generator_parameters_from_python(parameters)?;
+        self.inner.set_shape_parameters(&parameters).map_err(generator_error)
+    }
+    /// The string a Text clip shows: `text`, else its words joined; None for other clips.
+    fn get_text(&self) -> Option<String> {
+        self.inner.get_text()
+    }
+    /// Sets a Text clip's string, dropping its word timings.
+    fn set_text(&mut self, text: String) -> PyResult<()> {
+        self.inner.set_text(text).map_err(generator_error)
     }
     /// Whether the player grades this clip's LUTs when it sits on a video
     /// track: its active media is video or an image (not text).
@@ -1715,6 +1815,29 @@ fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<Py
             Ok(dict.into_py(py))
         })
         .collect()
+}
+
+fn generator_error(error: GeneratorError) -> PyErr {
+    PyErr::new::<pyo3::exceptions::PyValueError, _>(error.to_string())
+}
+
+/// Generator parameters as the plain dict of their JSON (player key names).
+fn generator_parameters_to_python<T: serde::Serialize>(py: Python<'_>, parameters: &T) -> PyResult<PyObject> {
+    let text = serde_json::to_string(parameters)
+        .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
+    Ok(py.import_bound("json")?.call_method1("loads", (text,))?.unbind())
+}
+
+/// A JSON-like dict as typed generator parameters.
+fn generator_parameters_from_python<T: serde::de::DeserializeOwned>(parameters: &Bound<PyAny>) -> PyResult<T> {
+    let text: String = parameters
+        .py()
+        .import_bound("json")?
+        .call_method1("dumps", (parameters,))?
+        .extract()?;
+    serde_json::from_str(&text).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("invalid generator parameters: {e}"))
+    })
 }
 
 fn color_lut_to_python(py: Python<'_>, lut: ColorLut) -> PyResult<PyObject> {
