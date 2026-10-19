@@ -14,6 +14,27 @@ jobs:
       - run: just build-all
       - run: cargo test -p tellers-timeline-core -p tellers-timeline-schema -q
 
+  docs:
+    name: docs (format reference is up to date)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Regenerate docs/otio-reference.md
+        run: cargo run -p tellers-timeline-schema --bin otio-docs --quiet
+      - name: Check it matches the committed file
+        run: |
+          if ! git diff --exit-code -- docs/otio-reference.md; then
+            echo "::error file=docs/otio-reference.md::docs/otio-reference.md is stale. Run 'just regen-docs' and commit the result (the regenerated file is attached to this run as the otio-reference artifact)."
+            exit 1
+          fi
+      - name: Attach the regenerated reference
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: otio-reference
+          path: docs/otio-reference.md
+
   python-binding:
     runs-on: ubuntu-latest
     steps:
