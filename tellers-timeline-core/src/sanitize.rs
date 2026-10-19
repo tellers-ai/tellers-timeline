@@ -1,4 +1,4 @@
-use crate::{rename_legacy_color_lut_effects, IdMetadataExt, Item, Stack, Timeline, Track};
+use crate::{upgrade_legacy_color_lut_effects, IdMetadataExt, Item, Stack, Timeline, Track};
 use std::collections::{HashMap, HashSet};
 
 impl Timeline {
@@ -78,7 +78,7 @@ impl Stack {
         for t in &mut self.children {
             t.sanitize();
         }
-        self.rename_legacy_color_luts();
+        self.upgrade_legacy_color_luts();
         self.ensure_unique_timeline_ids();
         self.cleanup_dangling_sync_clips();
     }
@@ -87,20 +87,20 @@ impl Stack {
         for t in &mut self.children {
             t.sanitize_preserving_all_gap_track();
         }
-        self.rename_legacy_color_luts();
+        self.upgrade_legacy_color_luts();
         self.ensure_unique_timeline_ids();
         self.cleanup_dangling_sync_clips();
     }
 
-    /// Rename LUT effects written as `ColorLut` to `tellers.ai.ColorLut` on
-    /// the stack, its tracks and their clips.
-    fn rename_legacy_color_luts(&mut self) {
-        rename_legacy_color_lut_effects(&mut self.effects);
+    /// Bring LUT effects written in a legacy form (`ColorLut`, keys beside
+    /// `parameters`) up to date on the stack, its tracks and their clips.
+    fn upgrade_legacy_color_luts(&mut self) {
+        upgrade_legacy_color_lut_effects(&mut self.effects);
         for track in &mut self.children {
-            rename_legacy_color_lut_effects(&mut track.effects);
+            upgrade_legacy_color_lut_effects(&mut track.effects);
             for item in &mut track.items {
                 if let Item::Clip(clip) = item {
-                    rename_legacy_color_lut_effects(&mut clip.effects);
+                    upgrade_legacy_color_lut_effects(&mut clip.effects);
                 }
             }
         }
