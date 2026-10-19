@@ -826,6 +826,7 @@ impl Clip {
                     resolve_otio: Some(transform_effect),
                     other: serde_json::Map::new(),
                 },
+                ..Effect::default()
             });
         }
     }
@@ -888,6 +889,7 @@ impl Clip {
                 resolve_otio: Some(volume_effect),
                 other: serde_json::Map::new(),
             },
+            ..Effect::default()
         });
     }
 
@@ -986,6 +988,7 @@ impl Clip {
                 resolve_otio: Some(cropping_effect),
                 other: serde_json::Map::new(),
             },
+            ..Effect::default()
         });
     }
 }
@@ -1276,8 +1279,29 @@ pub struct Effect {
     pub name: String,
     #[serde(default)]
     pub effect_name: String,
+    /// OTIO `enabled`; absent means enabled. The player skips an effect
+    /// whose `enabled` is `false`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     #[serde(default)]
     pub metadata: EffectMetadata,
+    /// Other OTIO keys (e.g. `time_scalar` of a `LinearTimeWarp.1`), kept as
+    /// they are.
+    #[serde(flatten)]
+    pub other: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Default for Effect {
+    fn default() -> Self {
+        Effect {
+            otio_schema: default_effect_schema(),
+            name: String::new(),
+            effect_name: String::new(),
+            enabled: None,
+            metadata: EffectMetadata::default(),
+            other: serde_json::Map::new(),
+        }
+    }
 }
 
 
