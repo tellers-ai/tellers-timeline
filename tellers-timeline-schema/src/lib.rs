@@ -537,9 +537,13 @@ fn effects_section(out: &mut String) {
         out,
         "### ColorLut\n\n\
          `{COLOR_LUT_EFFECT_NAME}`: a `.cube` LUT graded on a clip, a track or the whole \
-         timeline. Unlike the effects above it is identified by `metadata[\"tellers.ai\"]\
-         .asset_id`; the player downloads `parameters.cube_url`, which is resolved from the \
-         asset id before playback and stripped before saving.\n"
+         timeline. Like the effects above, its data is in `parameters`:\n\n\
+         | Parameter | Value |\n|---|---|\n\
+         | `asset_id` | string: the `.cube` asset, what the timeline stores |\n\
+         | `cube_url` | string: the URL the player downloads, resolved from `asset_id` before \
+         playback and stripped before saving |\n\n\
+         Both used to be written beside `parameters`, directly in `tellers.ai`; they are \
+         still read there, and `sanitize` moves them in.\n"
     );
     out.push_str(
         "### Animatable parameters\n\n\
