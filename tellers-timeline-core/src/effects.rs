@@ -29,6 +29,11 @@
 //!   `t` in seconds from the start of the clip on the timeline. Strings
 //!   (colors, presets, modes) and booleans are fixed.
 //!
+//! A composite clip (a nested `Stack`, [`crate::CompositeStack`]) is an item
+//! like a clip: the player applies its filters, `Transform` and `Blend` to
+//! the composited image, so the item accessors (`*_item_tellers_effect*`)
+//! read and edit a composite's effects too. Gaps have none.
+//!
 //! The tellers effects of a stage, in list order, are its effect list. Other
 //! effects (`ColorLut`, see [`crate::color_grading`]; Resolve transforms,
 //! volume and crop; OTIO time warps) are left where they are. Indices passed
@@ -38,7 +43,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{Clip, Effect, Item, Timeline, Track, TrackKind};
+use crate::{Clip, CompositeStack, Effect, Item, Timeline, Track, TrackKind};
 
 /// Key, inside a tellers effect's `tellers.ai` object, holding its
 /// parameters.
@@ -762,37 +767,48 @@ pub fn set_tellers_effect_parameter(
     true
 }
 
-/// A stage holding tellers effects.
+/// A stage holding tellers effects; `None` for one that has none (a gap).
 trait EffectStage {
-    fn stage_effects(&self) -> &[Effect];
-    fn stage_effects_mut(&mut self) -> &mut Vec<Effect>;
+    fn stage_effects(&self) -> Option<&[Effect]>;
+    fn stage_effects_mut(&mut self) -> Option<&mut Vec<Effect>>;
 }
 
-impl EffectStage for Clip {
-    fn stage_effects(&self) -> &[Effect] {
-        &self.effects
-    }
-    fn stage_effects_mut(&mut self) -> &mut Vec<Effect> {
-        &mut self.effects
-    }
+macro_rules! impl_effect_stage {
+    ($ty:ty, |$s:ident| $effects:expr) => {
+        impl EffectStage for $ty {
+            fn stage_effects(&self) -> Option<&[Effect]> {
+                let $s = self;
+                Some(&$effects)
+            }
+            fn stage_effects_mut(&mut self) -> Option<&mut Vec<Effect>> {
+                let $s = self;
+                Some(&mut $effects)
+            }
+        }
+    };
 }
 
-impl EffectStage for Track {
-    fn stage_effects(&self) -> &[Effect] {
-        &self.effects
-    }
-    fn stage_effects_mut(&mut self) -> &mut Vec<Effect> {
-        &mut self.effects
-    }
-}
+impl_effect_stage!(Clip, |c| c.effects);
+impl_effect_stage!(CompositeStack, |s| s.effects);
+impl_effect_stage!(Track, |t| t.effects);
+// OTIO timelines have no effects of their own; the root stack holds them.
+impl_effect_stage!(Timeline, |t| t.tracks.effects);
 
-/// OTIO timelines have no effects of their own; the root stack holds them.
-impl EffectStage for Timeline {
-    fn stage_effects(&self) -> &[Effect] {
-        &self.tracks.effects
+/// A clip's or a composite clip's effects; a gap has none.
+impl EffectStage for Item {
+    fn stage_effects(&self) -> Option<&[Effect]> {
+        match self {
+            Item::Clip(clip) => clip.stage_effects(),
+            Item::Composite(stack) => stack.stage_effects(),
+            Item::Gap(_) => None,
+        }
     }
-    fn stage_effects_mut(&mut self) -> &mut Vec<Effect> {
-        &mut self.tracks.effects
+    fn stage_effects_mut(&mut self) -> Option<&mut Vec<Effect>> {
+        match self {
+            Item::Clip(clip) => clip.stage_effects_mut(),
+            Item::Composite(stack) => stack.stage_effects_mut(),
+            Item::Gap(_) => None,
+        }
     }
 }
 
@@ -803,7 +819,7 @@ macro_rules! impl_tellers_effects {
         impl $ty {
             #[doc = concat!("The tellers effects of ", $stage, ", in order.")]
             pub fn get_tellers_effects(&self) -> Vec<TellersEffect> {
-                resolve_tellers_effects(self.stage_effects())
+                self.stage_effects().map(resolve_tellers_effects).unwrap_or_default()
             }
 
             #[doc = concat!("The first tellers effect of ", $stage, " named `effect_name`, with its index.")]
@@ -816,17 +832,17 @@ macro_rules! impl_tellers_effects {
 
             #[doc = concat!("Replace every tellers effect of ", $stage, "; see [`set_tellers_effects`].")]
             pub fn set_tellers_effects(&mut self, effects: Vec<TellersEffect>) -> bool {
-                set_tellers_effects(self.stage_effects_mut(), effects)
+                self.stage_effects_mut().is_some_and(|e| set_tellers_effects(e, effects))
             }
 
             #[doc = concat!("Append a tellers effect to ", $stage, "; see [`push_tellers_effect`].")]
             pub fn push_tellers_effect(&mut self, effect: TellersEffect) -> bool {
-                push_tellers_effect(self.stage_effects_mut(), effect)
+                self.stage_effects_mut().is_some_and(|e| push_tellers_effect(e, effect))
             }
 
             #[doc = concat!("Insert a tellers effect into ", $stage, "; see [`insert_tellers_effect_at`].")]
             pub fn insert_tellers_effect_at(&mut self, index: usize, effect: TellersEffect) -> bool {
-                insert_tellers_effect_at(self.stage_effects_mut(), index, effect)
+                self.stage_effects_mut().is_some_and(|e| insert_tellers_effect_at(e, index, effect))
             }
 
             #[doc = concat!("Replace a tellers effect of ", $stage, "; see [`replace_tellers_effect_at`].")]
@@ -835,22 +851,22 @@ macro_rules! impl_tellers_effects {
                 index: usize,
                 effect: TellersEffect,
             ) -> Option<TellersEffect> {
-                replace_tellers_effect_at(self.stage_effects_mut(), index, effect)
+                replace_tellers_effect_at(self.stage_effects_mut()?, index, effect)
             }
 
             #[doc = concat!("Remove a tellers effect of ", $stage, "; see [`remove_tellers_effect_at`].")]
             pub fn remove_tellers_effect_at(&mut self, index: usize) -> Option<TellersEffect> {
-                remove_tellers_effect_at(self.stage_effects_mut(), index)
+                remove_tellers_effect_at(self.stage_effects_mut()?, index)
             }
 
             #[doc = concat!("Remove every tellers effect of ", $stage, "; see [`clear_tellers_effects`].")]
             pub fn clear_tellers_effects(&mut self) -> bool {
-                clear_tellers_effects(self.stage_effects_mut())
+                self.stage_effects_mut().is_some_and(clear_tellers_effects)
             }
 
             #[doc = concat!("Turn a tellers effect of ", $stage, " on or off; see [`set_tellers_effect_enabled`].")]
             pub fn set_tellers_effect_enabled(&mut self, index: usize, enabled: bool) -> bool {
-                set_tellers_effect_enabled(self.stage_effects_mut(), index, enabled)
+                self.stage_effects_mut().is_some_and(|e| set_tellers_effect_enabled(e, index, enabled))
             }
 
             #[doc = concat!("Set a parameter of a tellers effect of ", $stage, "; see [`set_tellers_effect_parameter`].")]
@@ -860,7 +876,7 @@ macro_rules! impl_tellers_effects {
                 key: &str,
                 value: Option<Value>,
             ) -> bool {
-                set_tellers_effect_parameter(self.stage_effects_mut(), index, key, value)
+                self.stage_effects_mut().is_some_and(|e| set_tellers_effect_parameter(e, index, key, value))
             }
         }
     };
@@ -869,6 +885,11 @@ macro_rules! impl_tellers_effects {
 impl_tellers_effects!(Timeline, "the timeline (applied over the whole composited image)");
 impl_tellers_effects!(Track, "this track (applied to each of its clips)");
 impl_tellers_effects!(Clip, "this clip");
+impl_tellers_effects!(
+    CompositeStack,
+    "this composite clip (applied to its composited image)"
+);
+impl_tellers_effects!(Item, "this clip or composite clip (none for a gap)");
 
 /// Generates the by-id accessors of [`Timeline`] for a stage found by id
 /// (`$find` / `$find_mut` return `Option<&Stage>` / `Option<&mut Stage>`).
@@ -955,9 +976,9 @@ impl_timeline_stage_effects!(
 );
 
 impl_timeline_stage_effects!(
-    "clip",
-    effect_clip,
-    effect_clip_mut,
+    "clip or composite clip",
+    effect_item,
+    effect_item_mut,
     get_item_tellers_effects,
     set_item_tellers_effects,
     push_item_tellers_effect,
@@ -988,20 +1009,18 @@ impl Timeline {
         self.tracks.children.get_mut(index)
     }
 
-    fn effect_clip(&self, item_id: &str) -> Option<&Clip> {
-        self.tracks
-            .children
-            .iter()
-            .find_map(|track| match track.get_item_by_id(item_id)?.1 {
-                Item::Clip(clip) => Some(clip),
-                Item::Gap(_) | Item::Composite(_) => None,
-            })
+    /// The clip or composite clip `item_id`; gaps hold no effects.
+    fn effect_item(&self, item_id: &str) -> Option<&Item> {
+        self.tracks.children.iter().find_map(|track| {
+            let (_, item) = track.get_item_by_id(item_id)?;
+            item.stage_effects().is_some().then_some(item)
+        })
     }
 
-    fn effect_clip_mut(&mut self, item_id: &str) -> Option<&mut Clip> {
+    fn effect_item_mut(&mut self, item_id: &str) -> Option<&mut Item> {
         self.tracks.children.iter_mut().find_map(|track| {
             let (index, _) = track.get_item_by_id(item_id)?;
-            track.items.get_mut(index)?.clip_mut()
+            track.items.get_mut(index).filter(|item| item.stage_effects().is_some())
         })
     }
 }
@@ -1233,5 +1252,103 @@ mod tests {
         assert!(!timeline.get_item_tellers_effects("c1").unwrap()[0].enabled);
         assert!(timeline.clear_track_tellers_effects("t1"));
         assert_eq!(timeline.get_track_tellers_effects("t1"), Some(vec![]));
+    }
+
+    #[test]
+    fn composite_items_hold_effects() {
+        let range = json!({
+            "OTIO_SCHEMA": "TimeRange.1",
+            "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 0, "rate": 1 },
+            "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 2, "rate": 1 }
+        });
+        let timeline_json = json!({
+            "OTIO_SCHEMA": "Timeline.1",
+            "tracks": {
+                "OTIO_SCHEMA": "Stack.1",
+                "children": [{
+                    "OTIO_SCHEMA": "Track.1",
+                    "kind": "Video",
+                    "children": [
+                        {
+                            "OTIO_SCHEMA": "Gap.1",
+                            "metadata": { "tellers.ai": { "timeline_id": "g1" } },
+                            "source_range": range
+                        },
+                        {
+                            "OTIO_SCHEMA": "Stack.1",
+                            "metadata": { "tellers.ai": { "timeline_id": "s1" } },
+                            "effects": [
+                                crate::ColorLut::new("look").to_effect(),
+                                { "OTIO_SCHEMA": "Effect.1", "effect_name": "tellers.ai.Blur",
+                                  "metadata": { "tellers.ai": { "parameters": { "strength": 3 } } } }
+                            ],
+                            "children": [{
+                                "OTIO_SCHEMA": "Track.1",
+                                "kind": "Video",
+                                "children": [{ "OTIO_SCHEMA": "Gap.1", "source_range": range }]
+                            }]
+                        }
+                    ]
+                }]
+            }
+        });
+        let mut timeline: Timeline = serde_json::from_value(timeline_json).unwrap();
+
+        let effects = timeline.get_item_tellers_effects("s1").unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(effects[0].value_at("strength", 0.0), Some(3.0));
+        assert_eq!(timeline.item_track_kind("s1"), Some(TrackKind::Video));
+
+        // The effects the player applies to a composite: filters, Transform, Blend.
+        assert!(timeline.push_item_tellers_effect(
+            "s1",
+            TellersEffect::new("Transform").with_parameter("scale", 0.5)
+        ));
+        assert!(timeline.insert_item_tellers_effect_at(
+            "s1",
+            0,
+            TellersEffect::new("Blend").with_parameter("mode", "multiply")
+        ));
+        assert!(timeline.set_item_tellers_effect_parameter("s1", 2, "rotation", Some(json!(90.0))));
+        assert!(timeline.set_item_tellers_effect_enabled("s1", 1, false));
+        let replaced = timeline
+            .replace_item_tellers_effect_at("s1", 1, TellersEffect::new("Pixelate"))
+            .unwrap();
+        assert_eq!(replaced.effect_name, "Blur");
+
+        let reparsed: Timeline =
+            serde_json::from_str(&serde_json::to_string(&timeline).unwrap()).unwrap();
+        let names: Vec<_> = reparsed
+            .get_item_tellers_effects("s1")
+            .unwrap()
+            .into_iter()
+            .map(|e| e.effect_name)
+            .collect();
+        assert_eq!(names, ["Blend", "Pixelate", "Transform"]);
+        let Item::Composite(stack) = &reparsed.tracks.children[0].items[1] else {
+            panic!("expected a composite");
+        };
+        assert_eq!(stack.effects.len(), 4);
+        assert_eq!(stack.find_tellers_effect("Transform").unwrap().1.parameters["rotation"], 90.0);
+
+        assert_eq!(
+            timeline.remove_item_tellers_effect_at("s1", 0).unwrap().effect_name,
+            "Blend"
+        );
+        assert!(timeline.clear_item_tellers_effects("s1"));
+        assert_eq!(timeline.get_item_tellers_effects("s1"), Some(vec![]));
+        let Item::Composite(stack) = &timeline.tracks.children[0].items[1] else {
+            panic!("expected a composite");
+        };
+        // The LUT is not a tellers effect and stays.
+        assert_eq!(stack.effects.len(), 1);
+
+        // Gaps hold no effects.
+        assert_eq!(timeline.get_item_tellers_effects("g1"), None);
+        assert!(!timeline.push_item_tellers_effect("g1", TellersEffect::new("Blur")));
+        let gap = &mut timeline.tracks.children[0].items[0];
+        assert!(gap.get_tellers_effects().is_empty());
+        assert!(!gap.push_tellers_effect(TellersEffect::new("Blur")));
+        assert!(gap.remove_tellers_effect_at(0).is_none());
     }
 }
