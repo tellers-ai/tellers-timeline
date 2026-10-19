@@ -624,3 +624,33 @@ fn reads_and_clears_a_cube_url_beside_parameters() {
         ])
     );
 }
+
+#[test]
+fn sanitize_renames_legacy_lut_effects_on_every_stage() {
+    let legacy = || {
+        effects_from(json!([
+            {"effect_name": "ColorLut", "name": "look.cube", "metadata": {"tellers.ai": {"asset_id": "a"}}},
+            {"effect_name": "Blur", "metadata": {}}
+        ]))
+    };
+    let mut tl = timeline_with_clip("c1");
+    tl.tracks.effects = legacy();
+    tl.tracks.children[0].effects = legacy();
+    if let Item::Clip(clip) = &mut tl.tracks.children[0].items[0] {
+        clip.effects = legacy();
+    }
+
+    tl.sanitize();
+
+    let renamed = json!([
+        {"OTIO_SCHEMA": "Effect.1", "name": "look.cube", "effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"asset_id": "a"}}},
+        {"OTIO_SCHEMA": "Effect.1", "name": "", "effect_name": "Blur", "metadata": {}}
+    ]);
+    assert_eq!(effects_json(&tl.tracks.effects), renamed);
+    assert_eq!(effects_json(&tl.tracks.children[0].effects), renamed);
+    let Item::Clip(clip) = &tl.tracks.children[0].items[0] else {
+        panic!("expected a clip");
+    };
+    assert_eq!(effects_json(&clip.effects), renamed);
+    assert_eq!(ids(&tl.get_color_luts()), ["a"]);
+}

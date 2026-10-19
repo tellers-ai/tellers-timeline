@@ -176,6 +176,18 @@ pub fn is_lut_effect(effect: &Effect) -> bool {
         || effect.effect_name == LEGACY_COLOR_LUT_EFFECT_NAME
 }
 
+/// Give every LUT effect in `effects` written under the legacy `ColorLut`
+/// name the current `tellers.ai.ColorLut` one, returning how many were
+/// renamed. Run by [`crate::Stack::sanitize`], so stored timelines converge
+/// on the new name without a migration.
+pub fn rename_legacy_color_lut_effects(effects: &mut [Effect]) -> usize {
+    effects
+        .iter_mut()
+        .filter(|effect| effect.effect_name == LEGACY_COLOR_LUT_EFFECT_NAME)
+        .map(|effect| effect.effect_name = COLOR_LUT_EFFECT_NAME.to_string())
+        .count()
+}
+
 /// The LUTs of a stage, in grading order, normalized and with unusable ones
 /// skipped.
 pub fn resolve_color_luts(effects: &[Effect]) -> Vec<ColorLut> {
