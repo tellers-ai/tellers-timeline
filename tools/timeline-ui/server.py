@@ -229,35 +229,32 @@ class State:
         }
 
     # -- compounds ----------------------------------------------------------- #
-    # The library edits a stack's top-level items only: ids inside a composite
-    # clip are not found. To edit one, its tracks become the working stack (so
-    # every op applies to them) and are written back into the composite's
-    # Stack.1 on close; the composite keeps its own name, metadata, effects and
-    # source range. Timeline-level data made while inside (stack markers, clip
-    # groups) has nowhere to go and is dropped on close.
+    # Opening a composite clip makes a copy of its tracks the working stack
+    # (stack.composite_stack), so every op applies to them; closing writes them
+    # back with stack.set_composite_tracks, which ripples the enclosing track
+    # when an auto-length composite changes length. Timeline-level data made
+    # while inside (stack markers, clip groups) has nowhere to go and is
+    # dropped on close.
     def open_compound(self, item_id: str) -> str:
         found = self.stack.get_item(item_id)
         if found is None or not found[2].is_composite():
-            raise ValueError(f"{item_id!r} is not a top-level composite clip here")
-        track_index, item_index, _ = found
-        outer = self.snapshot()
-        composite = json.loads(outer)["tracks"]["children"][track_index]["children"][item_index]
-        name = composite.get("name") or item_id
-        self.frames.append({"id": item_id, "name": name, "outer": outer, "track": track_index, "item": item_index, "history": self.history})
+            raise ValueError(f"{item_id!r} is not a composite clip at this level")
+        inner = self.stack.composite_stack(item_id)
+        name = inner.get_name() or item_id
+        self.frames.append({"id": item_id, "name": name, "outer": self.snapshot(), "history": self.history})
         self.history = []
-        inner = {"OTIO_SCHEMA": "Timeline.1", "name": name, "tracks": {"OTIO_SCHEMA": "Stack.1", "children": composite.get("children") or []}}
-        self.restore(json.dumps(inner))
+        self.stack = inner
         return name
 
     def close_compound(self) -> str:
         frame = self.frames.pop()
-        tracks = json.loads(self.snapshot())["tracks"]["children"]
-        doc = json.loads(frame["outer"])
-        doc["tracks"]["children"][frame["track"]]["children"][frame["item"]]["children"] = tracks
+        tracks = self.stack.tracks()
+        self.restore(frame["outer"])
+        if not self.stack.set_composite_tracks(frame["id"], tracks):
+            raise ValueError(f"composite {frame['id']!r} is gone")
         self.history = frame["history"]
         self.history.append(frame["outer"])  # undo the whole compound edit at once
         del self.history[:-MAX_HISTORY]
-        self.restore(json.dumps(doc))
         return frame["name"]
 
     def close_all_compounds(self) -> None:
@@ -443,7 +440,7 @@ def op_load_json(state: State, p: dict):
 @op("open_compound", mutates=False)
 def op_open_compound(state: State, p: dict):
     name = state.open_compound(p["id"])
-    return name, f"stack = <tracks of composite {_fmt(p['id'])}>  # open {name!r}: ops now edit its tracks"
+    return name, f"stack = stack.composite_stack({_fmt(p['id'])})  # open {name!r}: ops now edit its tracks"
 
 
 @op("close_compound", mutates=False)
@@ -451,7 +448,7 @@ def op_close_compound(state: State, p: dict):
     if not state.frames:
         return False, "close_compound (no compound open)"
     name = state.close_compound()
-    return name, f"<composite>.children = stack.tracks()  # close {name!r}, back to the outer stack"
+    return name, f"outer.set_composite_tracks(<id>, stack.tracks())  # close {name!r}, back to the outer stack"
 
 
 @op("undo", mutates=False)
