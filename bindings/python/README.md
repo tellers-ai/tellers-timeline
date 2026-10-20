@@ -105,7 +105,7 @@ remaining work; it is not a claim of complete OTIO conformance.
 | Validation | 🟡 Partial | Negative item-duration checks. Comprehensive structural and schema validation remains. |
 | Rich text and styling | 🟡 Partial | Resolve rich-text generators, typed Text and Shape generator clips, timeline font declarations, named CSS text styles, and LUT asset/URL helpers. Rich-text HTML cannot be edited after the clip is created. |
 | Nested compositions | 🟡 Partial | Composite clips (a `Stack.1` on a track) load, round-trip, and move, split, resize, and delete like clips; their effects are editable. Deeper editing inside nested tracks remains. |
-| Transitions and time effects | 🟡 Partial | `Transition.1` items load, round-trip, and are edited (type, offsets); a transition's `direction` and `color` have no typed API. `TimeWarp`, `LinearTimeWarp.1`, and `FreezeFrame.1` are kept as effect data; speed-aware editing remains. |
+| Transitions and time effects | 🟡 Partial | `Transition.1` items load, round-trip, and are edited (typed kind, direction, colour, offsets, and audio fade curve: `tellers.ai.audio-constant-power` / `tellers.ai.audio-constant-gain`). `TimeWarp`, `LinearTimeWarp.1`, and `FreezeFrame.1` are kept as effect data; speed-aware editing remains. |
 | Full OTIO schema coverage | ⬜ Missing | Remaining object types, schema-version handling, and comprehensive interoperability fixtures. |
 | Format adapters | ⬜ Missing | Native AAF, EDL, FCPXML, and other format adapters. Use the OTIO ecosystem to convert to/from `.otio`. |
 | Language bindings | 🟡 Partial | Rust and typed Python APIs today; additional bindings are future work. |

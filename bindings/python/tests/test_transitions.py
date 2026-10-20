@@ -130,3 +130,19 @@ def test_typed_kind_direction_and_color():
         t.set_kind("Spin")
     with pytest.raises(ValueError):
         t.set_direction("Up")
+
+
+def test_audio_kind():
+    import tellers_timeline
+
+    assert tellers_timeline.AUDIO_TRANSITION_TYPES == ["tellers.ai.audio-constant-power", "tellers.ai.audio-constant-gain"]
+    t = Transition(0.5, 0.5)
+    assert t.get_audio_kind() is None
+    t.set_audio_kind("constant-gain")
+    assert t.get_transition_type() == "tellers.ai.audio-constant-gain"
+    assert t.get_audio_kind() == "constant-gain"
+    assert t.get_kind() == "Dissolve"
+    t.set_audio_kind("tellers.ai.audio-constant-power")
+    assert t.get_audio_kind() == "constant-power"
+    with pytest.raises(ValueError):
+        t.set_audio_kind("exponential")

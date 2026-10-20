@@ -283,7 +283,7 @@
 
 <div class="pop" id="popTransition">
   <div class="frow"><label>Between</label><span id="ptrWhere" class="mono" style="color:var(--fg2)"></span></div>
-  <div class="frow"><label>Kind</label><select id="ptrKind"><option>Dissolve</option><option>DipToColor</option><option>Wipe</option><option>Push</option><option>Slide</option><option>Zoom</option></select></div>
+  <div class="frow"><label>Kind</label><select id="ptrKind"></select></div>
   <div class="frow" id="ptrDirRow"><label>Direction</label><select id="ptrDir"><option>left</option><option>right</option><option>up</option><option>down</option></select></div>
   <div class="frow" id="ptrColorRow"><label>Color</label><input type="color" id="ptrColor" value="#000000"></div>
   <div class="frow"><label>In offset (s)</label><input type="number" id="ptrIn" step="0.1" min="0" value="0.5" title="reaches back into the previous item"></div>
@@ -707,7 +707,7 @@
     d.style.width = Math.max(10, (it.in_offset + it.out_offset) * pps) + 'px';
     if (it.transition_kind === 'DipToColor') d.style.background = `linear-gradient(to right, rgba(255,255,255,.5), ${it.color}, rgba(255,255,255,.5))`;
     const dir = ['Wipe', 'Push', 'Slide'].includes(it.transition_kind) ? ' ' + ({ left: '←', right: '→', up: '↑', down: '↓' }[it.direction] || '') : '';
-    d.innerHTML = `<div class="cut" style="left:${(it.start - left) * pps}px"></div>⧓ ${esc(it.name || it.transition_kind)}${dir}`;
+    d.innerHTML = `<div class="cut" style="left:${(it.start - left) * pps}px"></div>⧓ ${esc(it.name || it.audio_kind || it.transition_kind)}${dir}`;
     d.title = `transition ${it.id} · index ${it.index}\n${it.transition_kind} (transition_type ${it.transition_type})` +
       (dir ? `\ndirection ${it.direction}` : '') + (it.transition_kind === 'DipToColor' ? `\ncolor ${it.color}` : '') +
       `\ncut @ ${fmt(it.start)}s · in ${fmt(it.in_offset)}s · out ${fmt(it.out_offset)}s\n\nclick = edit · right-click = menu`;
@@ -1079,6 +1079,9 @@
   // ------------------------------------------------------------- transitions
   // ctx: { transition, track } to edit, or { track, index, between } to add.
   let trCtx = null;
+  const VIDEO_KINDS = ['Dissolve', 'DipToColor', 'Wipe', 'Push', 'Slide', 'Zoom'];
+  // Audio tracks pick the fade curve (tellers.ai.audio-<kind>); "auto" keeps any other type.
+  const AUDIO_KINDS = ['constant-power', 'constant-gain'];
   function openTransitionPopover(ev, ctx) {
     closePops();
     trCtx = ctx;
@@ -1087,7 +1090,10 @@
     $('#ptrWhere').textContent = tr
       ? `${label(ctx.track.items[tr.index - 1])} ⧓ ${label(ctx.track.items[tr.index + 1])}`
       : `${label(ctx.between[0])} ⧓ ${label(ctx.between[1])} (index ${ctx.index})`;
-    $('#ptrKind').value = tr ? tr.transition_kind : 'Dissolve';
+    const audio = ctx.track.kind === 'audio';
+    const kinds = audio ? [...(tr && !tr.audio_kind ? ['auto'] : []), ...AUDIO_KINDS] : VIDEO_KINDS;
+    $('#ptrKind').innerHTML = kinds.map(k => `<option>${k}</option>`).join('');
+    $('#ptrKind').value = audio ? (tr ? tr.audio_kind || 'auto' : AUDIO_KINDS[0]) : (tr ? tr.transition_kind : 'Dissolve');
     $('#ptrDir').value = tr ? tr.direction : 'left';
     $('#ptrColor').value = tr ? tr.color : '#000000';
     $('#ptrIn').value = fmt(tr ? tr.in_offset : 0.5);
@@ -1106,8 +1112,9 @@
   }
   async function submitTransitionPopover() {
     const ctx = trCtx, tr = ctx.transition, k = $('#ptrKind').value;
+    const audio = ctx.track.kind === 'audio';
     const fields = {
-      kind: k,
+      ...(audio ? (k === 'auto' ? {} : { audio_kind: k }) : { kind: k }),
       in_offset: Math.max(0, parseFloat($('#ptrIn').value) || 0),
       out_offset: Math.max(0, parseFloat($('#ptrOut').value) || 0),
       name: $('#ptrName').value.trim() || null,
