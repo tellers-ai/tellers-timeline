@@ -191,7 +191,7 @@ Clip LUTs apply first, then the track's, then the timeline's.
 |---|---|---|
 | tracks, clips, gaps, markers | `timeline_id` | Stable id that edits use to address the object. |
 | clips | `group_id` | The player group the clip belongs to (see `groups`). The library's edit groups use `Tellers Group ID` instead. |
-| timeline | `groups` | `{ <group_id>: { parameters } }`: a keyframable transform (`x`, `y`, `scale`, `rotation`, `opacity`, …) applied to the group's clips together. |
+| timeline | `groups` | `{ <group_id>: { parameters } }`: a keyframable transform (`x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `pivotX`, `pivotY`) applied to the group's clips and composite clips together. Keyframe `t` counts from the earliest member's start. A `group_id` missing here leaves its clips ungrouped. |
 | tracks | `created_by: "auto"` | The library created the track; `prune_empty_partner_tracks` removes it once it is an empty audio track. |
 | markers | `created_by` | The user who left the note. |
 | timeline, tracks | `textStyles` | Named CSS classes for Rich Text HTML. A track's override the timeline's. |
@@ -214,9 +214,10 @@ metadata is kept as it is.
   image, Text and Shape clips; it skips Rich Text clips and transitions.
 
 > **Library support.** `tellers-timeline-core` loads, round-trips and edits
-> both transitions and composite clips. A transition's `direction` and
-> `color`, group transforms (`groups`) and `tellers_aspect_ratio` have no
-> typed API: they are kept as plain metadata.
+> both transitions and composite clips, and reads and edits clip groups
+> (`groups` and each member's `group_id`). A transition's `direction` and
+> `color`, and `tellers_aspect_ratio`, have no typed API: they are kept as
+> plain metadata.
 
 ## A worked example
 
