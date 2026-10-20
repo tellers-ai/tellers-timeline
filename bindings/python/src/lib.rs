@@ -506,6 +506,38 @@ impl PyClip {
     fn set_volume(&mut self, volume: f64) {
         self.inner.set_volume(volume);
     }
+    /// The speed the player plays this clip at, as `{"speed", "preserve_pitch"}`
+    /// (`speed` a number, 0 for a freeze frame, or `{"keyframes": [...]}`), or
+    /// None at normal speed.
+    fn get_speed(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        self.inner
+            .get_speed()
+            .map(|speed| {
+                let value = serde_json::json!({
+                    "speed": speed.speed.to_value(),
+                    "preserve_pitch": speed.preserve_pitch,
+                });
+                generator_parameters_to_python(py, &value)
+            })
+            .transpose()
+    }
+    /// Play this clip at a constant `speed` (0 freezes its first frame, else
+    /// 0.25 to 4); `preserve_pitch=None` keeps the current setting. Raises
+    /// ValueError for a speed out of range.
+    #[pyo3(signature = (speed, preserve_pitch=None))]
+    fn set_speed(&mut self, speed: f64, preserve_pitch: Option<bool>) -> PyResult<()> {
+        self.inner
+            .set_speed(speed, preserve_pitch)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    /// Play this clip at normal speed; False when it already was.
+    fn clear_speed(&mut self) -> bool {
+        self.inner.clear_speed()
+    }
+    /// Source seconds this clip plays over its duration on the timeline.
+    fn get_source_duration(&self) -> f64 {
+        self.inner.source_duration()
+    }
     fn get_crop(&self, py: Python<'_>) -> Py<PyMediaReferenceCrop> {
         let crop = self.inner.get_crop();
         Py::new(py, PyMediaReferenceCrop { inner: crop }).unwrap()
@@ -1832,6 +1864,21 @@ impl PyStack {
     }
     fn split_item_at_time(&mut self, item_id: &str, split_time: f64) -> bool {
         self.inner.split_item_at_time(item_id, split_time)
+    }
+    /// `Clip.set_speed` on the clip `item_id` and, with `with_sync_clips`, on
+    /// its sync partners. Returns how many clips changed (0 when no clip has
+    /// this id); raises ValueError for a speed out of range.
+    #[pyo3(signature = (item_id, speed, preserve_pitch=None, with_sync_clips=true))]
+    fn set_item_speed(
+        &mut self,
+        item_id: &str,
+        speed: f64,
+        preserve_pitch: Option<bool>,
+        with_sync_clips: bool,
+    ) -> PyResult<usize> {
+        self.inner
+            .set_item_speed(item_id, speed, preserve_pitch, with_sync_clips)
+            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
     }
     fn resize_item(
         &mut self,

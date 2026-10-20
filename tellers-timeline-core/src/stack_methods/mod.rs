@@ -12,6 +12,7 @@ mod stack_item_insert;
 mod stack_item_link;
 mod stack_item_move;
 mod stack_item_replace;
+mod stack_item_speed;
 mod stack_item_split;
 mod stack_partner_tracks;
 #[cfg(test)]
