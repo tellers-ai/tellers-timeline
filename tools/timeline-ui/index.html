@@ -283,7 +283,7 @@
 
 <div class="pop" id="popTransition">
   <div class="frow"><label>Between</label><span id="ptrWhere" class="mono" style="color:var(--fg2)"></span></div>
-  <div class="frow"><label>Kind</label><select id="ptrKind"><option>Dissolve</option><option>DipToColor</option><option>Wipe</option><option>Push</option><option>Slide</option><option>Zoom</option></select></div>
+  <div class="frow"><label>Kind</label><select id="ptrKind"></select></div>
   <div class="frow" id="ptrDirRow"><label>Direction</label><select id="ptrDir"><option>left</option><option>right</option><option>up</option><option>down</option></select></div>
   <div class="frow" id="ptrColorRow"><label>Color</label><input type="color" id="ptrColor" value="#000000"></div>
   <div class="frow"><label>In offset (s)</label><input type="number" id="ptrIn" step="0.1" min="0" value="0.5" title="reaches back into the previous item"></div>
@@ -1078,16 +1078,21 @@
 
   // ------------------------------------------------------------- transitions
   // ctx: { transition, track } to edit, or { track, index, between } to add.
+  // The library allows audio kinds (fade curves) on audio tracks only and
+  // picture kinds on any other, so the kind list follows the track.
   let trCtx = null;
+  const TR_KINDS = { audio: ['AudioConstantPower', 'AudioConstantGain'], video: ['Dissolve', 'DipToColor', 'Wipe', 'Push', 'Slide', 'Zoom'] };
   function openTransitionPopover(ev, ctx) {
     closePops();
     trCtx = ctx;
     const tr = ctx.transition;
+    const kinds = TR_KINDS[ctx.track.kind === 'audio' ? 'audio' : 'video'];
+    $('#ptrKind').innerHTML = kinds.map(k => `<option>${k}</option>`).join('');
     const label = i => i ? (i.name || i.kind) : '—';
     $('#ptrWhere').textContent = tr
       ? `${label(ctx.track.items[tr.index - 1])} ⧓ ${label(ctx.track.items[tr.index + 1])}`
       : `${label(ctx.between[0])} ⧓ ${label(ctx.between[1])} (index ${ctx.index})`;
-    $('#ptrKind').value = tr ? tr.transition_kind : 'Dissolve';
+    $('#ptrKind').value = tr && kinds.includes(tr.transition_kind) ? tr.transition_kind : kinds[0];
     $('#ptrDir').value = tr ? tr.direction : 'left';
     $('#ptrColor').value = tr ? tr.color : '#000000';
     $('#ptrIn').value = fmt(tr ? tr.in_offset : 0.5);

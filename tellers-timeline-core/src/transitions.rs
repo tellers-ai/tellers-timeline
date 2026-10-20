@@ -5,6 +5,15 @@
 //! case or punctuation (`clip-transition.ts`): `Dissolve`, `CrossDissolve`,
 //! `DipToColor`, `DipToBlack`, `DipToWhite`, `Wipe`, `Push`, `Slide` and
 //! `Zoom`; anything else, OTIO's `SMPTE_Dissolve` included, is a dissolve.
+//!
+//! Audio transitions are `tellers.ai.audio-constant-power` (equal power) and
+//! `tellers.ai.audio-constant-gain` (linear), the curve both sides fade
+//! along: a crossfade between two clips, a fade from or to silence next to
+//! a gap. Like effects (see [`crate::EffectTarget`]), a transition goes on
+//! its kind of track only: an audio transition on an audio track, a picture
+//! one on any other ([`Transition::allowed_on`]). The player draws an audio
+//! type as a dissolve on a picture and gives any other type on audio its
+//! automatic curve, so a misplaced one still plays, just not as written.
 //! A dip's colour and a wipe/push/slide's direction live in
 //! `metadata["tellers.ai"].parameters`:
 //!
@@ -16,12 +25,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::Transition;
+use crate::{TrackKind, Transition};
 
 /// The colour a dip goes through when none is set.
 pub const DEFAULT_TRANSITION_COLOR: &str = "#000000";
 
-/// How the player draws a transition (its `TransitionType`).
+/// How the player plays a transition: the look of a picture one (its
+/// `TransitionType`), or the fade curve of an audio one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TransitionKind {
     Dissolve,
@@ -30,17 +40,38 @@ pub enum TransitionKind {
     Push,
     Slide,
     Zoom,
+    /// Audio: both sides fade with equal power.
+    AudioConstantPower,
+    /// Audio: both sides fade linearly.
+    AudioConstantGain,
 }
 
 impl TransitionKind {
-    pub const ALL: [TransitionKind; 6] = [
+    pub const ALL: [TransitionKind; 8] = [
         TransitionKind::Dissolve,
         TransitionKind::DipToColor,
         TransitionKind::Wipe,
         TransitionKind::Push,
         TransitionKind::Slide,
         TransitionKind::Zoom,
+        TransitionKind::AudioConstantPower,
+        TransitionKind::AudioConstantGain,
     ];
+
+    /// Whether this is an audio transition (a fade curve) rather than a
+    /// picture one.
+    pub fn is_audio(self) -> bool {
+        matches!(
+            self,
+            TransitionKind::AudioConstantPower | TransitionKind::AudioConstantGain
+        )
+    }
+
+    /// Whether a transition of this kind goes on a track of `kind`: an
+    /// audio one on audio tracks only, a picture one on any other track.
+    pub fn allowed_on(self, kind: &TrackKind) -> bool {
+        self.is_audio() == (*kind == TrackKind::Audio)
+    }
 
     /// The player's name for the kind.
     pub fn as_str(self) -> &'static str {
@@ -51,27 +82,36 @@ impl TransitionKind {
             TransitionKind::Push => "Push",
             TransitionKind::Slide => "Slide",
             TransitionKind::Zoom => "Zoom",
+            TransitionKind::AudioConstantPower => "AudioConstantPower",
+            TransitionKind::AudioConstantGain => "AudioConstantGain",
         }
     }
 
     /// The `transition_type` written for the kind; a dissolve is written as
-    /// OTIO's own `SMPTE_Dissolve`.
+    /// OTIO's own `SMPTE_Dissolve`, an audio kind as the player's
+    /// `tellers.ai.audio-*` type.
     pub fn transition_type(self) -> &'static str {
         match self {
             TransitionKind::Dissolve => "SMPTE_Dissolve",
+            TransitionKind::AudioConstantPower => "tellers.ai.audio-constant-power",
+            TransitionKind::AudioConstantGain => "tellers.ai.audio-constant-gain",
             kind => kind.as_str(),
         }
     }
 
     /// Reads a kind name like the player reads a `transition_type`, except
-    /// that an unknown name is `None` instead of a dissolve.
+    /// that an unknown name is `None` instead of a dissolve. The names of
+    /// [`Self::as_str`] are read too (`"AudioConstantGain"`), though the
+    /// player knows the audio kinds only by their `tellers.ai.audio-*` type.
     pub fn parse(name: &str) -> Option<TransitionKind> {
-        alias(name).map(|(kind, _)| kind)
+        alias(name)
+            .map(|(kind, _)| kind)
+            .or_else(|| TransitionKind::ALL.into_iter().find(|k| key(k.as_str()) == key(name)))
     }
 
-    /// The kind the player draws for a `transition_type`.
+    /// The kind the player plays for a `transition_type`.
     pub fn from_transition_type(transition_type: &str) -> TransitionKind {
-        TransitionKind::parse(transition_type).unwrap_or(TransitionKind::Dissolve)
+        alias(transition_type).map_or(TransitionKind::Dissolve, |(kind, _)| kind)
     }
 }
 
@@ -111,14 +151,17 @@ impl TransitionDirection {
     }
 }
 
-/// The player's `TYPE_ALIASES`: the kind, and the colour the name implies.
-fn alias(name: &str) -> Option<(TransitionKind, Option<&'static str>)> {
-    let key: String = name
-        .chars()
+/// A name as the player compares it: its letters, lowercase.
+fn key(name: &str) -> String {
+    name.chars()
         .filter(|c| c.is_ascii_alphabetic())
         .map(|c| c.to_ascii_lowercase())
-        .collect();
-    Some(match key.as_str() {
+        .collect()
+}
+
+/// The player's `TYPE_ALIASES` and `AUDIO_CURVES`: the kind, and the colour the name implies.
+fn alias(name: &str) -> Option<(TransitionKind, Option<&'static str>)> {
+    Some(match key(name).as_str() {
         "dissolve" | "crossdissolve" => (TransitionKind::Dissolve, None),
         "diptocolor" => (TransitionKind::DipToColor, None),
         "diptoblack" => (TransitionKind::DipToColor, Some("#000000")),
@@ -127,14 +170,23 @@ fn alias(name: &str) -> Option<(TransitionKind, Option<&'static str>)> {
         "push" => (TransitionKind::Push, None),
         "slide" => (TransitionKind::Slide, None),
         "zoom" => (TransitionKind::Zoom, None),
+        // The player's `AUDIO_CURVES`.
+        "tellersaiaudioconstantpower" => (TransitionKind::AudioConstantPower, None),
+        "tellersaiaudioconstantgain" => (TransitionKind::AudioConstantGain, None),
         _ => return None,
     })
 }
 
 impl Transition {
-    /// How the player draws this transition.
+    /// How the player plays this transition.
     pub fn kind(&self) -> TransitionKind {
         TransitionKind::from_transition_type(&self.transition_type)
+    }
+
+    /// Whether this transition goes on a track of `kind`; see
+    /// [`TransitionKind::allowed_on`].
+    pub fn allowed_on(&self, kind: &TrackKind) -> bool {
+        self.kind().allowed_on(kind)
     }
 
     /// Writes `kind` as the `transition_type`. A transition already drawn as
@@ -149,12 +201,12 @@ impl Transition {
     /// `"cross dissolve"`; `DipToBlack` and `DipToWhite` also write their
     /// colour. `false`, and nothing changed, for an unknown name.
     pub fn set_kind_named(&mut self, name: &str) -> bool {
-        let Some((kind, implied)) = alias(name) else {
+        let Some(kind) = TransitionKind::parse(name) else {
             return false;
         };
         self.set_kind(kind);
-        if implied.is_some() {
-            self.set_color(implied);
+        if let Some((_, Some(implied))) = alias(name) {
+            self.set_color(Some(implied));
         }
         true
     }

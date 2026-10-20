@@ -756,9 +756,25 @@ impl PyTransition {
     fn set_transition_type(&mut self, transition_type: String) {
         self.inner.transition_type = transition_type;
     }
-    /// How the player draws it: "Dissolve", "DipToColor", "Wipe", "Push", "Slide" or "Zoom".
+    /// How the player plays it: a picture kind ("Dissolve", "DipToColor", "Wipe", "Push",
+    /// "Slide", "Zoom") or an audio fade curve ("AudioConstantPower", "AudioConstantGain").
     fn get_kind(&self) -> &'static str {
         self.inner.kind().as_str()
+    }
+    /// Whether it is an audio transition (a fade curve) rather than a picture one.
+    fn is_audio(&self) -> bool {
+        self.inner.kind().is_audio()
+    }
+    /// Whether it goes on a track of `kind` ("video", "audio" or "other"): an audio
+    /// transition on audio tracks only, a picture one on any other track.
+    fn allowed_on(&self, kind: &str) -> PyResult<bool> {
+        let kind = match kind.to_ascii_lowercase().as_str() {
+            "video" => TrackKind::Video,
+            "audio" => TrackKind::Audio,
+            "other" => TrackKind::Other,
+            _ => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("unknown track kind: {kind}"))),
+        };
+        Ok(self.inner.allowed_on(&kind))
     }
     /// Writes a kind name (read like the player, e.g. "cross dissolve"); "DipToBlack" and
     /// "DipToWhite" also write their colour.

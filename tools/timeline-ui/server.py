@@ -799,6 +799,13 @@ def _make_transition(p: dict, transition: Optional[Transition] = None) -> Transi
     return t
 
 
+def _check_kind(t: Transition, track_kind: str) -> None:
+    # Audio transitions (fade curves) go on audio tracks only, picture ones
+    # on any other.
+    if not t.allowed_on(track_kind):
+        raise ValueError(f"{t.get_kind()} transitions do not go on {track_kind} tracks")
+
+
 def _splice_track(state: State, track_index: int, fn: Callable[[list], None]) -> None:
     doc = json.loads(Timeline(state.stack).to_json())
     fn(doc["tracks"]["children"][track_index]["children"])
@@ -816,6 +823,7 @@ def op_add_transition(state: State, p: dict):
     if not (0 < index < len(items)):
         raise ValueError(f"a transition goes between two items: index {index} of {len(items)}")
     t = _make_transition(p)
+    _check_kind(t, track.kind)
     _splice_track(state, track_index, lambda children: children.insert(index, json.loads(t.to_json())))
     args = f"{t.get_in_offset():g}, {t.get_out_offset():g}, {_fmt(t.get_transition_type())}"
     return t.get_id(), f"track.children.insert({index}, Transition({args}))  # via JSON, no stack API"
@@ -828,6 +836,7 @@ def op_update_transition(state: State, p: dict):
         raise ValueError(f"no transition {p['id']!r}")
     track_index, item_index, item = found
     t = _make_transition(p, item.as_transition())
+    _check_kind(t, state.stack.tracks()[track_index].kind)
 
     def replace(children: list) -> None:
         children[item_index] = json.loads(t.to_json())

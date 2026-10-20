@@ -346,7 +346,9 @@ class Gap:
     def get_effects(self) -> list[Effect]: ...
     def set_effects(self, value: list[Effect]) -> None: ...
 
-TransitionKind = Literal["Dissolve", "DipToColor", "Wipe", "Push", "Slide", "Zoom"]
+TransitionKind = Literal[
+    "Dissolve", "DipToColor", "Wipe", "Push", "Slide", "Zoom", "AudioConstantPower", "AudioConstantGain"
+]
 TransitionDirection = Literal["left", "right", "up", "down"]
 
 class Transition:
@@ -372,7 +374,16 @@ class Transition:
     def get_transition_type(self) -> str: ...
     def set_transition_type(self, value: str) -> None: ...
     def get_kind(self) -> TransitionKind:
-        """How the player draws it; any unknown ``transition_type`` is a ``"Dissolve"``."""
+        """How the player plays it; any unknown ``transition_type`` is a ``"Dissolve"``.
+
+        ``"AudioConstantPower"`` and ``"AudioConstantGain"`` are audio fade curves, written
+        as ``tellers.ai.audio-constant-power`` / ``tellers.ai.audio-constant-gain``.
+        """
+    def is_audio(self) -> bool:
+        """Whether it is an audio transition (a fade curve) rather than a picture one."""
+    def allowed_on(self, kind: str) -> bool:
+        """Whether it goes on a track of ``kind``: audio transitions on audio tracks only,
+        picture ones on any other track. Raises ``ValueError`` on an unknown kind."""
     def set_kind(self, kind: str) -> None:
         """Writes the kind as ``transition_type`` (``"Dissolve"`` as ``"SMPTE_Dissolve"``).
 
