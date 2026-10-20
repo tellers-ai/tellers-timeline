@@ -1038,7 +1038,7 @@
       { sep: true },
       ...(it.kind === 'composite' ? [{ label: '⧉ Open compound (edit its tracks)', key: 'dbl-click', run: () => openCompound(it) }] : []),
       ...(it.kind === 'clip' || it.kind === 'composite' ? [
-        { label: `Effects… (${(it.effects || []).length})`, key: 'F', run: () => openFxPopover(null, ev, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text ? 'text' : t.kind }) },
+        { label: `Effects… (${(it.effects || []).length})`, key: 'F', run: () => openFxPopover(null, ev, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text && t.kind !== 'audio' ? 'text' : t.kind }) },
       ] : []),
       ...(it.kind === 'clip' ? speedMenu(it) : []),
       ...transitionMenu(it, t, ev),
@@ -1127,10 +1127,16 @@
 
   // ------------------------------------------------------------- effects
   // fxCtx: { item_id } | { track_id } | {} (timeline), plus a label and the
-  // target kind used to sort the "add" list. Every edit is one library call;
-  // the popover stays open and redraws from the new state.
+  // kind deciding which effect targets the "add" list offers: the library
+  // refuses sound effects on a video (or other) track or clip and picture or
+  // text effects on an audio one; speed goes anywhere, and the timeline takes
+  // every target. Every edit is one library call; the popover stays open and
+  // redraws from the new state.
   let fxCtx = null;
-  const FX_TARGETS = { video: ['video', 'time'], audio: ['audio', 'time'], text: ['text', 'video', 'time'], other: ['video', 'audio', 'text', 'time'] };
+  const FX_TARGETS = {
+    video: ['video', 'text', 'time'], other: ['video', 'text', 'time'], text: ['text', 'video', 'time'],
+    audio: ['audio', 'time'], timeline: ['video', 'audio', 'text', 'time'],
+  };
   const fxTarget = () => fxCtx.item_id ? { item_id: fxCtx.item_id } : fxCtx.track_id ? { track_id: fxCtx.track_id } : {};
   function fxList() {
     if (fxCtx.item_id) { const i = findItem(fxCtx.item_id); return i ? (i.effects || []) : null; }
@@ -1157,9 +1163,8 @@
     if (list == null) { pop.innerHTML = '<div class="err">target is gone</div>'; return; }
     const specs = S.effect_specs || [];
     const specOf = name => specs.find(s => s.effect_name === name);
-    const prefer = FX_TARGETS[fxCtx.kind] || FX_TARGETS.other;
-    const groups = [...prefer, ...['video', 'audio', 'text', 'time'].filter(g => !prefer.includes(g))];
-    const options = groups.map(g => `<optgroup label="${g}${prefer.includes(g) ? '' : ' (other)'}">` +
+    const groups = FX_TARGETS[fxCtx.kind] || FX_TARGETS.other;
+    const options = groups.map(g => `<optgroup label="${g}">` +
       specs.filter(s => s.target === g).map(s => `<option>${s.effect_name}</option>`).join('') + '</optgroup>').join('');
     pop.innerHTML = `
       <div class="fxhead"><b>Effects</b><span class="mono" style="color:var(--fg2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fxCtx.label)}</span><button data-fx="close">✕</button></div>
@@ -1216,7 +1221,7 @@
     if (e.target.dataset.k) fxSetParam(e.target);
   });
   $('#popFx').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.k) e.target.blur(); });
-  $('#btnTimelineFx').addEventListener('click', e => openFxPopover(e.target, null, { label: 'timeline', kind: 'other' }));
+  $('#btnTimelineFx').addEventListener('click', e => openFxPopover(e.target, null, { label: 'timeline', kind: 'timeline' }));
 
   // ------------------------------------------------------------- actions
   async function deleteSelected(withGap) {
@@ -1262,7 +1267,7 @@
     if (k === 'e') return toggleEnabled();
     if (k === 'f' && selected.size === 1) {
       const it = findItem([...selected][0]);
-      if (it && (it.kind === 'clip' || it.kind === 'composite')) { const d = $(`.item[data-id="${it.id}"]`); openFxPopover(d, null, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text ? 'text' : it.track.kind }); }
+      if (it && (it.kind === 'clip' || it.kind === 'composite')) { const d = $(`.item[data-id="${it.id}"]`); openFxPopover(d, null, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text && it.track.kind !== 'audio' ? 'text' : it.track.kind }); }
     }
   });
 
