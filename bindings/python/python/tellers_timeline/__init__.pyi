@@ -122,6 +122,9 @@ class TextDropShadow(TypedDict, total=False):
     distance: float
     angle: float
 
+# `mode`, `fontStyle` and `align` may also hold a value this library does not
+# know: it is kept as written, and the player draws it as `block`, `normal`
+# and `center`.
 class TextBackground(TypedDict, total=False):
     mode: Literal["block", "line", "word"]
     color: str

@@ -106,7 +106,9 @@ items:
     - `maxWidth` and `wrap`
     - `style`: `fontFamily`, `fontSize`, `fill`, `align`, `stroke`,
       `dropShadow`, and a `background` box with `mode` `block` / `line` / `word`. Sizes are in pixels of the
-      timeline's text render size.
+      timeline's text render size. An `align`, `fontStyle` or background
+      `mode` the player does not know is drawn as its default (`center`,
+      `normal`, `block`).
   - `Shape`: a **shape**.
     - `parameters.shape` is `rectangle`, `ellipse` or `line`
     - `fill`, `stroke`, `stroke_width` and `corner_radius`, in pixels of a
