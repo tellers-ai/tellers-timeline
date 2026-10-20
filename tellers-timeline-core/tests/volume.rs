@@ -100,21 +100,33 @@ fn legacy_resolve_volume_is_still_read() {
 }
 
 #[test]
-fn upgrade_adds_resolve_db_to_tellers_volume() {
+fn a_tellers_volume_overrides_the_resolve_one() {
     let mut clip = clip_with(serde_json::json!([resolve_volume(-6.0)]));
-    clip.push_tellers_effect(TellersEffect::new("Volume").with_parameter(
-        "volume",
-        Animatable::from(vec![Keyframe::new(0.0, 0.0), Keyframe::new(1.0, -10.0)]).to_value(),
-    ));
+    let ramp = Animatable::from(vec![Keyframe::new(0.0, -2.0), Keyframe::new(1.0, -10.0)]);
+    clip.push_tellers_effect(TellersEffect::new("Volume").with_parameter("volume", ramp.to_value()));
+    assert_eq!(clip.get_volume(), -2.0);
 
     assert_eq!(upgrade_legacy_resolve_volume_effects(&mut clip.effects), 1);
 
     assert_eq!(effect_names(&clip), vec!["tellers.ai.Volume"]);
     let (_, volume) = clip.find_tellers_effect("Volume").unwrap();
-    assert_eq!(volume.value_at("volume", 0.0), Some(-6.0));
-    assert_eq!(volume.value_at("volume", 1.0), Some(-16.0));
+    assert_eq!(volume.animatable("volume"), Some(ramp));
     // Already migrated: nothing left to do.
     assert_eq!(upgrade_legacy_resolve_volume_effects(&mut clip.effects), 0);
+}
+
+#[test]
+fn upgrade_moves_resolve_db_into_a_fades_only_tellers_volume() {
+    let mut clip = clip_with(serde_json::json!([resolve_volume(-6.0)]));
+    clip.push_tellers_effect(TellersEffect::new("Volume").with_parameter("fadeIn", 0.5));
+    assert_eq!(clip.get_volume(), -6.0);
+
+    assert_eq!(upgrade_legacy_resolve_volume_effects(&mut clip.effects), 1);
+
+    let (_, volume) = clip.find_tellers_effect("Volume").unwrap();
+    assert_eq!(volume.value_at("volume", 0.0), Some(-6.0));
+    assert_eq!(volume.value_at("fadeIn", 0.0), Some(0.5));
+    assert_eq!(clip.get_volume(), -6.0);
 }
 
 #[test]

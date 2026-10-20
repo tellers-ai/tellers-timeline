@@ -2,11 +2,12 @@
 //!
 //! Timelines written before tellers effects carried the volume as a Resolve
 //! effect (`Resolve_OTIO` named `Volume`, `Fairlight Clip Volume and Fades`).
-//! It is still read — the player applies it on top of `tellers.ai.Volume`, so
-//! a clip's volume is the sum of both in dB — but never written:
+//! It is still read, but only for a clip whose `tellers.ai.Volume` does not
+//! set `volume` (as the player does: once it is set, it is the clip's volume
+//! and the Resolve one is ignored), and never written:
 //! [`crate::Clip::set_volume`] drops it, and
 //! [`upgrade_legacy_resolve_volume_effects`] (run by [`crate::Stack::sanitize`])
-//! folds it into `tellers.ai.Volume`.
+//! moves it into `tellers.ai.Volume`.
 
 use crate::{
     is_tellers_effect, push_tellers_effect, set_tellers_effect_parameter, Animatable, Effect,
@@ -50,16 +51,19 @@ fn tellers_volume_position(effects: &[Effect]) -> Option<usize> {
     })
 }
 
-/// The clip volume in dB at the start of the clip: `tellers.ai.Volume`'s
-/// `volume` plus a legacy Resolve volume, or `None` when neither is set.
-pub fn volume_db(effects: &[Effect]) -> Option<f64> {
-    let tellers = tellers_volume_position(effects)
+/// The `volume` of the applied `tellers.ai.Volume`, if it sets one.
+fn tellers_volume(effects: &[Effect]) -> Option<Animatable> {
+    tellers_volume_position(effects)
         .and_then(|at| TellersEffect::from_effect(&effects[at]))
-        .and_then(|e| e.value_at(VOLUME_PARAMETER, 0.0));
-    let legacy = effects.iter().find_map(legacy_resolve_volume_db);
-    match (tellers, legacy) {
-        (None, None) => None,
-        (t, l) => Some(t.unwrap_or(0.0) + l.unwrap_or(0.0)),
+        .and_then(|e| e.animatable(VOLUME_PARAMETER))
+}
+
+/// The clip volume in dB at the start of the clip: `tellers.ai.Volume`'s
+/// `volume`, else a legacy Resolve volume, or `None` when neither is set.
+pub fn volume_db(effects: &[Effect]) -> Option<f64> {
+    match tellers_volume(effects) {
+        Some(volume) => Some(volume.value_at(0.0)),
+        None => effects.iter().find_map(legacy_resolve_volume_db),
     }
 }
 
@@ -68,13 +72,13 @@ pub fn volume_db(effects: &[Effect]) -> Option<f64> {
 /// legacy Resolve volume.
 pub fn set_volume_db(effects: &mut Vec<Effect>, volume: f64) {
     effects.retain(|effect| !is_legacy_resolve_volume(effect));
-    write_tellers_volume(effects, |_| Animatable::Value(volume));
+    write_tellers_volume(effects, volume);
 }
 
-/// Fold every legacy Resolve volume of `effects` into `tellers.ai.Volume`:
-/// its dB is added to the `volume` there (to every keyframe of an animated
-/// one), so the clip sounds the same, and the Resolve effect is removed.
-/// Returns how many Resolve effects were removed.
+/// Move the legacy Resolve volume of `effects` into `tellers.ai.Volume`, so
+/// the clip sounds the same: its dB becomes the `volume` there, unless that
+/// already sets one (the Resolve volume is then ignored, by the player too).
+/// The Resolve effects are removed; returns how many.
 pub fn upgrade_legacy_resolve_volume_effects(effects: &mut Vec<Effect>) -> usize {
     let removed = effects.iter().filter(|e| is_legacy_resolve_volume(e)).count();
     if removed == 0 {
@@ -82,44 +86,27 @@ pub fn upgrade_legacy_resolve_volume_effects(effects: &mut Vec<Effect>) -> usize
     }
     let legacy = effects.iter().find_map(legacy_resolve_volume_db);
     effects.retain(|effect| !is_legacy_resolve_volume(effect));
-    if let Some(db) = legacy.filter(|db| *db != 0.0) {
-        write_tellers_volume(effects, |current| match current {
-            None => Animatable::Value(db),
-            Some(Animatable::Value(v)) => Animatable::Value(v + db),
-            Some(Animatable::Keyframes { mut keyframes }) => {
-                for keyframe in &mut keyframes {
-                    keyframe.v += db;
-                }
-                Animatable::Keyframes { keyframes }
-            }
-        });
+    if tellers_volume(effects).is_none() {
+        if let Some(db) = legacy.filter(|db| *db != 0.0) {
+            write_tellers_volume(effects, db);
+        }
     }
     removed
 }
 
-/// Set the `volume` of the applied `tellers.ai.Volume` to `f(current)`,
+/// Set the `volume` of the applied `tellers.ai.Volume` to `volume` dB,
 /// adding the effect after the last tellers effect when there is none.
-fn write_tellers_volume(
-    effects: &mut Vec<Effect>,
-    f: impl FnOnce(Option<Animatable>) -> Animatable,
-) {
+fn write_tellers_volume(effects: &mut Vec<Effect>, volume: f64) {
     match tellers_volume_position(effects) {
         Some(at) => {
-            let current = TellersEffect::from_effect(&effects[at])
-                .and_then(|e| e.animatable(VOLUME_PARAMETER));
             // Index among tellers effects, as `set_tellers_effect_parameter` counts.
             let index = effects[..at].iter().filter(|e| is_tellers_effect(e)).count();
-            set_tellers_effect_parameter(
-                effects,
-                index,
-                VOLUME_PARAMETER,
-                Some(f(current).to_value()),
-            );
+            set_tellers_effect_parameter(effects, index, VOLUME_PARAMETER, Some(volume.into()));
         }
         None => {
-            let mut volume = TellersEffect::new(VOLUME);
-            volume.set_animatable(VOLUME_PARAMETER, f(None));
-            push_tellers_effect(effects, volume);
+            let mut effect = TellersEffect::new(VOLUME);
+            effect.set_animatable(VOLUME_PARAMETER, Animatable::Value(volume));
+            push_tellers_effect(effects, effect);
         }
     }
 }
