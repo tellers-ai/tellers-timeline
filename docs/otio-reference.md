@@ -112,10 +112,10 @@ A transition between the two items around it on a track. It takes no time of its
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Transition.1"` | `Transition.1`. |
 | `in_offset` | [RationalTime](#rationaltime) |  |  | How far it reaches back into the item before it. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.parameters` holds the player's `color` (dips) and `direction` (`left`, `right`, `up`, `down`). |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.parameters` holds the player's `color` (dips, `#000000` by default; `DipToBlack` / `DipToWhite` override it) and `direction` (`left`, `right`, `up`, `down`; `left` by default), read and written by `Transition::color` and `Transition::direction`. |
 | `name` | string \| null |  |  | Display name. |
 | `out_offset` | [RationalTime](#rationaltime) |  |  | How far it reaches into the item after it. |
-| `transition_type` | string |  | `"SMPTE_Dissolve"` | OTIO's `SMPTE_Dissolve` (a dissolve) or `Custom_Transition`. The player also reads `Dissolve`, `DipToBlack`, `DipToWhite`, `DipToColor`, `Wipe`, `Push`, `Slide` and `Zoom`, and dissolves on anything else. |
+| `transition_type` | string |  | `"SMPTE_Dissolve"` | OTIO's `SMPTE_Dissolve` (a dissolve) or `Custom_Transition`. The player also reads `Dissolve`, `CrossDissolve`, `DipToBlack`, `DipToWhite`, `DipToColor`, `Wipe`, `Push`, `Slide` and `Zoom`, compared without case or punctuation, and dissolves on anything else. `Transition::kind` / `set_kind` read and write it as a `TransitionKind`. |
 
 ### MediaReference
 

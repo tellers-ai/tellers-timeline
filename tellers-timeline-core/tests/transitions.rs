@@ -317,3 +317,126 @@ fn a_transition_holds_no_tellers_effects() {
         tellers_timeline_core::TellersEffect::new("Blur")
     ));
 }
+
+// Typed kind, direction and colour, read like the player's `otioTransition`.
+
+fn typed(transition_type: &str, parameters: serde_json::Value) -> Transition {
+    serde_json::from_value(serde_json::json!({
+        "OTIO_SCHEMA": "Transition.1",
+        "transition_type": transition_type,
+        "in_offset": { "OTIO_SCHEMA": "RationalTime.1", "rate": 30.0, "value": 15.0 },
+        "out_offset": { "OTIO_SCHEMA": "RationalTime.1", "rate": 30.0, "value": 15.0 },
+        "metadata": { "tellers.ai": { "timeline_id": "t-1", "parameters": parameters } }
+    }))
+    .unwrap()
+}
+
+#[test]
+fn kind_reads_transition_type_like_the_player() {
+    use tellers_timeline_core::TransitionKind::*;
+    for (transition_type, kind) in [
+        ("SMPTE_Dissolve", Dissolve),
+        ("Custom_Transition", Dissolve),
+        ("", Dissolve),
+        ("Cross Dissolve", Dissolve),
+        ("dip_to_color", DipToColor),
+        ("DipToBlack", DipToColor),
+        ("Dip To White", DipToColor),
+        ("WIPE", Wipe),
+        ("Push", Push),
+        ("slide", Slide),
+        ("Zoom", Zoom),
+    ] {
+        assert_eq!(typed(transition_type, serde_json::json!({})).kind(), kind, "{transition_type}");
+    }
+    assert_eq!(Transition::new(0.5, 0.5, None, None).kind(), Dissolve);
+}
+
+#[test]
+fn set_kind_writes_the_player_name_and_keeps_an_equivalent_type() {
+    use tellers_timeline_core::TransitionKind;
+    let mut t = typed("Custom_Transition", serde_json::json!({}));
+    t.set_kind(TransitionKind::Push);
+    assert_eq!(t.transition_type, "Push");
+    t.set_kind(TransitionKind::Dissolve);
+    assert_eq!(t.transition_type, "SMPTE_Dissolve");
+
+    let mut black = typed("DipToBlack", serde_json::json!({}));
+    black.set_kind(TransitionKind::DipToColor);
+    assert_eq!(black.transition_type, "DipToBlack");
+    assert_eq!(TransitionKind::parse("Bogus"), None);
+    assert_eq!(TransitionKind::parse("crossDissolve"), Some(TransitionKind::Dissolve));
+}
+
+#[test]
+fn direction_defaults_to_left_and_round_trips() {
+    use tellers_timeline_core::TransitionDirection;
+    assert_eq!(typed("Wipe", serde_json::json!({})).direction(), TransitionDirection::Left);
+    // The player only reads exact lowercase names.
+    assert_eq!(typed("Wipe", serde_json::json!({ "direction": "Up" })).direction(), TransitionDirection::Left);
+    assert_eq!(typed("Wipe", serde_json::json!({ "direction": "up" })).direction(), TransitionDirection::Up);
+
+    let mut t = Transition::new(0.5, 0.5, Some("Slide".into()), Some("t-2".into()));
+    t.set_direction(Some(TransitionDirection::Down));
+    let json = serde_json::to_value(&t).unwrap();
+    assert_eq!(json["metadata"]["tellers.ai"]["parameters"]["direction"], "down");
+    assert_eq!(json["metadata"]["tellers.ai"]["timeline_id"], "t-2");
+    let back: Transition = serde_json::from_value(json).unwrap();
+    assert_eq!(back.direction(), TransitionDirection::Down);
+
+    t.set_direction(None);
+    assert!(t.metadata["tellers.ai"]["parameters"].get("direction").is_none());
+    // Clearing a parameter that is not there adds nothing.
+    let mut bare = Transition::new(0.5, 0.5, None, Some("t-3".into()));
+    bare.set_direction(None);
+    assert!(bare.metadata["tellers.ai"].get("parameters").is_none());
+}
+
+#[test]
+fn color_follows_the_dip_name_then_parameters() {
+    assert_eq!(typed("DipToColor", serde_json::json!({})).color(), "#000000");
+    assert_eq!(typed("DipToColor", serde_json::json!({ "color": "  " })).color(), "#000000");
+    assert_eq!(typed("DipToColor", serde_json::json!({ "color": " #ff0000 " })).color(), "#ff0000");
+    assert_eq!(typed("DipToWhite", serde_json::json!({ "color": "#ff0000" })).color(), "#ffffff");
+    assert_eq!(typed("DipToBlack", serde_json::json!({})).color(), "#000000");
+}
+
+#[test]
+fn set_color_turns_a_named_dip_into_dip_to_color() {
+    let mut t = typed("DipToWhite", serde_json::json!({}));
+    t.set_color(Some("#00ff00"));
+    assert_eq!(t.transition_type, "DipToColor");
+    assert_eq!(t.color(), "#00ff00");
+
+    t.set_color(None);
+    assert_eq!(t.color(), "#000000");
+    assert!(t.metadata["tellers.ai"]["parameters"].get("color").is_none());
+
+    // A blank colour clears, and leaves a named dip as it is.
+    let mut white = typed("DipToWhite", serde_json::json!({ "color": "#123456" }));
+    white.set_color(Some(" "));
+    assert_eq!(white.transition_type, "DipToWhite");
+    assert!(white.metadata["tellers.ai"]["parameters"].get("color").is_none());
+}
+
+#[test]
+fn typed_setters_repair_non_object_metadata() {
+    let mut t = Transition::new(0.5, 0.5, Some("Push".into()), None);
+    t.metadata = serde_json::json!({ "tellers.ai": "broken" });
+    t.set_direction(Some(tellers_timeline_core::TransitionDirection::Right));
+    assert_eq!(t.metadata["tellers.ai"]["parameters"]["direction"], "right");
+}
+
+#[test]
+fn set_kind_named_writes_the_colour_a_dip_name_implies() {
+    let mut t = typed("DipToBlack", serde_json::json!({}));
+    assert!(t.set_kind_named("Dip To White"));
+    assert_eq!(t.transition_type, "DipToColor");
+    assert_eq!(t.color(), "#ffffff");
+
+    let mut push = typed("Push", serde_json::json!({ "direction": "up" }));
+    assert!(push.set_kind_named("cross dissolve"));
+    assert_eq!(push.transition_type, "SMPTE_Dissolve");
+    assert!(!push.set_kind_named("Spin"));
+    assert_eq!(push.transition_type, "SMPTE_Dissolve");
+}

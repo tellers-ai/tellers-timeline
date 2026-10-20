@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from tellers_timeline import Clip, Item, MediaReference, Stack, Timeline, Track, Transition
 
 FIXTURE = Path(__file__).resolve().parents[3] / "tellers-timeline-core" / "tests" / "fixtures" / "resolve_transitions.otio"
@@ -94,3 +96,37 @@ def test_a_transition_can_be_deleted_by_id():
     assert len(removed) == 1
     ids = [i.get_id() for i in stack.tracks()[0].items()]
     assert ids == ["a", "b"]
+
+
+def test_typed_kind_direction_and_color():
+    t = Transition(0.5, 0.5, "Custom_Transition", "t-1")
+    assert t.get_kind() == "Dissolve"
+    assert t.get_direction() == "left"
+    assert t.get_color() == "#000000"
+
+    t.set_kind("push")
+    assert t.get_transition_type() == "Push"
+    t.set_direction("up")
+    assert t.get_direction() == "up"
+
+    t.set_kind("DipToWhite")
+    assert t.get_kind() == "DipToColor"
+    assert t.get_color() == "#ffffff"
+    t.set_color("#ff0000")
+    assert t.get_transition_type() == "DipToColor"
+    assert t.get_color() == "#ff0000"
+
+    params = json.loads(t.get_metadata_json())["tellers.ai"]["parameters"]
+    assert params == {"direction": "up", "color": "#ff0000"}
+
+    t.set_direction(None)
+    t.set_color(None)
+    assert json.loads(t.get_metadata_json())["tellers.ai"]["parameters"] == {}
+
+    t.set_kind("Dissolve")
+    assert t.get_transition_type() == "SMPTE_Dissolve"
+
+    with pytest.raises(ValueError):
+        t.set_kind("Spin")
+    with pytest.raises(ValueError):
+        t.set_direction("Up")
