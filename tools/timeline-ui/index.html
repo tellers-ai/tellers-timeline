@@ -32,6 +32,16 @@
   #toolbar .title { font-weight: 600; color: var(--fg); }
   #status { margin-left: auto; color: var(--fg2); }
 
+  /* compound breadcrumbs: shown while a compound's tracks are open */
+  #crumbs { display: none; align-items: center; gap: 8px; padding: 5px 10px; background: #2d2559; border-bottom: 1px solid #6b4fd8; }
+  #crumbs.open { display: flex; }
+  #crumbs > * { white-space: nowrap; }
+  #crumbs .note { white-space: normal; }
+  #crumbs .crumb { cursor: pointer; color: #c9bcff; text-decoration: underline; }
+  #crumbs .here { font-weight: 600; }
+  #crumbs .note { color: var(--fg2); font-size: 11px; margin-left: auto; }
+  body.in-compound .lane { background-color: rgba(107, 79, 216, .07); }
+
   /* timeline */
   #scroller { flex: 1; overflow: auto; position: relative; }
   #canvas { position: relative; min-width: 100%; }
@@ -68,6 +78,11 @@
   /* items */
   .item { position: absolute; top: 6px; bottom: 6px; border-radius: 5px; overflow: hidden; cursor: grab; border: 1px solid rgba(0,0,0,.35); box-shadow: inset 0 1px 0 rgba(255,255,255,.12); padding: 3px 6px; color: #fff; }
   .item.clip.video { background: var(--video); } .item.clip.audio { background: var(--audio); } .item.clip.other { background: var(--other); } .item.clip.text { background: var(--text); }
+  .item.composite { background: linear-gradient(160deg, #6b4fd8, #3f2f8f); border: 1px dashed rgba(255,255,255,.7); }
+  .item .inner { position: absolute; left: 0; right: 0; bottom: 3px; display: flex; flex-direction: column-reverse; gap: 1px; pointer-events: none; }
+  .item .inner .il { position: relative; height: 5px; }
+  .item .inner .ic { position: absolute; top: 0; bottom: 0; border-radius: 1px; background: rgba(255,255,255,.75); }
+  .item .inner .ic.gap { background: transparent; }
   .item.gap { background: repeating-linear-gradient(135deg, var(--gap) 0 6px, #2c3038 6px 12px); color: var(--fg2); cursor: grab; }
   .item.disabled { opacity: .45; }
   .item.disabled .nm { text-decoration: line-through; }
@@ -90,6 +105,15 @@
   .marker.clip .stem { display: none; }
   .marker.hidden { opacity: .35; }
   .marker.hidden .flag { outline: 1px dashed #fff; }
+  /* transitions: a bar across the cut, from in_offset before it to out_offset after */
+  .item.transition { top: auto; bottom: 2px; height: 17px; padding: 0 4px; z-index: 6; cursor: pointer; font-size: 10px; line-height: 15px; white-space: nowrap; overflow: hidden;
+    background: linear-gradient(to right, rgba(255,255,255,.08), rgba(255,255,255,.55)); border: 1px solid #fff; border-radius: 9px; color: #111; font-weight: 600; text-shadow: 0 0 2px #fff; }
+  .item.transition .cut { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed #111; }
+  .badge.fx { background: rgba(255, 213, 79, .85); color: #111; }
+  .badge.fx.off { opacity: .5; text-decoration: line-through; }
+  .badge.speed { background: rgba(255,255,255,.85); color: #111; }
+  .hdr button.fx { font-size: 11px; }
+  .hdr button.fx.has { background: rgba(255, 213, 79, .85); color: #111; border-color: transparent; }
   #ghost { position: fixed; pointer-events: none; z-index: 100; opacity: .8; }
   #ghost .item { position: static; height: calc(var(--row-h) - 12px); }
   #droptip { position: fixed; z-index: 101; pointer-events: none; background: var(--bg3); border: 1px solid var(--accent); border-radius: 4px; padding: 2px 6px; font-size: 11px; display: none; }
@@ -120,6 +144,20 @@
   .pop .frow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0; }
   .pop .frow label { color: var(--fg2); }
   .pop .actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+  #popFx { width: 360px; max-height: 72vh; overflow: auto; }
+  #popFx .fxhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+  #popFx .fx { border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; margin: 6px 0; background: var(--bg2); }
+  #popFx .fx.off { opacity: .6; }
+  #popFx .fx .top { display: flex; align-items: center; gap: 6px; }
+  #popFx .fx .top .nm { flex: 1; font-weight: 600; }
+  #popFx .fx .top .tg { font-size: 10px; color: var(--fg2); }
+  #popFx .fx .top button { padding: 0 6px; }
+  #popFx .prm { display: grid; grid-template-columns: 95px 1fr auto; gap: 3px 6px; align-items: center; margin-top: 4px; }
+  #popFx .prm label { color: var(--fg2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+  #popFx .prm input[type=text], #popFx .prm select { width: 100%; }
+  #popFx .prm input[type=color] { width: 44px; height: 22px; padding: 0 2px; }
+  #popFx .prm .k { font-size: 10px; color: var(--fg2); }
+  #popFx .prm .set { color: var(--fg); }
   #menu { position: fixed; z-index: 210; background: var(--bg3); border: 1px solid var(--line); border-radius: 6px; padding: 4px 0; box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none; min-width: 200px; }
   #menu.open { display: block; }
   #menu div { padding: 4px 12px; cursor: pointer; white-space: nowrap; }
@@ -143,6 +181,7 @@
     <button id="btnSanitize" title="stack.sanitize()">Sanitize</button>
     <button id="btnNormalize" title="stack.normalize_track_order(): make every group contiguous, owner on top">Normalize</button>
     <button id="btnPrune" title="stack.prune_empty_partner_tracks(): remove empty auto-named partner tracks">Prune</button>
+    <button id="btnTimelineFx" title="Timeline-wide tellers effects (timeline.*_tellers_effect*)">Timeline fx</button>
   </div>
   <div class="group">
     <label class="opt" title="prod = the app editor's drag rules: plain drag overwrites and leaves a gap; hold ⇧ while dragging/resizing to ripple (push). manual = the selects below.">Policy <select id="preset"><option value="prod">prod (app editor, ⇧ = ripple)</option><option value="manual">manual</option></select></label>
@@ -170,6 +209,8 @@
   </div>
 </div>
 
+<div id="crumbs"></div>
+
 <div id="scroller">
   <div id="canvas">
     <div class="row ruler-row"><div class="hdr" style="justify-content:center;color:var(--fg2)">click ruler to set playhead</div><div id="ruler"></div></div>
@@ -187,7 +228,7 @@
     <button data-tab="sync">Groups</button>
     <button data-tab="json">JSON</button>
     <span class="spacer"></span>
-    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu (ruler/lane/clip: add marker) · click flag = edit marker · drag flag = move marker · ⌘Z undo</span>
+    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu (ruler/lane/clip: add marker; clip: effects, speed, transitions) · F = clip effects · dbl-click compound = open it · click ⧓ = edit transition · click flag = edit marker · drag flag = move marker · ⌘Z undo</span>
     <button id="btnPanel" title="collapse">▾</button>
   </div>
   <div class="body">
@@ -239,6 +280,20 @@
   <div class="frow"><label>Duration (s)</label><input type="number" id="pmDur" step="0.1" min="0" value="0"></div>
   <div class="actions"><button id="pmDelete" class="danger">Delete</button><button id="pmCancel">Cancel</button><button id="pmOk" class="primary">Add</button></div>
 </div>
+
+<div class="pop" id="popTransition">
+  <div class="frow"><label>Between</label><span id="ptrWhere" class="mono" style="color:var(--fg2)"></span></div>
+  <div class="frow"><label>Kind</label><select id="ptrKind"><option>Dissolve</option><option>DipToColor</option><option>Wipe</option><option>Push</option><option>Slide</option><option>Zoom</option></select></div>
+  <div class="frow" id="ptrDirRow"><label>Direction</label><select id="ptrDir"><option>left</option><option>right</option><option>up</option><option>down</option></select></div>
+  <div class="frow" id="ptrColorRow"><label>Color</label><input type="color" id="ptrColor" value="#000000"></div>
+  <div class="frow"><label>In offset (s)</label><input type="number" id="ptrIn" step="0.1" min="0" value="0.5" title="reaches back into the previous item"></div>
+  <div class="frow"><label>Out offset (s)</label><input type="number" id="ptrOut" step="0.1" min="0" value="0.5" title="reaches into the next item"></div>
+  <div class="frow"><label>Name</label><input type="text" id="ptrName" style="width:130px" placeholder="optional"></div>
+  <div class="frow"><label>transition_type</label><span id="ptrType" class="mono" style="color:var(--fg2)"></span></div>
+  <div class="actions"><button id="ptrDelete" class="danger">Delete</button><button id="ptrCancel">Cancel</button><button id="ptrOk" class="primary">Add</button></div>
+</div>
+
+<div class="pop" id="popFx"></div>
 
 <div id="menu"></div>
 <div id="ghost"></div>
@@ -369,7 +424,29 @@
     positionPlayhead();
     renderSelection();
     renderPanels();
+    if ($('#popFx').classList.contains('open')) renderFx();
+    renderCrumbs();
   }
+
+  // Timeline › Compound › Nested: click a crumb to close back to that level.
+  function renderCrumbs() {
+    const path = S.compound_path || [];
+    const box = $('#crumbs');
+    box.classList.toggle('open', path.length > 0);
+    document.body.classList.toggle('in-compound', path.length > 0);
+    if (!path.length) return;
+    box.innerHTML = `<span class="crumb" data-depth="0">Timeline</span>` +
+      path.map((f, i) => ` › <span class="${i === path.length - 1 ? 'here' : 'crumb'}" data-depth="${i + 1}">⧉ ${esc(f.name)}</span>`).join('') +
+      ` <button class="primary" data-depth="${path.length - 1}" title="write these tracks back into the compound">Close compound</button>` +
+      '<span class="note">Editing the compound\'s tracks: every op runs on them. Close writes them back (undo then reverts the whole edit).</span>';
+  }
+  $('#crumbs').addEventListener('click', async e => {
+    const depth = e.target.dataset.depth;
+    if (depth == null || e.target.classList.contains('here')) return;
+    selected.clear();
+    for (let n = (S.compound_path || []).length; n > +depth; n--) await api('close_compound');
+  });
+  function openCompound(it) { selected.clear(); api('open_compound', { id: it.id }); }
 
   function renderRuler(width) {
     el.ruler.innerHTML = '';
@@ -516,6 +593,7 @@
         <span class="name ${t.name ? '' : 'empty'}" title="click to rename (set_name + set_tracks)">${esc(t.name || 'unnamed')}</span>${grp}</div>
       <div class="line2">
         <button class="primary" data-act="add" title="Insert a clip or gap in this track">+</button>${t.kind === 'video' ? '<button class="primary" data-act="add2" title="Insert a 2s video clip with 2 sync audio clips at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}${t.kind === 'audio' ? '<button class="primary" data-act="add2" title="Insert a 2s audio clip with 2 sync audio clips (stems) at the playhead (insert_item_at_time + linked_audio_clips)">+2♪</button>' : ''}
+        <button class="fx${(t.effects || []).length ? ' has' : ''}" data-act="fx" title="Track tellers effects (timeline.*_track_tellers_effect*)">fx${(t.effects || []).length || ''}</button>
         <button data-act="up" title="reorder_track: move toward end of list (top layer)">▲</button>
         <button data-act="down" title="reorder_track: move toward start of list (bottom layer)">▼</button>
         <button data-act="del" class="danger" title="delete_track">×</button>
@@ -530,6 +608,7 @@
       if (!act) return;
       if (act === 'add') openItemPopover(e.target, t);
       if (act === 'add2') insertQuickSynced(t, snapT(playhead), 2);
+      if (act === 'fx') openFxPopover(e.target, null, { track_id: t.id, label: `track #${t.index} ${t.name || t.id}`, kind: t.kind });
       if (act === 'fold') { collapsed.has(t.id) ? collapsed.delete(t.id) : collapsed.add(t.id); render(); return; }
       if (act === 'up') api('reorder_track', { id: t.id, index: t.index + 2 });
       if (act === 'down') api('reorder_track', { id: t.id, index: Math.max(0, t.index - 1) });
@@ -539,7 +618,7 @@
     lane.className = 'lane' + (t.enabled ? '' : ' disabled');
     lane.style.width = width + 'px';
     lane.dataset.trackId = t.id;
-    for (const it of t.items) lane.appendChild(renderItem(it, t));
+    for (const it of t.items) lane.appendChild(it.kind === 'transition' ? renderTransition(it, t) : renderItem(it, t));
     for (const m of markers()) if (m.track_id === t.id) lane.appendChild(renderMarker(m));
     lane.addEventListener('dblclick', e => {
       if (e.target !== lane) return;
@@ -577,15 +656,27 @@
     d.title = `${it.kind} ${it.id}\nstart ${fmt(it.start)}s · dur ${fmt(it.duration)}s · index ${it.index}` +
       (it.url ? `\n${it.url}` : '') + (it.media_duration != null ? `\nmedia ${fmt(it.media_start || 0)}s + ${fmt(it.media_duration)}s` : '') +
       (it.source_start ? `\nsource_start ${fmt(it.source_start)}s` : '') +
-      (it.link_group_id != null ? `\nLink Group ID ${it.link_group_id}` : '') + (it.group_id != null ? `\nTellers Group ID ${it.group_id}` : '');
+      (it.link_group_id != null ? `\nLink Group ID ${it.link_group_id}` : '') + (it.group_id != null ? `\nTellers Group ID ${it.group_id}` : '') +
+      (it.kind === 'composite' ? '\ncompound: ' + (it.children || []).map(c => `${c.name || c.kind} [${c.items.filter(i => i.kind !== 'gap').map(i => i.name || i.kind).join(', ')}]`).join(' · ') : '') +
+      (it.speed ? `\nspeed ${speedLabel(it.speed)}${it.speed.preserve_pitch ? ' (preserve pitch)' : ''} · plays ${fmt(it.source_duration)}s of source` : '') +
+      ((it.effects || []).length ? '\neffects: ' + it.effects.map(f => f.effect_name + (f.enabled ? '' : ' (off)')).join(', ') : '');
     const badges = [];
     if (it.link_group_id != null) badges.push(`<span class="badge link" style="--h:${(it.link_group_id * 67) % 360}">🔗${it.link_group_id}</span>`);
     if (it.group_id != null) badges.push(`<span class="badge grp" style="--h:${(it.group_id * 97 + 40) % 360}">⧉${it.group_id}</span>`);
     if (isText) badges.push('<span class="badge">T</span>');
+    if (it.speed) badges.push(`<span class="badge speed" title="clip speed">${esc(speedLabel(it.speed))}</span>`);
+    if ((it.effects || []).length) badges.push(`<span class="badge fx${it.effects.some(f => f.enabled) ? '' : ' off'}" title="tellers effects">fx${it.effects.length}</span>`);
     if (it.media_duration != null) badges.push(`<span class="badge" title="media duration">m${fmt(it.media_duration)}</span>`);
+    if (it.kind === 'composite') badges.unshift(`<span class="badge" title="compound clip: ${(it.children || []).length} inner tracks">⧉ ${(it.children || []).length} tracks</span>`);
+    // A compound's inner tracks, bottom layer first, shown through its source range.
+    const inner = it.kind === 'composite' ? '<div class="inner">' + (it.children || []).slice(0, 4).map(c =>
+      '<div class="il" title="' + esc(c.name || c.kind) + '">' + c.items.map(ci => {
+        const a = Math.max(ci.start, it.source_start || 0), b = Math.min(ci.start + ci.duration, (it.source_start || 0) + it.duration);
+        return b > a ? `<div class="ic ${ci.kind}" style="left:${(a - (it.source_start || 0)) * pps}px;width:${Math.max(1, (b - a) * pps - 1)}px" title="${esc(ci.name || ci.kind)}"></div>` : '';
+      }).join('') + '</div>').join('') + '</div>' : '';
     d.innerHTML = `<div class="h l"></div><div class="h r"></div>
       <div class="nm">${esc(it.name || (it.kind === 'gap' ? 'gap' : (it.id || '').slice(0, 6)))}</div>
-      <div class="sub"><span>${fmt(it.duration)}s</span><span style="opacity:.6">@${fmt(it.start)}</span>${badges.join('')}</div>`;
+      <div class="sub"><span>${fmt(it.duration)}s</span><span style="opacity:.6">@${fmt(it.start)}</span>${badges.join('')}</div>${inner}`;
     d.addEventListener('pointerdown', e => onPointerDown(e, it, t, d));
     d.addEventListener('click', e => {
       e.stopPropagation();
@@ -594,7 +685,43 @@
       else { selected = new Set([it.id]); }
       renderSelection();
     });
+    if (it.kind === 'composite') d.addEventListener('dblclick', e => { e.stopPropagation(); openCompound(it); });
     d.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); if (!selected.has(it.id)) { selected = new Set([it.id]); renderSelection(); } openItemMenu(e, it, t); });
+    return d;
+  }
+
+  // 2 → "2×", 0 → "freeze", keyframes → "~speed".
+  function speedLabel(sp) {
+    if (typeof sp.speed === 'number') return sp.speed === 0 ? '❄ freeze' : `${fmt(sp.speed)}×`;
+    return '~speed';
+  }
+
+  // A transition takes no track time: draw it as a bar over the cut, reaching
+  // in_offset back into the previous item and out_offset into the next one.
+  function renderTransition(it, t) {
+    const d = document.createElement('div');
+    const left = Math.max(0, it.start - it.in_offset);
+    d.className = 'item transition';
+    d.dataset.id = it.id;
+    d.style.left = (left * pps) + 'px';
+    d.style.width = Math.max(10, (it.in_offset + it.out_offset) * pps) + 'px';
+    if (it.transition_kind === 'DipToColor') d.style.background = `linear-gradient(to right, rgba(255,255,255,.5), ${it.color}, rgba(255,255,255,.5))`;
+    const dir = ['Wipe', 'Push', 'Slide'].includes(it.transition_kind) ? ' ' + ({ left: '←', right: '→', up: '↑', down: '↓' }[it.direction] || '') : '';
+    d.innerHTML = `<div class="cut" style="left:${(it.start - left) * pps}px"></div>⧓ ${esc(it.name || it.transition_kind)}${dir}`;
+    d.title = `transition ${it.id} · index ${it.index}\n${it.transition_kind} (transition_type ${it.transition_type})` +
+      (dir ? `\ndirection ${it.direction}` : '') + (it.transition_kind === 'DipToColor' ? `\ncolor ${it.color}` : '') +
+      `\ncut @ ${fmt(it.start)}s · in ${fmt(it.in_offset)}s · out ${fmt(it.out_offset)}s\n\nclick = edit · right-click = menu`;
+    d.addEventListener('pointerdown', e => e.stopPropagation());
+    d.addEventListener('click', e => { e.stopPropagation(); openTransitionPopover(e, { transition: it, track: t }); });
+    d.addEventListener('contextmenu', e => {
+      e.preventDefault(); e.stopPropagation();
+      openMenu(e, [
+        { label: 'Edit transition…', run: () => openTransitionPopover(e, { transition: it, track: t }) },
+        { label: 'Delete transition (delete_item)', run: () => api('delete_item', { id: it.id, replace_with_gap: false }) },
+        { label: 'Show get_item() result', run: () => { api('get_item', { id: it.id }); activateTab('result'); } },
+        { label: 'Copy id', run: () => navigator.clipboard.writeText(it.id) },
+      ]);
+    });
     return d;
   }
 
@@ -906,8 +1033,15 @@
       { label: 'Delete → leave gap', key: '⌫', run: () => deleteSelected(true) },
       { label: 'Delete → ripple (no gap)', key: '⇧⌫', run: () => deleteSelected(false) },
       { label: 'Replace with new clip…', run: () => openReplacePopover(it, ev) },
-      { label: `Add clip marker here (${fmt(clickT)}s)`, disabled: it.kind !== 'clip', run: () => openMarkerPopover(ev, { owner_id: it.id, owner_label: `clip ${it.name || it.id}`, time: clickT }) },
+      { label: `Add clip marker here (${fmt(clickT)}s)`, disabled: it.kind !== 'clip' && it.kind !== 'composite', run: () => openMarkerPopover(ev, { owner_id: it.id, owner_label: `clip ${it.name || it.id}`, time: clickT }) },
       { label: it.enabled ? 'Disable (set_enabled False)' : 'Enable', key: 'E', run: () => toggleEnabled() },
+      { sep: true },
+      ...(it.kind === 'composite' ? [{ label: '⧉ Open compound (edit its tracks)', key: 'dbl-click', run: () => openCompound(it) }] : []),
+      ...(it.kind === 'clip' || it.kind === 'composite' ? [
+        { label: `Effects… (${(it.effects || []).length})`, key: 'F', run: () => openFxPopover(null, ev, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text ? 'text' : t.kind }) },
+      ] : []),
+      ...(it.kind === 'clip' ? speedMenu(it) : []),
+      ...transitionMenu(it, t, ev),
       { sep: true },
       { label: `Link selected (${ids.length})`, key: 'L', disabled: ids.length < 2, run: () => api('link_items', { ids }) },
       { label: 'Unlink', key: 'U', run: () => api('unlink_items', { ids }) },
@@ -918,6 +1052,171 @@
       { label: 'Copy id', run: () => navigator.clipboard.writeText(it.id) },
     ]);
   }
+
+  function speedMenu(it) {
+    const cur = it.speed ? speedLabel(it.speed) : '1×';
+    const set = speed => api('set_speed', { id: it.id, speed, with_sync_clips: true });
+    return [
+      { sep: true },
+      { label: `Speed: ${cur}`, disabled: true },
+      ...[0.5, 2, 4].map(v => ({ label: `  set_item_speed ${v}×`, disabled: it.speed && it.speed.speed === v, run: () => set(v) })),
+      { label: '  Freeze frame (0)', disabled: it.speed && it.speed.speed === 0, run: () => set(0) },
+      { label: '  Custom…', run: () => { const v = prompt('Speed (0 = freeze frame, 1 = normal):', it.speed && typeof it.speed.speed === 'number' ? it.speed.speed : 1); if (v !== null && v.trim() !== '') set(parseFloat(v)); } },
+      { label: '  Normal (1×)', disabled: !it.speed, run: () => set(1) },
+    ];
+  }
+  // A transition sits between two neighbouring items (not next to another
+  // transition): "before" goes at this item's index, "after" at index + 1.
+  function transitionMenu(it, t, ev) {
+    const prev = t.items[it.index - 1], next = t.items[it.index + 1];
+    const ok = n => n && n.kind !== 'transition';
+    return [
+      { label: '⧓ Add transition with previous', disabled: !ok(prev), run: () => openTransitionPopover(ev, { track: t, index: it.index, between: [prev, it] }) },
+      { label: '⧓ Add transition with next', disabled: !ok(next), run: () => openTransitionPopover(ev, { track: t, index: it.index + 1, between: [it, next] }) },
+    ];
+  }
+
+  // ------------------------------------------------------------- transitions
+  // ctx: { transition, track } to edit, or { track, index, between } to add.
+  let trCtx = null;
+  function openTransitionPopover(ev, ctx) {
+    closePops();
+    trCtx = ctx;
+    const tr = ctx.transition;
+    const label = i => i ? (i.name || i.kind) : '—';
+    $('#ptrWhere').textContent = tr
+      ? `${label(ctx.track.items[tr.index - 1])} ⧓ ${label(ctx.track.items[tr.index + 1])}`
+      : `${label(ctx.between[0])} ⧓ ${label(ctx.between[1])} (index ${ctx.index})`;
+    $('#ptrKind').value = tr ? tr.transition_kind : 'Dissolve';
+    $('#ptrDir').value = tr ? tr.direction : 'left';
+    $('#ptrColor').value = tr ? tr.color : '#000000';
+    $('#ptrIn').value = fmt(tr ? tr.in_offset : 0.5);
+    $('#ptrOut').value = fmt(tr ? tr.out_offset : 0.5);
+    $('#ptrName').value = tr ? (tr.name || '') : '';
+    $('#ptrType').textContent = tr ? tr.transition_type : '(set from kind)';
+    $('#ptrDelete').style.display = tr ? '' : 'none';
+    $('#ptrOk').textContent = tr ? 'Save' : 'Add';
+    syncTransitionPopover();
+    place($('#popTransition'), null, ev);
+  }
+  function syncTransitionPopover() {
+    const k = $('#ptrKind').value;
+    $('#ptrDirRow').style.display = ['Wipe', 'Push', 'Slide'].includes(k) ? '' : 'none';
+    $('#ptrColorRow').style.display = k === 'DipToColor' ? '' : 'none';
+  }
+  async function submitTransitionPopover() {
+    const ctx = trCtx, tr = ctx.transition, k = $('#ptrKind').value;
+    const fields = {
+      kind: k,
+      in_offset: Math.max(0, parseFloat($('#ptrIn').value) || 0),
+      out_offset: Math.max(0, parseFloat($('#ptrOut').value) || 0),
+      name: $('#ptrName').value.trim() || null,
+    };
+    if (['Wipe', 'Push', 'Slide'].includes(k)) fields.direction = $('#ptrDir').value;
+    else if (tr && tr.direction !== 'left') fields.direction = null;
+    if (k === 'DipToColor') fields.color = $('#ptrColor').value;
+    closePops();
+    if (tr) await api('update_transition', { id: tr.id, ...fields });
+    else await api('add_transition', { track_id: ctx.track.id, index: ctx.index, ...fields });
+  }
+  $('#ptrKind').addEventListener('change', syncTransitionPopover);
+  $('#ptrOk').addEventListener('click', submitTransitionPopover);
+  $('#ptrCancel').addEventListener('click', closePops);
+  $('#ptrDelete').addEventListener('click', () => { const tr = trCtx.transition; closePops(); api('delete_item', { id: tr.id, replace_with_gap: false }); });
+  $('#popTransition').addEventListener('keydown', e => { if (e.key === 'Enter') submitTransitionPopover(); });
+
+  // ------------------------------------------------------------- effects
+  // fxCtx: { item_id } | { track_id } | {} (timeline), plus a label and the
+  // target kind used to sort the "add" list. Every edit is one library call;
+  // the popover stays open and redraws from the new state.
+  let fxCtx = null;
+  const FX_TARGETS = { video: ['video', 'time'], audio: ['audio', 'time'], text: ['text', 'video', 'time'], other: ['video', 'audio', 'text', 'time'] };
+  const fxTarget = () => fxCtx.item_id ? { item_id: fxCtx.item_id } : fxCtx.track_id ? { track_id: fxCtx.track_id } : {};
+  function fxList() {
+    if (fxCtx.item_id) { const i = findItem(fxCtx.item_id); return i ? (i.effects || []) : null; }
+    if (fxCtx.track_id) { const t = trackById(fxCtx.track_id); return t ? (t.effects || []) : null; }
+    return S.timeline_effects || [];
+  }
+  function openFxPopover(anchor, ev, ctx) {
+    closePops();
+    fxCtx = ctx;
+    renderFx();
+    place($('#popFx'), anchor, ev);
+  }
+  // Show a parameter value in a text box: numbers as-is, the rest as JSON.
+  const fxShow = v => v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v));
+  function fxParse(kind, raw) {
+    raw = raw.trim();
+    if (raw === '') return null;
+    if (kind === 'string') return raw;
+    try { return JSON.parse(raw); } catch (_) { return kind === 'animatable' ? NaN : raw; }
+  }
+  function renderFx() {
+    const pop = $('#popFx');
+    const list = fxList();
+    if (list == null) { pop.innerHTML = '<div class="err">target is gone</div>'; return; }
+    const specs = S.effect_specs || [];
+    const specOf = name => specs.find(s => s.effect_name === name);
+    const prefer = FX_TARGETS[fxCtx.kind] || FX_TARGETS.other;
+    const groups = [...prefer, ...['video', 'audio', 'text', 'time'].filter(g => !prefer.includes(g))];
+    const options = groups.map(g => `<optgroup label="${g}${prefer.includes(g) ? '' : ' (other)'}">` +
+      specs.filter(s => s.target === g).map(s => `<option>${s.effect_name}</option>`).join('') + '</optgroup>').join('');
+    pop.innerHTML = `
+      <div class="fxhead"><b>Effects</b><span class="mono" style="color:var(--fg2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fxCtx.label)}</span><button data-fx="close">✕</button></div>
+      ${list.length ? '' : '<div style="color:var(--fg2)">No tellers effects.</div>'}
+      ${list.map((f, i) => {
+        const spec = specOf(f.effect_name);
+        const keys = [...(spec ? spec.parameters.map(p => p.name) : []), ...Object.keys(f.parameters || {}).filter(k => !spec || !spec.parameters.some(p => p.name === k))];
+        return `<div class="fx${f.enabled ? '' : ' off'}" data-i="${i}">
+          <div class="top"><input type="checkbox" data-fx="enabled" ${f.enabled ? 'checked' : ''} title="set_*tellers_effect_enabled">
+            <span class="nm">${esc(f.effect_name)}${f.name ? ` <span class="tg">“${esc(f.name)}”</span>` : ''}</span><span class="tg">${spec ? spec.target : 'unknown'}</span>
+            <button data-fx="up" ${i ? '' : 'disabled'} title="move up (remove + insert)">▲</button><button data-fx="down" ${i < list.length - 1 ? '' : 'disabled'} title="move down (remove + insert)">▼</button>
+            <button data-fx="remove" class="danger" title="remove_*tellers_effect_at">×</button></div>
+          <div class="prm">${keys.map(k => fxParamRow(k, spec && spec.parameters.find(p => p.name === k), (f.parameters || {})[k])).join('')}</div>
+        </div>`;
+      }).join('')}
+      <div class="fxhead" style="margin-top:8px"><select id="fxAdd" style="flex:1">${options}</select><button data-fx="add" class="primary" title="push_*tellers_effect">+ Add</button>
+        <button data-fx="clear" class="danger" ${list.length ? '' : 'disabled'} title="clear_*tellers_effects">Clear</button></div>
+      <div style="color:var(--fg2);font-size:11px;margin-top:4px">Edit a value and press Enter / leave the field. Empty = unset. Animatable values take a number or {"keyframes":[{"t":0,"v":1},{"t":2,"v":5}]}.</div>`;
+    if (fxCtx.lastAdd) $('#fxAdd').value = fxCtx.lastAdd;
+  }
+  function fxParamRow(key, spec, value) {
+    const kind = spec ? spec.kind : 'json';
+    const set = value !== undefined && value !== null;
+    let input;
+    if (kind === 'choice') input = `<select data-k="${esc(key)}" data-kind="choice"><option value="">(unset)</option>${spec.options.map(o => `<option ${value === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    else if (kind === 'bool') input = `<select data-k="${esc(key)}" data-kind="bool"><option value="">(unset)</option><option value="true" ${value === true ? 'selected' : ''}>true</option><option value="false" ${value === false ? 'selected' : ''}>false</option></select>`;
+    else if (kind === 'color') input = `<span style="display:flex;gap:4px"><input type="color" data-k="${esc(key)}" data-kind="color" value="${/^#[0-9a-f]{6}$/i.test(value || '') ? value : '#000000'}"><input type="text" data-k="${esc(key)}" data-kind="string" value="${esc(fxShow(value))}" placeholder="unset"></span>`;
+    else input = `<input type="text" data-k="${esc(key)}" data-kind="${kind}" value="${esc(fxShow(value))}" placeholder="${kind === 'animatable' ? 'number or keyframes' : 'unset'}">`;
+    return `<label title="${esc(key)}" class="${set ? 'set' : ''}">${esc(key)}</label>${input}<span class="k">${kind}</span>`;
+  }
+  async function fxSetParam(target) {
+    const i = +target.closest('.fx').dataset.i, kind = target.dataset.kind, key = target.dataset.k;
+    let value;
+    if (kind === 'bool') value = target.value === '' ? null : target.value === 'true';
+    else if (kind === 'choice') value = target.value || null;
+    else if (kind === 'color') value = target.value;
+    else value = fxParse(kind, target.value);
+    if (typeof value === 'number' && Number.isNaN(value)) return showResult({ error: `${key}: not a number or keyframes JSON` });
+    await api('set_effect_parameter', { ...fxTarget(), index: i, key, value });
+  }
+  $('#popFx').addEventListener('click', async e => {
+    const act = e.target.dataset.fx;
+    if (!act) return;
+    const box = e.target.closest('.fx'), i = box ? +box.dataset.i : null;
+    if (act === 'close') return closePops();
+    if (act === 'add') { fxCtx.lastAdd = $('#fxAdd').value; return api('push_effect', { ...fxTarget(), effect_name: fxCtx.lastAdd }); }
+    if (act === 'clear') return api('clear_effects', fxTarget());
+    if (act === 'remove') return api('remove_effect', { ...fxTarget(), index: i });
+    if (act === 'up') return api('move_effect', { ...fxTarget(), index: i, to: i - 1 });
+    if (act === 'down') return api('move_effect', { ...fxTarget(), index: i, to: i + 1 });
+  });
+  $('#popFx').addEventListener('change', e => {
+    if (e.target.dataset.fx === 'enabled') return api('set_effect_enabled', { ...fxTarget(), index: +e.target.closest('.fx').dataset.i, enabled: e.target.checked });
+    if (e.target.dataset.k) fxSetParam(e.target);
+  });
+  $('#popFx').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.k) e.target.blur(); });
+  $('#btnTimelineFx').addEventListener('click', e => openFxPopover(e.target, null, { label: 'timeline', kind: 'other' }));
 
   // ------------------------------------------------------------- actions
   async function deleteSelected(withGap) {
@@ -961,6 +1260,10 @@
     if (k === 'u') return api('unlink_items', { ids: [...selected] });
     if (k === 'g') return e.shiftKey ? api('ungroup_items', { ids: [...selected] }) : api('group_items', { ids: [...selected] });
     if (k === 'e') return toggleEnabled();
+    if (k === 'f' && selected.size === 1) {
+      const it = findItem([...selected][0]);
+      if (it && (it.kind === 'clip' || it.kind === 'composite')) { const d = $(`.item[data-id="${it.id}"]`); openFxPopover(d, null, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text ? 'text' : it.track.kind }); }
+    }
   });
 
   // zoom

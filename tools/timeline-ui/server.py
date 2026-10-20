@@ -22,9 +22,10 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
 
-from tellers_timeline import Clip, Gap, Item, MediaReference, Stack, Timeline, Track
+from tellers_timeline import Clip, Gap, Item, MediaReference, Stack, Timeline, Track, Transition, tellers_effect_specs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+EFFECT_SPECS = tellers_effect_specs()
 MAX_HISTORY = 100
 MAX_LOG = 200
 
@@ -118,6 +119,9 @@ class State:
         self.stack = Stack()
         self.history: list[str] = []
         self.log: list[dict] = []
+        # Open compounds, outermost first. While one is open, self.stack holds
+        # its tracks (see open_compound).
+        self.frames: list[dict] = []
         self.lock = threading.Lock()
         self.reset()
 
@@ -145,7 +149,8 @@ class State:
                 entry: dict[str, Any] = {
                     "id": item.get_id(),
                     "index": item_index,
-                    "kind": "clip" if item.is_clip() else ("transition" if item.is_transition() else "gap"),
+                    "kind": _item_kind(item),
+                    "effects": item.get_tellers_effects() if item.is_clip() or item.is_composite() else [],
                     "start": start,
                     "duration": duration,
                     "enabled": item.get_enabled(),
@@ -166,7 +171,24 @@ class State:
                             entry["url"] = None
                         entry["media_start"] = ref.get_media_start()
                         entry["media_duration"] = ref.get_media_duration()
-                    entry["name"] = _clip_name(item)
+                    clip = _as_clip(item)
+                    entry["name"] = clip.get_name() if clip else None
+                    entry["speed"] = clip.get_speed() if clip else None
+                    entry["source_duration"] = clip.get_source_duration() if clip else None
+                elif item.is_composite():
+                    entry["name"] = json.loads(str(item)).get("name")
+                    entry["children"] = [_child_track_view(child) for child in item.get_children()]
+                elif item.is_transition():
+                    transition = item.as_transition()
+                    entry.update(
+                        name=transition.get_name(),
+                        transition_type=transition.get_transition_type(),
+                        transition_kind=transition.get_kind(),
+                        direction=transition.get_direction(),
+                        color=transition.get_color(),
+                        in_offset=transition.get_in_offset(),
+                        out_offset=transition.get_out_offset(),
+                    )
                 items.append(entry)
                 start += duration
             tracks.append(
@@ -177,6 +199,7 @@ class State:
                     "name": track.get_name(),
                     "enabled": track.get_enabled(),
                     "duration": track.total_duration(),
+                    "effects": track.get_tellers_effects(),
                     "items": items,
                 }
             )
@@ -195,12 +218,52 @@ class State:
             "sync_track_info": sync_info,
             "track_groups": track_groups,
             "markers": timeline.get_markers(),
+            "timeline_effects": timeline.get_tellers_effects(),
+            "effect_specs": EFFECT_SPECS,
             "result": result,
             "call": call,
             "error": error,
             "log": self.log[-MAX_LOG:],
             "can_undo": bool(self.history),
+            "compound_path": [{"id": f["id"], "name": f["name"]} for f in self.frames],
         }
+
+    # -- compounds ----------------------------------------------------------- #
+    # Opening a composite clip makes a copy of its tracks the working stack
+    # (stack.composite_stack), so every op applies to them; closing writes them
+    # back with stack.set_composite_tracks, which ripples the enclosing track
+    # when an auto-length composite changes length. Timeline-level data made
+    # while inside (stack markers, clip groups) has nowhere to go and is
+    # dropped on close.
+    def open_compound(self, item_id: str) -> str:
+        found = self.stack.get_item(item_id)
+        if found is None or not found[2].is_composite():
+            raise ValueError(f"{item_id!r} is not a composite clip at this level")
+        inner = self.stack.composite_stack(item_id)
+        name = inner.get_name() or item_id
+        self.frames.append({"id": item_id, "name": name, "outer": self.snapshot(), "history": self.history})
+        self.history = []
+        self.stack = inner
+        return name
+
+    def close_compound(self) -> str:
+        frame = self.frames.pop()
+        tracks = self.stack.tracks()
+        self.restore(frame["outer"])
+        if not self.stack.set_composite_tracks(frame["id"], tracks):
+            raise ValueError(f"composite {frame['id']!r} is gone")
+        self.history = frame["history"]
+        self.history.append(frame["outer"])  # undo the whole compound edit at once
+        del self.history[:-MAX_HISTORY]
+        return frame["name"]
+
+    def close_all_compounds(self) -> None:
+        """Close every open compound, keeping its edits as the undo point."""
+        if not self.frames:
+            return
+        while self.frames:
+            self.close_compound()
+        self.push_history()
 
     # -- ops --------------------------------------------------------------- #
     def reset(self) -> None:
@@ -210,7 +273,8 @@ class State:
     def load_sample(self) -> None:
         """Video tracks with 0, 1, 2 and 3 associated audio tracks, video clips
         with 0 to 3 synced audio clips, an audio-led column (an audio clip
-        linked to a video clip) and a standalone music track."""
+        linked to a video clip), a clip played at 2x speed, a compound clip
+        (lower third) and a standalone music track."""
         stack = self.stack = Stack()
 
         def clip(name: str, duration: float, ext: str = "mov", **spec: Any):
@@ -240,6 +304,11 @@ class State:
         add_track("video", "V2")
         insert("V2", 2.0, clip("D", 2), channels("D", 2, 3))
         insert("V2", 6.0, clip("E", 1.5))
+        # A speed change: 2s on the timeline playing 4s of its 6s media, with
+        # its sync audio clip sped up too (set_item_speed follows the column).
+        insert("V2", 8.5, clip("G 2x", 2, media_duration=6), channels("G 2x", 2, 1))
+        g = next(it for t in stack.tracks() for it in t.items() if _clip_name(it) == "G 2x")
+        stack.set_item_speed(g.get_id(), 2.0)
         # Cutaway: one partner track, from an audio-led column. The library
         # refuses an insert with a linked video, so it is linked afterwards.
         add_track("video", "Cutaway")
@@ -254,6 +323,14 @@ class State:
         insert("Music", 0.0, clip("Music", 6, "wav"))
         add_track("video", "Text")
         insert("Text", 1.0, make_item({"duration": 2, "name": "Title", "text": True, "text_html": "<p>Hello</p>"}))
+        # A compound (composite clip, an OTIO Stack.1 in the track): a lower
+        # third made of a background bar and, a second later, a name on top.
+        bar = Track(kind="video", children=[Item.from_clip(clip("Bar", 3))])
+        bar.set_name("bar")
+        name = Track(kind="video", children=[Item.from_gap(Gap(1.0)), Item.from_clip(make_item(
+            {"duration": 2, "name": "Name", "text": True, "text_html": "<p>Jane Doe</p>"}))])
+        name.set_name("name")
+        insert("Text", 4.0, Item.from_composite([bar, name], name="Lower third"))
         stack.normalize_track_order()
         # One marker of each kind: timeline-wide (a range), on a track, on a clip.
         v1 = next(t for t in self.stack.tracks() if t.get_name() == "V1")
@@ -287,13 +364,34 @@ class State:
         self.stack.insert_item_at_time(text_index, 1.0, make_item({"duration": 2, "name": "Title", "text": True, "text_html": "<p>Hello</p>"}), "override", "split_and_insert")
 
 
-def _clip_name(item: Item) -> Optional[str]:
-    # Item has no get_name; read it from the serialized clip.
+def _item_kind(item: Item) -> str:
+    if item.is_clip():
+        return "clip"
+    if item.is_composite():
+        return "composite"
+    return "transition" if item.is_transition() else "gap"
+
+
+def _child_track_view(track: Track) -> dict:
+    """A composite's inner track, flattened for the UI (one level deep)."""
+    start, items = 0.0, []
+    for item in track.items():
+        items.append({"kind": _item_kind(item), "name": _clip_name(item) if item.is_clip() else None, "start": start, "duration": item.duration()})
+        start += item.duration()
+    return {"name": track.get_name(), "kind": track.kind, "items": items}
+
+
+def _as_clip(item: Item) -> Optional[Clip]:
+    # Item has no get_name / get_speed; read them from the serialized clip.
     try:
-        clip = Clip.parse_json(str(item))
-        return clip.get_name()
+        return Clip.parse_json(str(item))
     except Exception:
         return None
+
+
+def _clip_name(item: Item) -> Optional[str]:
+    clip = _as_clip(item)
+    return clip.get_name() if clip else None
 
 
 # --------------------------------------------------------------------------- #
@@ -320,20 +418,37 @@ def op_state(state: State, p: dict):
 
 @op("reset")
 def op_reset(state: State, p: dict):
+    state.close_all_compounds()
     state.reset()
     return True, "Stack(); stack.add_track(Track(kind='video'))"
 
 
 @op("sample")
 def op_sample(state: State, p: dict):
+    state.close_all_compounds()
     state.load_sample()
     return True, "load_sample()"
 
 
 @op("load_json")
 def op_load_json(state: State, p: dict):
+    state.close_all_compounds()
     state.restore(p["json"] if isinstance(p["json"], str) else json.dumps(p["json"]))
     return True, "Timeline.parse_json(...).get_stack()"
+
+
+@op("open_compound", mutates=False)
+def op_open_compound(state: State, p: dict):
+    name = state.open_compound(p["id"])
+    return name, f"stack = stack.composite_stack({_fmt(p['id'])})  # open {name!r}: ops now edit its tracks"
+
+
+@op("close_compound", mutates=False)
+def op_close_compound(state: State, p: dict):
+    if not state.frames:
+        return False, "close_compound (no compound open)"
+    name = state.close_compound()
+    return name, f"outer.set_composite_tracks(<id>, stack.tracks())  # close {name!r}, back to the outer stack"
 
 
 @op("undo", mutates=False)
@@ -578,6 +693,136 @@ def op_update_marker(state: State, p: dict):
 def op_delete_marker(state: State, p: dict):
     ok = _on_timeline(state, lambda tl: tl.delete_marker(p["id"]))
     return ok, f"timeline.delete_marker({_fmt(p['id'])})"
+
+
+# -- tellers effects ------------------------------------------------------- #
+# target: {"item": id} | {"track": id} | {} (the timeline). Each op is one
+# Timeline call on the matching *_tellers_effect* method.
+
+
+def _effect_call(state: State, p: dict, method: str, *args: Any) -> tuple[Any, str]:
+    if p.get("item_id"):
+        name, args = f"{method.replace('tellers', 'item_tellers', 1)}", (p["item_id"], *args)
+    elif p.get("track_id"):
+        name, args = f"{method.replace('tellers', 'track_tellers', 1)}", (p["track_id"], *args)
+    else:
+        name = method
+    result = _on_timeline(state, lambda tl: getattr(tl, name)(*args))
+    return result, f"timeline.{name}({', '.join(_fmt(a) for a in args)})"
+
+
+@op("push_effect")
+def op_push_effect(state: State, p: dict):
+    effect = {"effect_name": p["effect_name"], "parameters": p.get("parameters") or {}}
+    ok, call = _effect_call(state, p, "push_tellers_effect", effect)
+    if ok is False:
+        raise ValueError(f"push refused: {call}")
+    return ok, call
+
+
+@op("remove_effect")
+def op_remove_effect(state: State, p: dict):
+    return _effect_call(state, p, "remove_tellers_effect_at", int(p["index"]))
+
+
+@op("move_effect")
+def op_move_effect(state: State, p: dict):
+    """Reorder by remove + insert (the library has no move)."""
+    src, dst = int(p["index"]), int(p["to"])
+    removed, call1 = _effect_call(state, p, "remove_tellers_effect_at", src)
+    if removed is None:
+        return None, call1
+    ok, call2 = _effect_call(state, p, "insert_tellers_effect_at", dst, removed)
+    return ok, f"{call1}; {call2}"
+
+
+@op("set_effect_enabled")
+def op_set_effect_enabled(state: State, p: dict):
+    return _effect_call(state, p, "set_tellers_effect_enabled", int(p["index"]), bool(p["enabled"]))
+
+
+@op("set_effect_parameter")
+def op_set_effect_parameter(state: State, p: dict):
+    return _effect_call(state, p, "set_tellers_effect_parameter", int(p["index"]), p["key"], p.get("value"))
+
+
+@op("clear_effects")
+def op_clear_effects(state: State, p: dict):
+    return _effect_call(state, p, "clear_tellers_effects")
+
+
+# -- speed ------------------------------------------------------------------ #
+
+
+@op("set_speed")
+def op_set_speed(state: State, p: dict):
+    """1.0 removes the time warp, 0 is a freeze frame."""
+    speed = float(p["speed"])
+    preserve = p.get("preserve_pitch")
+    sync = bool(p.get("with_sync_clips", True))
+    n = state.stack.set_item_speed(p["id"], speed, preserve, sync)
+    return n, f"stack.set_item_speed({_fmt(p['id'])}, {speed:g}, preserve_pitch={_fmt(preserve)}, with_sync_clips={sync})"
+
+
+# -- transitions ------------------------------------------------------------ #
+# The stack API has no transition insert (insert_item_at_index and
+# replace_item refuse a Transition), so these splice Transition.1 into the
+# track's children through the timeline JSON and parse it back.
+
+
+def _make_transition(p: dict, transition: Optional[Transition] = None) -> Transition:
+    t = transition or Transition(float(p.get("in_offset", 0.5)), float(p.get("out_offset", 0.5)))
+    if "in_offset" in p:
+        t.set_in_offset(float(p["in_offset"]))
+    if "out_offset" in p:
+        t.set_out_offset(float(p["out_offset"]))
+    if p.get("kind"):
+        t.set_kind(p["kind"])
+    if "direction" in p:
+        t.set_direction(p["direction"] or None)
+    if "color" in p:
+        t.set_color(p["color"] or None)
+    if "name" in p:
+        t.set_name(p["name"] or None)
+    return t
+
+
+def _splice_track(state: State, track_index: int, fn: Callable[[list], None]) -> None:
+    doc = json.loads(Timeline(state.stack).to_json())
+    fn(doc["tracks"]["children"][track_index]["children"])
+    state.restore(json.dumps(doc))
+
+
+@op("add_transition")
+def op_add_transition(state: State, p: dict):
+    found = state.stack.get_track_by_id(p["track_id"])
+    if found is None:
+        raise ValueError(f"no track {p['track_id']!r}")
+    track_index, track = found
+    index = int(p["index"])
+    items = track.items()
+    if not (0 < index < len(items)):
+        raise ValueError(f"a transition goes between two items: index {index} of {len(items)}")
+    t = _make_transition(p)
+    _splice_track(state, track_index, lambda children: children.insert(index, json.loads(t.to_json())))
+    args = f"{t.get_in_offset():g}, {t.get_out_offset():g}, {_fmt(t.get_transition_type())}"
+    return t.get_id(), f"track.children.insert({index}, Transition({args}))  # via JSON, no stack API"
+
+
+@op("update_transition")
+def op_update_transition(state: State, p: dict):
+    found = state.stack.get_item(p["id"])
+    if found is None or not found[2].is_transition():
+        raise ValueError(f"no transition {p['id']!r}")
+    track_index, item_index, item = found
+    t = _make_transition(p, item.as_transition())
+
+    def replace(children: list) -> None:
+        children[item_index] = json.loads(t.to_json())
+
+    _splice_track(state, track_index, replace)
+    fields = ", ".join(f"{k}={_fmt(p[k])}" for k in ("kind", "direction", "color", "in_offset", "out_offset", "name") if k in p)
+    return True, f"transition.set_*({fields})  # {_fmt(p['id'])}, via JSON"
 
 
 @op("get_item", mutates=False)
