@@ -109,18 +109,23 @@ def test_enable_parameter_replace_remove():
 
 
 def test_other_effects_are_kept():
-    clip = make_clip()
-    clip.push_color_lut("look")
+    data = json.loads(make_clip().to_json())
+    time_warp = {"OTIO_SCHEMA": "LinearTimeWarp.1", "name": "", "effect_name": "", "time_scalar": 2.0, "metadata": {}}
+    data["effects"] = [time_warp]
+    clip = Clip.parse_json(json.dumps(data))
     clip.push_tellers_effect({"effect_name": "Transform", "parameters": {"x": 0.1}})
-    clip.clear_tellers_effects()
-    assert clip.get_color_luts()[0]["asset_id"] == "look"
+    assert clip.clear_tellers_effects()
+    assert json.loads(clip.to_json())["effects"] == [time_warp]
 
 
-def test_volume_is_a_tellers_effect():
+def test_color_lut_and_volume_are_tellers_effects():
     clip = make_clip()
-    clip.set_volume(-6.0)
-    assert [e["effect_name"] for e in clip.get_tellers_effects()] == ["Volume"]
-    assert clip.get_tellers_effects()[0]["parameters"]["volume"] == pytest.approx(-6.0)
+    assert clip.push_tellers_effect({"effect_name": "ColorLut", "parameters": {"asset_id": "look"}})
+    assert clip.push_tellers_effect({"effect_name": "Volume", "parameters": {"volume": -6.0}})
+    assert [e["effect_name"] for e in clip.get_tellers_effects()] == ["ColorLut", "Volume"]
+    assert clip.get_tellers_effects()[1]["parameters"]["volume"] == pytest.approx(-6.0)
+    assert clip.clear_tellers_effects()
+    assert clip.get_tellers_effects() == []
 
 
 def test_timeline_and_by_id_stages():

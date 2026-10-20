@@ -1,13 +1,13 @@
-//! Clip volume: the `volume` (dB) of the clip's `tellers.ai.Volume` effect.
+//! Legacy clip volume.
+//!
+//! A clip's volume is the `volume` (dB) of its `tellers.ai.Volume` effect,
+//! an ordinary tellers effect (see [`crate::effects`]).
 //!
 //! Timelines written before tellers effects carried the volume as a Resolve
 //! effect (`Resolve_OTIO` named `Volume`, `Fairlight Clip Volume and Fades`).
-//! It is still read, but only for a clip whose `tellers.ai.Volume` does not
-//! set `volume` (as the player does: once it is set, it is the clip's volume
-//! and the Resolve one is ignored), and never written:
-//! [`crate::Clip::set_volume`] drops it, and
-//! [`upgrade_legacy_resolve_volume_effects`] (run by [`crate::Stack::sanitize`])
-//! moves it into `tellers.ai.Volume`.
+//! The player still reads it, but only for a clip whose `tellers.ai.Volume`
+//! does not set `volume`. [`upgrade_legacy_resolve_volume_effects`] (run by
+//! [`crate::Stack::sanitize`]) moves it into `tellers.ai.Volume`.
 
 use crate::{
     is_tellers_effect, push_tellers_effect, set_tellers_effect_parameter, Animatable, Effect,
@@ -56,23 +56,6 @@ fn tellers_volume(effects: &[Effect]) -> Option<Animatable> {
     tellers_volume_position(effects)
         .and_then(|at| TellersEffect::from_effect(&effects[at]))
         .and_then(|e| e.animatable(VOLUME_PARAMETER))
-}
-
-/// The clip volume in dB at the start of the clip: `tellers.ai.Volume`'s
-/// `volume`, else a legacy Resolve volume, or `None` when neither is set.
-pub fn volume_db(effects: &[Effect]) -> Option<f64> {
-    match tellers_volume(effects) {
-        Some(volume) => Some(volume.value_at(0.0)),
-        None => effects.iter().find_map(legacy_resolve_volume_db),
-    }
-}
-
-/// Set the clip volume to `volume` dB on `tellers.ai.Volume` (added after the
-/// last tellers effect when there is none; its fades are kept) and drop any
-/// legacy Resolve volume.
-pub fn set_volume_db(effects: &mut Vec<Effect>, volume: f64) {
-    effects.retain(|effect| !is_legacy_resolve_volume(effect));
-    write_tellers_volume(effects, volume);
 }
 
 /// Move the legacy Resolve volume of `effects` into `tellers.ai.Volume`, so

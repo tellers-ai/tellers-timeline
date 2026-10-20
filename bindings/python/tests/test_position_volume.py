@@ -1,6 +1,24 @@
-"""Tests for position and volume getter/setter methods."""
+"""Tests for position getter/setter methods, and for the clip volume, a
+`Volume` tellers effect."""
 import json
 from tellers_timeline import Clip, MediaReference, MediaReferencePosition, Timeline
+
+
+def set_volume(clip, db):
+    """Set the clip volume (dB) on its `Volume` effect, adding one if needed."""
+    for index, effect in enumerate(clip.get_tellers_effects()):
+        if effect["effect_name"] == "Volume":
+            assert clip.set_tellers_effect_parameter(index, "volume", db)
+            return
+    assert clip.push_tellers_effect({"effect_name": "Volume", "parameters": {"volume": db}})
+
+
+def get_volume(clip):
+    """The clip volume (dB) of its `Volume` effect, None when unset."""
+    for effect in clip.get_tellers_effects():
+        if effect["effect_name"] == "Volume":
+            return effect["parameters"].get("volume")
+    return None
 
 
 def test_get_set_position():
@@ -36,20 +54,19 @@ def test_get_set_volume():
     ref = MediaReference("file:///test.mp4")
     clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
 
-    # Get initial volume (should be 1.0 default)
-    volume = clip.get_volume()
-    assert abs(volume - 1.0) < 0.001
+    # No volume until one is set.
+    assert get_volume(clip) is None
 
     # Set a new volume
-    clip.set_volume(-12.5)
+    set_volume(clip, -12.5)
 
     # Verify the volume was set
-    volume_after = clip.get_volume()
+    volume_after = get_volume(clip)
     assert abs(volume_after - (-12.5)) < 0.001
 
     # Set another volume
-    clip.set_volume(0.0)
-    assert abs(clip.get_volume() - 0.0) < 0.001
+    set_volume(clip, 0.0)
+    assert abs(get_volume(clip) - 0.0) < 0.001
 
 
 def test_position_serialization_roundtrip():
@@ -112,7 +129,7 @@ def test_volume_serialization_roundtrip():
     clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
 
     # Set volume
-    clip.set_volume(-15.3)
+    set_volume(clip, -15.3)
 
     # Serialize to JSON
     json_str = clip.to_json()
@@ -130,7 +147,7 @@ def test_volume_serialization_roundtrip():
 
     # Deserialize and verify volume is preserved
     clip2 = Clip.parse_json(json_str)
-    volume2 = clip2.get_volume()
+    volume2 = get_volume(clip2)
 
     assert abs(volume2 - (-15.3)) < 0.001
 
@@ -143,14 +160,14 @@ def test_position_and_volume_together():
     # Set both position and volume
     pos = MediaReferencePosition(x=0.4, y=0.6, rotation=90.0, zoom_x=1.3, zoom_y=1.1)
     clip.set_position(pos)
-    clip.set_volume(-20.0)
+    set_volume(clip, -20.0)
 
     # Verify both are set
     pos_after = clip.get_position()
     assert abs(pos_after.get_x() - 0.4) < 0.001
     assert abs(pos_after.get_rotation() - 90.0) < 0.001
 
-    volume_after = clip.get_volume()
+    volume_after = get_volume(clip)
     assert abs(volume_after - (-20.0)) < 0.001
 
     # Serialize and deserialize
@@ -162,7 +179,7 @@ def test_position_and_volume_together():
     assert abs(pos2.get_x() - 0.4) < 0.001
     assert abs(pos2.get_rotation() - 90.0) < 0.001
 
-    volume2 = clip2.get_volume()
+    volume2 = get_volume(clip2)
     assert abs(volume2 - (-20.0)) < 0.001
 
 
@@ -172,14 +189,14 @@ def test_position_with_existing_effects():
     clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
 
     # Set volume first (creates an effect)
-    clip.set_volume(-10.0)
+    set_volume(clip, -10.0)
 
     # Then set position (should add another effect)
     pos = MediaReferencePosition(x=0.1, y=0.9, rotation=180.0, zoom_x=0.8, zoom_y=0.9)
     clip.set_position(pos)
 
     # Both should work
-    assert abs(clip.get_volume() - (-10.0)) < 0.001
+    assert abs(get_volume(clip) - (-10.0)) < 0.001
     pos_after = clip.get_position()
     assert abs(pos_after.get_x() - 0.1) < 0.001
     assert abs(pos_after.get_rotation() - 180.0) < 0.001
@@ -298,9 +315,6 @@ def test_parse_json_with_position_and_volume():
     assert abs(pos.get_zoom_x() - 1.5) < 0.001
     assert abs(pos.get_zoom_y() - 1.2) < 0.001
 
-    volume = clip.get_volume()
-    assert abs(volume - (-12.5)) < 0.001
-
     # Serialize back and verify roundtrip
     json_str2 = clip.to_json()
     clip2 = Clip.parse_json(json_str2)
@@ -309,12 +323,9 @@ def test_parse_json_with_position_and_volume():
     assert abs(pos2.get_x() - 0.3) < 0.001
     assert abs(pos2.get_rotation() - 45.0) < 0.001
 
-    volume2 = clip2.get_volume()
-    assert abs(volume2 - (-12.5)) < 0.001
-
 
 def test_upgrade_legacy_resolve_volumes():
-    """A legacy Resolve volume is read, then folded into tellers.ai.Volume."""
+    """A legacy Resolve volume is folded into tellers.ai.Volume."""
     ref = MediaReference("file:///test.mp4")
     clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
     clip_dict = json.loads(clip.to_json())

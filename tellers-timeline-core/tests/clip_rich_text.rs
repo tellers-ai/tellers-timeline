@@ -1,4 +1,4 @@
-use tellers_timeline_core::{Clip, Track};
+use tellers_timeline_core::Clip;
 
 const RICH_TEXT_REF: &str = r##"{
     "OTIO_SCHEMA": "GeneratorReference.1",
@@ -38,27 +38,4 @@ fn clip_get_rich_text_reads_active_reference_title() {
     );
     let clip: Clip = serde_json::from_str(&clip_json).unwrap();
     assert_eq!(clip.get_rich_text(), Some("<p>Hi</p>".to_string()));
-}
-
-#[test]
-fn track_average_volume_means_clip_volumes_ignoring_gaps() {
-    let track_json = format!(
-        r#"{{
-            "OTIO_SCHEMA": "Track.1",
-            "kind": "Audio",
-            "children": [
-                {{ "OTIO_SCHEMA": "Clip.2", "source_range": {sr} }},
-                {{ "OTIO_SCHEMA": "Clip.2", "source_range": {sr} }},
-                {{ "OTIO_SCHEMA": "Gap.1", "source_range": {sr} }}
-            ]
-        }}"#,
-        sr = source_range(),
-    );
-    let mut track: Track = serde_json::from_str(&track_json).unwrap();
-
-    // Two clips at the default volume (1.0); the gap is ignored.
-    assert_eq!(track.average_volume(), 1.0);
-
-    track.set_volume(0.5);
-    assert_eq!(track.average_volume(), 0.5);
 }

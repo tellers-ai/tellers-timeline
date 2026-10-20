@@ -71,11 +71,15 @@ values and rates. Load an existing document with `Timeline.parse_json(text)`.
 In Rust, work directly with the core types and shared effect conventions:
 
 ```rust
-use tellers_timeline_core::{ColorLut, Timeline, Track, TrackKind};
+use tellers_timeline_core::{TellersEffect, Timeline, Track, TrackKind};
 
 let mut timeline = Timeline::default();
 timeline.add_track(Track::new(TrackKind::Video, Some("main-video".into())));
-timeline.push_color_lut(ColorLut::new("film-look").with_name("Film look"));
+timeline.push_tellers_effect(
+    TellersEffect::new("ColorLut")
+        .with_name("Film look")
+        .with_parameter("asset_id", "film-look"),
+);
 timeline.sanitize();
 
 println!("{}", timeline.to_json().unwrap());
@@ -93,7 +97,7 @@ remaining work; it is not a claim of complete OTIO conformance.
 | Media references | 🟡 Partial | External and generator references, multiple references per clip, and available ranges. Missing references load as empty external references and are written back as `ExternalReference.1`; image sequences remain. |
 | Metadata and serialization | ✅ Supported | Arbitrary JSON metadata, OTIO JSON reading/writing, configurable numeric precision, and JSON Schema generation. |
 | Markers | ✅ Supported | Point/range markers, names, comments, colors, IDs, and source-to-timeline time conversion. |
-| Effect data | 🟡 Partial | Effect lists on clips, tracks, and stacks; typed tellers effects (`tellers.ai.<Effect>`: filters, transforms, masks, audio, text animations); Resolve parameter parsing; transform, crop, volume, and LUT helpers. Clip groups (`metadata["tellers.ai"].groups` and each member's `group_id`) are typed: read, created, edited and evaluated. Portable effect schemas remain a standardization target. |
+| Effect data | 🟡 Partial | Effect lists on clips, tracks, and stacks; typed tellers effects (`tellers.ai.<Effect>`: filters, transforms, masks, audio, text animations); Resolve parameter parsing; transform and crop helpers; `target_url` resolution from an effect's `asset_id`. Clip groups (`metadata["tellers.ai"].groups` and each member's `group_id`) are typed: read, created, edited and evaluated. Portable effect schemas remain a standardization target. |
 | Insert and overlap policies | ✅ Supported | Push or override overlaps; insert before, after, nearest boundary, or split a gap to insert. |
 | Timeline editing | ✅ Supported | Move, replace, split, resize, delete, reorder tracks, and find snap targets. |
 | Audio/video sync and groups | ✅ Supported | Linked editing, sync partner placement, associated tracks, group discovery, and optional track normalization. |
@@ -120,7 +124,7 @@ wider interoperability; they are not ratified OTIO standards.
 | --- | --- | --- |
 | Object identity | `metadata["tellers.ai"]["timeline_id"]`; IDs on tracks, items, and markers; missing/duplicate track and item IDs repaired during sanitization. | Stable identity and clear rules for moves, copies, splits, and imports across tools. IDs are strings, not a UUID requirement. |
 | Effect identity and parameters | LUTs use `Effect.1` with `effect_name: "tellers.ai.ColorLut"` and parameters under `metadata["tellers.ai"]["parameters"]`. | A documented, versioned vocabulary for portable effects, parameter units, defaults, and evaluation order. |
-| Transform and crop | Read/write helpers currently use Resolve representations (volume is `tellers.ai.Volume`; a legacy Resolve volume is read and migrated). | Shared effect schemas and mappings between application-specific encodings. |
+| Transform and crop | Read/write helpers currently use Resolve representations (volume is the `tellers.ai.Volume` effect; `sanitize` migrates a legacy Resolve volume). | Shared effect schemas and mappings between application-specific encodings. |
 | Color grading assets | Ordered LUTs on clips, video tracks, and the stack; persistent `parameters.asset_id`, resolvable `parameters.target_url` (named like a media reference's). | Predictable grading stages and a common distinction between asset identity and temporary delivery URLs. |
 | Sync and edit groups | Sync links use `Resolve_OTIO["Link Group ID"]`; edit groups use `tellers.ai["Tellers Group ID"]`. Associated tracks are computed. | Portable sync/group semantics without persisting redundant track associations. |
 | Text and fonts | `tellers.ai.availableFonts` and `tellers.ai.textStyles`; rich-text generator helpers. | Portable typography, named styles, and text generator conventions. |
