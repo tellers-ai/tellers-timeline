@@ -1,4 +1,4 @@
-use crate::{IdMetadataExt, InsertPolicy, OverlapPolicy, Seconds, Stack, TrackKind};
+use crate::{IdMetadataExt, InsertPolicy, Item, OverlapPolicy, Seconds, Stack, TrackKind};
 
 impl Stack {
     /// Move an item identified by `item_id` to `dest_time` on the track with `dest_track_id`.
@@ -9,8 +9,35 @@ impl Stack {
     /// members stay on their own tracks. Otherwise the move falls through to the
     /// regular single-item path.
     ///
+    /// A transition attached to a moved clip moves with it, on the same side;
+    /// when the clip has one on each side, the first (incoming) one is kept.
+    ///
     /// Returns true if the item was successfully moved.
     pub fn move_item_at_time(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_time: Seconds,
+        replace_with_gap: bool,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let carried = self.attached_transitions(item_id, dest_track_id, dest_time);
+        let moved = self.move_item_at_time_inner(
+            item_id,
+            dest_track_id,
+            dest_time,
+            replace_with_gap,
+            insert_policy,
+            overlap_policy,
+        );
+        if moved {
+            self.reattach_transitions(carried);
+        }
+        moved
+    }
+
+    fn move_item_at_time_inner(
         &mut self,
         item_id: &str,
         dest_track_id: &str,
@@ -314,8 +341,35 @@ impl Stack {
     }
 
     /// Move an item identified by `item_id` to `dest_index` on the track with `dest_track_id`.
+    /// Attached transitions move with it as in [`Stack::move_item_at_time`].
     /// Returns true if the item was successfully moved.
     pub fn move_item_at_index(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_index: usize,
+        replace_with_gap: bool,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let dest_time = self
+            .get_track_by_id(dest_track_id)
+            .map(|(_, track)| track.start_time_of_item(dest_index))
+            .unwrap_or(0.0);
+        let carried = self.attached_transitions(item_id, dest_track_id, dest_time);
+        let moved = self.move_item_at_index_inner(
+            item_id,
+            dest_track_id,
+            dest_index,
+            replace_with_gap,
+            overlap_policy,
+        );
+        if moved {
+            self.reattach_transitions(carried);
+        }
+        moved
+    }
+
+    fn move_item_at_index_inner(
         &mut self,
         item_id: &str,
         dest_track_id: &str,
@@ -332,7 +386,7 @@ impl Stack {
                 .tellers_group_move_plan(item_id, dest_track_id, time)
                 .is_some()
             {
-                return self.move_item_at_time(
+                return self.move_item_at_time_inner(
                     item_id,
                     dest_track_id,
                     time,
@@ -414,4 +468,104 @@ impl Stack {
             false
         }
     }
+
+    /// The transitions attached to each clip a move of `item_id` lifts (the
+    /// clip, its sync partners and its Tellers group). The first one (just
+    /// before the clip, else just after) is the one carried along, with `true`
+    /// for "before".
+    fn attached_transitions(
+        &self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_time: Seconds,
+    ) -> Vec<CarriedTransition> {
+        let mut ids: Vec<String> =
+            match self.tellers_group_move_plan(item_id, dest_track_id, dest_time) {
+                Some(plan) => plan.into_iter().map(|(id, _, _)| id).collect(),
+                None => vec![item_id.to_string()],
+            };
+        for id in ids.clone() {
+            for member in self.synced_move_items(&id).unwrap_or_default() {
+                if let Some(member_id) = member.item.get_id() {
+                    if !ids.contains(&member_id) {
+                        ids.push(member_id);
+                    }
+                }
+            }
+        }
+        ids.into_iter()
+            .filter_map(|clip_id| {
+                let (ti, ii, item) = self.get_item(&clip_id)?;
+                if item.is_transition() {
+                    return None;
+                }
+                let items = &self.children[ti].items;
+                let before = ii
+                    .checked_sub(1)
+                    .and_then(|i| items.get(i))
+                    .filter(|it| it.is_transition());
+                let after = items.get(ii + 1).filter(|it| it.is_transition());
+                let (transition, before_side) = match (before, after) {
+                    (Some(t), _) => (t.clone(), true),
+                    (None, Some(t)) => (t.clone(), false),
+                    (None, None) => return None,
+                };
+                let attached_ids = [before, after]
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|t| t.get_id())
+                    .collect();
+                Some(CarriedTransition {
+                    clip_id,
+                    transition,
+                    before: before_side,
+                    attached_ids,
+                })
+            })
+            .collect()
+    }
+
+    /// Put each transition from [`Stack::attached_transitions`] back on a cut
+    /// of its clip: the side it was on, else the other side. A cut takes it
+    /// only between the clip and another regular item (clip, compound, text,
+    /// shape), never a gap or another transition; with no such cut the
+    /// transition is dropped. The clip's other transitions are dropped too.
+    fn reattach_transitions(&mut self, carried: Vec<CarriedTransition>) {
+        if carried.is_empty() {
+            return;
+        }
+        for c in carried {
+            for id in &c.attached_ids {
+                if let Some((ti, ii, _)) = self.get_item(id) {
+                    self.children[ti].items.remove(ii);
+                }
+            }
+            let Some((ti, ii, _)) = self.get_item(&c.clip_id) else {
+                continue;
+            };
+            let items = &mut self.children[ti].items;
+            let joins = |index: Option<usize>| {
+                index
+                    .and_then(|i| items.get(i))
+                    .is_some_and(|it| !matches!(it, Item::Gap(_) | Item::Transition(_)))
+            };
+            let before = joins(ii.checked_sub(1));
+            let after = joins(Some(ii + 1));
+            let index = match (c.before, before, after) {
+                (true, true, _) | (false, true, false) => ii,
+                (false, _, true) | (true, false, true) => ii + 1,
+                _ => continue,
+            };
+            items.insert(index, c.transition);
+        }
+        self.sanitize();
+    }
+}
+
+/// A transition that moves with its clip; see [`Stack::attached_transitions`].
+struct CarriedTransition {
+    clip_id: String,
+    transition: Item,
+    before: bool,
+    attached_ids: Vec<String>,
 }
