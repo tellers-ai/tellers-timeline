@@ -143,8 +143,9 @@ Relevant Rust/Python APIs: `associated_track_ids`, `track_groups`,
 
 LUTs use `Effect.1` / `tellers.ai.ColorLut`. Like every tellers effect, all
 their data is in `metadata["tellers.ai"]["parameters"]`: the persistent
-`asset_id` and the resolved delivery URL `cube_url`. Both used to be written
-beside `parameters`; they are still read there, and `sanitize` moves them in.
+`asset_id` and the resolved delivery URL `target_url`, named like a media
+reference's. Both used to be written beside `parameters`, and the URL used to be
+`cube_url`; those forms are still read, and `sanitize` upgrades them.
 Resolve URLs before playback; clear temporary media and LUT URLs before
 persistence when appropriate.
 

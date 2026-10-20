@@ -179,8 +179,9 @@ fast). `FreezeFrame.1` holds a single frame. They work like
 
 ### Colour grading (`tellers.ai.ColorLut`)
 
-A `.cube` LUT, identified by its `asset_id` parameter; `cube_url`, the file
-the player downloads, is filled in from it before playback. It grades a
+A `.cube` LUT, identified by its `asset_id` parameter; `target_url`, the
+file the player downloads, is filled in from it before playback, like a media
+reference's `target_url` (`cube_url`, its former name, is still read). It grades a
 clip, every clip of a track, or the whole image when it is on the stack.
 Clip LUTs apply first, then the track's, then the timeline's.
 

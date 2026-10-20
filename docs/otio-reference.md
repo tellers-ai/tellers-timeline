@@ -637,9 +637,9 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | Parameter | Value |
 |---|---|
 | `asset_id` | string: the `.cube` asset, what the timeline stores |
-| `cube_url` | string: the URL the player downloads, resolved from `asset_id` before playback and stripped before saving |
+| `target_url` | string: the URL the player downloads, resolved from `asset_id` before playback and stripped before saving, like a media reference's `target_url` |
 
-Both used to be written beside `parameters`, directly in `tellers.ai`; they are still read there, and `sanitize` moves them in.
+Both used to be written beside `parameters`, directly in `tellers.ai`, and the URL used to be named `cube_url`; those forms are still read, and `sanitize` upgrades them.
 
 ### Animatable parameters
 

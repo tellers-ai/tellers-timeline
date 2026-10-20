@@ -9,23 +9,25 @@
 //!   "OTIO_SCHEMA": "Effect.1",
 //!   "effect_name": "tellers.ai.ColorLut",
 //!   "name": "slog3_to_709.cube",
-//!   "metadata": { "tellers.ai": { "parameters": { "asset_id": "a1b2", "cube_url": "https://cdn.example.test/…" } } }
+//!   "metadata": { "tellers.ai": { "parameters": { "asset_id": "a1b2", "target_url": "https://cdn.example.test/…" } } }
 //! }
 //! ```
 //!
 //! - `asset_id` identifies the `.cube` file. It is what the timeline
 //!   persists and what the list methods take.
-//! - `cube_url` is the URL the player (`video-player-js`) downloads the table
-//!   from. It is resolved from the asset id, like a media `target_url`: set it
+//! - `target_url` is the URL the player (`video-player-js`) downloads the
+//!   table from. It is named and resolved like a media reference's
+//!   `target_url`, from the asset id: set it
 //!   with [`Timeline::set_color_lut_url`] / [`Timeline::set_color_lut_urls`]
 //!   before handing the timeline to the player, and strip it with
 //!   [`Timeline::clear_color_lut_urls`] so ephemeral (e.g. presigned) URLs are
 //!   not persisted. The player skips an effect without one. Like every
 //!   effect parameter it lives in `parameters`.
-//! - Both keys used to be written beside `parameters`, directly in
-//!   `tellers.ai`. They are still read there; the URL setters and
-//!   [`upgrade_legacy_color_lut_effects`] (run by [`crate::Stack::sanitize`])
-//!   move them into `parameters`.
+//! - Legacy forms are still read: both keys written beside `parameters`,
+//!   directly in `tellers.ai`, and the URL named `cube_url`. The URL setters
+//!   and [`upgrade_legacy_color_lut_effects`] (run by
+//!   [`crate::Stack::sanitize`]) move them into `parameters` and rename
+//!   `cube_url` to `target_url`.
 //! - `name` is an optional display label.
 //!
 //! The `ColorLut` effects of a stage, in list order, are its LUT list. Other
@@ -70,7 +72,9 @@ const LEGACY_COLOR_LUT_EFFECT_NAME: &str = "ColorLut";
 /// Key holding the asset id of the `.cube` file.
 const ASSET_ID_KEY: &str = "asset_id";
 /// Key, inside a LUT effect's `parameters`, holding the resolved `.cube` URL.
-const CUBE_URL_KEY: &str = "cube_url";
+const TARGET_URL_KEY: &str = "target_url";
+/// Former name of [`TARGET_URL_KEY`], still read.
+const LEGACY_CUBE_URL_KEY: &str = "cube_url";
 /// Key of the effect parameters inside `tellers.ai`.
 const PARAMETERS_KEY: &str = "parameters";
 
@@ -83,8 +87,13 @@ pub struct ColorLut {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// The URL the player downloads the file from, once resolved from the
-    /// asset id. Stored as `cube_url`.
-    #[serde(rename = "cube_url", default, skip_serializing_if = "Option::is_none")]
+    /// asset id. Stored as `target_url` (formerly `cube_url`, still read).
+    #[serde(
+        rename = "target_url",
+        alias = "cube_url",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub url: Option<String>,
 }
 
@@ -134,7 +143,7 @@ impl ColorLut {
         let mut parameters = serde_json::Map::new();
         parameters.insert(ASSET_ID_KEY.to_string(), self.asset_id.clone().into());
         if let Some(url) = &self.url {
-            parameters.insert(CUBE_URL_KEY.to_string(), url.clone().into());
+            parameters.insert(TARGET_URL_KEY.to_string(), url.clone().into());
         }
         let mut ai = serde_json::Map::new();
         ai.insert(PARAMETERS_KEY.to_string(), serde_json::Value::Object(parameters));
@@ -158,7 +167,9 @@ impl ColorLut {
             return None;
         }
         let ai = effect.metadata.other.get("tellers.ai")?.as_object()?;
-        let url = lut_text(ai, CUBE_URL_KEY).map(str::to_string);
+        let url = lut_text(ai, TARGET_URL_KEY)
+            .or_else(|| lut_text(ai, LEGACY_CUBE_URL_KEY))
+            .map(str::to_string);
         ColorLut {
             asset_id: lut_text(ai, ASSET_ID_KEY)?.to_string(),
             name: Some(effect.name.clone()),
@@ -177,6 +188,7 @@ pub fn is_lut_effect(effect: &Effect) -> bool {
 /// Bring every LUT effect in `effects` written in a legacy form up to date:
 /// the `ColorLut` name becomes `tellers.ai.ColorLut`, and an `asset_id` or
 /// `cube_url` beside `parameters` moves into it (one already in `parameters`
+/// wins), and `cube_url` is renamed `target_url` (an existing `target_url`
 /// wins). Returns how many effects changed. Run by [`crate::Stack::sanitize`],
 /// so stored timelines converge on the current form without a migration.
 pub fn upgrade_legacy_color_lut_effects(effects: &mut [Effect]) -> usize {
@@ -296,7 +308,9 @@ pub fn set_color_lut_urls(effects: &mut [Effect], urls: &HashMap<String, String>
             continue;
         };
         move_legacy_keys_into_parameters(ai);
-        lut_parameters_mut(ai).insert(CUBE_URL_KEY.to_string(), serde_json::Value::String(url));
+        let parameters = lut_parameters_mut(ai);
+        parameters.remove(LEGACY_CUBE_URL_KEY);
+        parameters.insert(TARGET_URL_KEY.to_string(), serde_json::Value::String(url));
         updated += 1;
     }
     updated
@@ -307,12 +321,15 @@ pub fn set_color_lut_urls(effects: &mut [Effect], urls: &HashMap<String, String>
 pub fn clear_color_lut_urls(effects: &mut [Effect]) -> usize {
     lut_objects_mut(effects)
         .map(|ai| {
-            let legacy = ai.remove(CUBE_URL_KEY).is_some();
-            let current = ai
-                .get_mut(PARAMETERS_KEY)
-                .and_then(|parameters| parameters.as_object_mut())
-                .and_then(|parameters| parameters.remove(CUBE_URL_KEY))
-                .is_some();
+            let mut had_url = false;
+            for key in [TARGET_URL_KEY, LEGACY_CUBE_URL_KEY] {
+                had_url |= ai.remove(key).is_some();
+                had_url |= ai
+                    .get_mut(PARAMETERS_KEY)
+                    .and_then(|parameters| parameters.as_object_mut())
+                    .and_then(|parameters| parameters.remove(key))
+                    .is_some();
+            }
             if ai
                 .get(PARAMETERS_KEY)
                 .and_then(|p| p.as_object())
@@ -320,7 +337,7 @@ pub fn clear_color_lut_urls(effects: &mut [Effect]) -> usize {
             {
                 ai.remove(PARAMETERS_KEY);
             }
-            legacy || current
+            had_url
         })
         .filter(|had_url| *had_url)
         .count()
@@ -790,16 +807,28 @@ fn lut_parameters_mut(
     parameters.as_object_mut().expect("parameters is an object")
 }
 
-/// Move an `asset_id` or `cube_url` written beside `parameters` into it,
-/// unless `parameters` already has one. Returns whether anything moved.
+/// Move an `asset_id` or URL written beside `parameters` into it, and name
+/// the URL `target_url` rather than `cube_url`; a value already in
+/// `parameters` (and a `target_url` over a `cube_url`) wins. Returns whether
+/// anything changed.
 fn move_legacy_keys_into_parameters(ai: &mut serde_json::Map<String, serde_json::Value>) -> bool {
     let mut moved = false;
-    for key in [ASSET_ID_KEY, CUBE_URL_KEY] {
+    for (key, to) in [
+        (ASSET_ID_KEY, ASSET_ID_KEY),
+        (TARGET_URL_KEY, TARGET_URL_KEY),
+        (LEGACY_CUBE_URL_KEY, TARGET_URL_KEY),
+    ] {
         let Some(value) = ai.remove(key) else {
             continue;
         };
-        lut_parameters_mut(ai).entry(key).or_insert(value);
+        lut_parameters_mut(ai).entry(to).or_insert(value);
         moved = true;
+    }
+    if let Some(parameters) = ai.get_mut(PARAMETERS_KEY).and_then(|p| p.as_object_mut()) {
+        if let Some(value) = parameters.remove(LEGACY_CUBE_URL_KEY) {
+            parameters.entry(TARGET_URL_KEY).or_insert(value);
+            moved = true;
+        }
     }
     moved
 }
