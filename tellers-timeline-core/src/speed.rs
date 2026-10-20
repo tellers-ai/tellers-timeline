@@ -288,4 +288,87 @@ impl Clip {
             None => Some(source.max(0.0)),
         }
     }
+
+    /// How far `source_range.start_time` moves when the clip's start edge
+    /// moves `delta` timeline seconds (positive trims, negative extends) and
+    /// what plays after the edge stays where it is: `delta` at normal speed,
+    /// the source those seconds play otherwise, 0 for a freeze. Before its
+    /// first keyframe a ramp holds its first speed.
+    pub fn start_edge_source_delta(&self, delta: Seconds) -> Seconds {
+        let Some(speed) = self.get_speed() else {
+            return delta;
+        };
+        if delta >= 0.0 {
+            return speed.source_offset(delta);
+        }
+        let shifted = ClipSpeed { speed: shift_keyframes(&speed.speed, -delta), ..speed };
+        -shifted.source_offset(-delta)
+    }
+
+    /// Move the clip's start edge by `delta` timeline seconds, keeping what
+    /// plays after the edge in place: the source start moves by
+    /// [`Clip::start_edge_source_delta`] (floored at `min_source_start`) and a
+    /// speed ramp's keyframes, timed from the clip's start, shift with the
+    /// edge. The duration is left to the caller.
+    pub fn move_start_edge(&mut self, delta: Seconds, min_source_start: Seconds) {
+        let source_delta = self.start_edge_source_delta(delta);
+        let source_start = (self.source_range.start_time.to_seconds() + source_delta)
+            .max(min_source_start);
+        self.source_range.start_time.set_from_seconds(source_start);
+        if delta.abs() > 0.0 {
+            shift_ramp_keyframes(&mut self.effects, -delta);
+        }
+    }
+
+    /// The largest start-edge extension, up to `wanted` timeline seconds,
+    /// that keeps the source start at or after `min_source_start`. A freeze
+    /// plays no source, so it extends freely.
+    pub fn start_extension_within(&self, wanted: Seconds, min_source_start: Seconds) -> Seconds {
+        let wanted = wanted.max(0.0);
+        let available = (self.source_range.start_time.to_seconds() - min_source_start).max(0.0);
+        let back = |e: Seconds| -self.start_edge_source_delta(-e);
+        if back(wanted) <= available + 1e-9 {
+            return wanted;
+        }
+        // back(e) is increasing in e (the speed is at least MIN_CLIP_SPEED).
+        let (mut low, mut high) = (0.0, wanted);
+        for _ in 0..64 {
+            let mid = (low + high) / 2.0;
+            if back(mid) <= available {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        low
+    }
+}
+
+/// `speed` with its keyframes `by` seconds later; a constant is unchanged.
+fn shift_keyframes(speed: &Animatable, by: Seconds) -> Animatable {
+    match speed {
+        Animatable::Value(_) => speed.clone(),
+        Animatable::Keyframes { keyframes } => Animatable::Keyframes {
+            keyframes: keyframes.iter().map(|k| Keyframe { t: k.t + by, ..*k }).collect(),
+        },
+    }
+}
+
+/// Shift the keyframes of the speed the player applies (a keyframed
+/// tellers `TimeWarp`) `by` seconds.
+fn shift_ramp_keyframes(effects: &mut [Effect], by: Seconds) {
+    let Some(effect) = effects.iter_mut().find(|effect| read_time_warp(effect).is_some()) else {
+        return;
+    };
+    let Some(mut tellers) = TellersEffect::from_effect(effect) else {
+        return;
+    };
+    let Some(speed @ Animatable::Keyframes { .. }) = tellers.animatable("speed") else {
+        return;
+    };
+    tellers.set_animatable("speed", shift_keyframes(&speed, by));
+    let parameters = Value::Object(tellers.parameters);
+    if let Some(ai) = effect.metadata.other.get_mut("tellers.ai").and_then(Value::as_object_mut) {
+        ai.insert("parameters".to_string(), parameters);
+    }
 }

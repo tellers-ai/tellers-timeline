@@ -188,7 +188,11 @@ resamples the audio instead of time-stretching it.
 (0 for a freeze) as `LinearTimeWarp.1` / `FreezeFrame.1`, replacing any other
 time effect. `Stack.set_item_speed` does the same on a clip's sync partners.
 Splitting a clip and clamping it to its media count the media it plays at
-that speed.
+that speed. So does dragging its left edge with `Stack.modify_item`: the
+edge moves `source_start_time - source start` seconds on the timeline and
+the source start moves by the media those seconds play (twice as much at 2x,
+none on a freeze); a ramp's keyframes move with the edge, and an extension
+stops at the start of the media.
 
 ### Colour grading (`tellers.ai.ColorLut`)
 
