@@ -106,24 +106,13 @@
             "effects": [
               {
                 "OTIO_SCHEMA": "Effect.1",
-                "effect_name": "",
+                "effect_name": "tellers.ai.Volume",
                 "name": "",
                 "metadata": {
-                  "Resolve_OTIO": {
-                    "Effect Name": "Fairlight Clip Volume and Fades",
-                    "Enabled": true,
-                    "Name": "Volume",
-                    "Parameters": [
-                      {
-                        "Default Parameter Value": 0,
-                        "Key Frames": {},
-                        "Parameter ID": "volume",
-                        "Parameter Value": -27.08759083332872,
-                        "maxValue": 30,
-                        "minValue": -100
-                      }
-                    ],
-                    "Type": 62
+                  "tellers.ai": {
+                    "parameters": {
+                      "volume": -27.08759083332872
+                    }
                   }
                 }
               }

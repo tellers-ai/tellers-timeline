@@ -839,17 +839,14 @@
                             {
                                 "OTIO_SCHEMA": "Effect.1",
                                 "metadata": {
-                                    "Resolve_OTIO": {
-                                        "Display Type": 1,
-                                        "Effect Name": "Fairlight Clip Volume and Fades",
-                                        "Enabled": true,
-                                        "Name": "Volume",
-                                        "Parameters": [],
-                                        "Type": 62
+                                    "tellers.ai": {
+                                        "parameters": {
+                                            "volume": 0.0
+                                        }
                                     }
                                 },
                                 "name": "",
-                                "effect_name": "Resolve Effect"
+                                "effect_name": "tellers.ai.Volume"
                             },
                             {
                                 "OTIO_SCHEMA": "Effect.1",
@@ -1137,17 +1134,14 @@
                             {
                                 "OTIO_SCHEMA": "Effect.1",
                                 "metadata": {
-                                    "Resolve_OTIO": {
-                                        "Display Type": 1,
-                                        "Effect Name": "Fairlight Clip Volume and Fades",
-                                        "Enabled": true,
-                                        "Name": "Volume",
-                                        "Parameters": [],
-                                        "Type": 62
+                                    "tellers.ai": {
+                                        "parameters": {
+                                            "volume": 0.0
+                                        }
                                     }
                                 },
                                 "name": "",
-                                "effect_name": "Resolve Effect"
+                                "effect_name": "tellers.ai.Volume"
                             },
                             {
                                 "OTIO_SCHEMA": "Effect.1",
