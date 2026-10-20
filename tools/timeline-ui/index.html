@@ -1038,7 +1038,7 @@
       { sep: true },
       ...(it.kind === 'composite' ? [{ label: '⧉ Open compound (edit its tracks)', key: 'dbl-click', run: () => openCompound(it) }] : []),
       ...(it.kind === 'clip' || it.kind === 'composite' ? [
-        { label: `Effects… (${(it.effects || []).length})`, key: 'F', run: () => openFxPopover(null, ev, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text && t.kind !== 'audio' ? 'text' : t.kind }) },
+        { label: `Effects… (${(it.effects || []).length})`, key: 'F', run: () => openFxPopover(null, ev, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: t.kind === 'audio' ? 'audio' : it.text_clip ? 'text' : 'clip' }) },
       ] : []),
       ...(it.kind === 'clip' ? speedMenu(it) : []),
       ...transitionMenu(it, t, ev),
@@ -1135,14 +1135,15 @@
   // ------------------------------------------------------------- effects
   // fxCtx: { item_id } | { track_id } | {} (timeline), plus a label and the
   // kind deciding which effect targets the "add" list offers: the library
-  // refuses sound effects on a video (or other) track or clip and picture or
-  // text effects on an audio one; speed goes anywhere, and the timeline takes
-  // every target. Every edit is one library call; the popover stays open and
+  // refuses sound effects on a video (or other) track or clip, picture or
+  // text effects on an audio one, and text effects on a clip that is not a
+  // Text clip (a track applies them to its text clips); speed goes anywhere,
+  // and the timeline takes every target. Every edit is one library call; the popover stays open and
   // redraws from the new state.
   let fxCtx = null;
   const FX_TARGETS = {
     video: ['video', 'text', 'time'], other: ['video', 'text', 'time'], text: ['text', 'video', 'time'],
-    audio: ['audio', 'time'], timeline: ['video', 'audio', 'text', 'time'],
+    clip: ['video', 'time'], audio: ['audio', 'time'], timeline: ['video', 'audio', 'text', 'time'],
   };
   const fxTarget = () => fxCtx.item_id ? { item_id: fxCtx.item_id } : fxCtx.track_id ? { track_id: fxCtx.track_id } : {};
   function fxList() {
@@ -1274,7 +1275,7 @@
     if (k === 'e') return toggleEnabled();
     if (k === 'f' && selected.size === 1) {
       const it = findItem([...selected][0]);
-      if (it && (it.kind === 'clip' || it.kind === 'composite')) { const d = $(`.item[data-id="${it.id}"]`); openFxPopover(d, null, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.text && it.track.kind !== 'audio' ? 'text' : it.track.kind }); }
+      if (it && (it.kind === 'clip' || it.kind === 'composite')) { const d = $(`.item[data-id="${it.id}"]`); openFxPopover(d, null, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.track.kind === 'audio' ? 'audio' : it.text_clip ? 'text' : 'clip' }); }
     }
   });
 

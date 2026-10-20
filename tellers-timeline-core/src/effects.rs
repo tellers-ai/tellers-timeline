@@ -34,12 +34,14 @@
 //! `MotionBlur` there, as every clip's default.
 //!
 //! Each effect has a target ([`EffectTarget`]) deciding where it may go:
-//! picture and text effects on video (and other) tracks and their clips,
-//! sound effects (`Volume`, `Pan`) on audio tracks and their clips only, a
-//! `TimeWarp` anywhere. The track accessors and the timeline's `*_track_*`
-//! and `*_item_*` accessors refuse an effect on the wrong kind of track; the
-//! clip accessors cannot tell (a clip does not know its track), nor can the
-//! free functions on an effect list.
+//! picture effects on video (and other) tracks and their clips, text clips
+//! included; text effects (`Text*`) on text clips only (and on non-audio
+//! tracks, which apply them to their text clips); sound effects (`Volume`,
+//! `Pan`) on audio tracks and their clips only; a `TimeWarp` anywhere. The
+//! track accessors and the timeline's `*_track_*` and `*_item_*` accessors
+//! refuse an effect on the wrong kind of track or clip; the clip accessors
+//! cannot tell (a clip does not know its track), nor can the free functions
+//! on an effect list.
 //!
 //! A composite clip (a nested `Stack`, [`crate::CompositeStack`]) is an item
 //! like a clip: the player applies its filters, `Transform` and `Blend` to
@@ -84,7 +86,7 @@ pub enum EffectTarget {
     Video,
     /// The sound of a clip, or of every clip of a track.
     Audio,
-    /// The letters of a Text clip.
+    /// The letters of a Text clip (a `Text` generator); no other clip.
     Text,
     /// The playback speed of a clip.
     Time,
@@ -95,12 +97,22 @@ impl EffectTarget {
     /// a clip of one: picture and text effects on any track but an audio
     /// one, sound effects on audio tracks only (video tracks carry no
     /// sound; it plays from their bound audio clips), speed on any track.
+    /// A text effect also needs a text clip; see [`Self::allowed_on_item`].
     pub fn allowed_on(self, kind: &TrackKind) -> bool {
         match self {
             EffectTarget::Video | EffectTarget::Text => *kind != TrackKind::Audio,
             EffectTarget::Audio => *kind == TrackKind::Audio,
             EffectTarget::Time => true,
         }
+    }
+
+    /// Whether an effect of this target belongs on `item`, on a track of
+    /// `kind`: as [`Self::allowed_on`], and a text effect only on a text
+    /// clip. Picture effects go on text clips too.
+    pub fn allowed_on_item(self, kind: &TrackKind, item: &Item) -> bool {
+        self.allowed_on(kind)
+            && (self != EffectTarget::Text
+                || matches!(item, Item::Clip(clip) if clip.is_text_clip()))
     }
 }
 
@@ -1071,11 +1083,15 @@ impl Timeline {
 
     /// Whether `effect` may go on the clip or composite clip `item_id`,
     /// given the kind of the track holding it (see
-    /// [`EffectTarget::allowed_on`]): no Volume on a video clip, no Blur on
-    /// an audio clip.
+    /// [`EffectTarget::allowed_on_item`]): no Volume on a video clip, no
+    /// Blur on an audio clip, no TextWave on anything but a text clip.
     fn item_accepts_effect(&self, item_id: &str, effect: &TellersEffect) -> bool {
-        self.item_track_kind(item_id)
-            .is_some_and(|kind| effect.allowed_on(&kind))
+        let (Some(kind), Some(item), Some(spec)) =
+            (self.item_track_kind(item_id), self.effect_item(item_id), effect.spec())
+        else {
+            return false;
+        };
+        spec.target.allowed_on_item(&kind, item)
     }
 
     fn effect_track(&self, track_id: &str) -> Option<&Track> {
@@ -1397,6 +1413,34 @@ mod tests {
         assert!(timeline.replace_item_tellers_effect_at("vc", 0, TellersEffect::new("Volume")).is_none());
         assert_eq!(timeline.get_item_tellers_effects("vc").unwrap()[0].effect_name, "Blur");
         assert_eq!(timeline.get_item_tellers_effects("ac").unwrap()[0].effect_name, "Pan");
+
+        // Text effects on text clips only; picture effects on text clips too.
+        let text = Clip::new_text(
+            1.0,
+            &crate::TextParameters::with_text("Title"),
+            None,
+            Some("tc".to_string()),
+        )
+        .unwrap();
+        timeline.tracks.children[0].items.push(Item::Clip(text));
+        assert!(!timeline.push_item_tellers_effect("vc", TellersEffect::new("TextWave")));
+        assert!(!timeline.push_item_tellers_effect("ac", TellersEffect::new("TextWave")));
+        assert!(timeline.push_item_tellers_effect("tc", TellersEffect::new("TextWave")));
+        assert!(timeline.push_item_tellers_effect("tc", TellersEffect::new("DropShadow")));
+        assert!(!timeline.push_item_tellers_effect("tc", TellersEffect::new("Volume")));
+        assert!(!timeline.set_item_tellers_effects("vc", vec![TellersEffect::new("TextKaraoke")]));
+        assert!(timeline.replace_item_tellers_effect_at("vc", 0, TellersEffect::new("TextColor")).is_none());
+        // A track applies its text effects to its text clips.
+        assert!(timeline.push_track_tellers_effect("v", TellersEffect::new("TextWave")));
+        assert!(!timeline.push_track_tellers_effect("a", TellersEffect::new("TextWave")));
+        assert!(EffectTarget::Text.allowed_on_item(
+            &TrackKind::Video,
+            timeline.tracks.get_nested_item("tc").unwrap()
+        ));
+        assert!(!EffectTarget::Text.allowed_on_item(
+            &TrackKind::Video,
+            timeline.tracks.get_nested_item("vc").unwrap()
+        ));
     }
 
     #[test]

@@ -2476,7 +2476,7 @@ impl PyTimeline {
     }
     /// Replace every tellers effect of the clip or composite clip `item_id` with `effects` (dicts like
     /// `get_item_tellers_effects` returns); other effects stay. False, changing
-    /// nothing, when an `effect_name` is unknown, an effect does not go on the kind of track holding the item (no Volume or Pan on a video clip, no picture or text effect on an audio clip), or no clip or composite clip has this id.
+    /// nothing, when an `effect_name` is unknown, an effect does not go on the kind of track holding the item (no Volume or Pan on a video clip, no picture or text effect on an audio clip, no text effect on anything but a Text clip), or no clip or composite clip has this id.
     fn set_item_tellers_effects(&mut self, item_id: &str, effects: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.set_item_tellers_effects(item_id, tellers_effects_from_python(effects)?))
     }

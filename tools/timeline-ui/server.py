@@ -173,6 +173,7 @@ class State:
                         entry["media_duration"] = ref.get_media_duration()
                     clip = _as_clip(item)
                     entry["name"] = clip.get_name() if clip else None
+                    entry["text_clip"] = clip.is_text_clip() if clip else False
                     entry["speed"] = clip.get_speed() if clip else None
                     entry["source_duration"] = clip.get_source_duration() if clip else None
                 elif item.is_composite():
@@ -325,6 +326,8 @@ class State:
         insert("Music", 6.0, clip("Music 2", 4, "wav", media_duration=8, source_start=2))
         add_track("video", "Text")
         insert("Text", 1.0, make_item({"duration": 2, "name": "Title", "text": True, "text_html": "<p>Hello</p>"}))
+        # A plain Text clip (a Text generator), the only clip text effects go on.
+        insert("Text", 8.0, Item.from_clip(Clip.new_text(2.0, {"text": "Caption"}, "Caption")))
         # A compound (composite clip, an OTIO Stack.1 in the track): a lower
         # third made of a background bar and, a second later, a name on top.
         bar = Track(kind="video", children=[Item.from_clip(clip("Bar", 3))])

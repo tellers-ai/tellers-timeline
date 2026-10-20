@@ -190,3 +190,19 @@ def test_effects_only_go_on_their_kind_of_track():
     assert [e["effect_name"] for e in tl.get_item_tellers_effects("ac")] == ["Pan", "TimeWarp"]
     assert [e["effect_name"] for e in tl.get_item_tellers_effects("vc")] == ["Blur"]
     assert tl.get_track_tellers_effects("v") == []
+
+
+def test_text_effects_only_go_on_text_clips():
+    text = Clip.new_text(2.0, {"text": "Caption"}, id="tc")
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc")), Item.from_clip(text)])
+    tl = Timeline([video])
+    wave = {"effect_name": "TextWave", "parameters": {"amplitude": 4}}
+
+    assert not tl.push_item_tellers_effect("vc", wave)
+    assert tl.push_item_tellers_effect("tc", wave)
+    # Picture effects go on text clips too.
+    assert tl.push_item_tellers_effect("tc", {"effect_name": "DropShadow", "parameters": {}})
+    # A track applies its text effects to its text clips.
+    assert tl.push_track_tellers_effect("v", wave)
+    assert [e["effect_name"] for e in tl.get_item_tellers_effects("tc")] == ["TextWave", "DropShadow"]
+    assert tl.get_item_tellers_effects("vc") == []
