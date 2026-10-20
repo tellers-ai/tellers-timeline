@@ -5,6 +5,7 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 
+mod stack_composite;
 mod stack_insert_propagate;
 mod stack_item_delete;
 mod stack_item_get;
