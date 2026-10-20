@@ -16,7 +16,7 @@ The document. Its `tracks` stack holds every track; timeline-wide settings (font
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Timeline.1"` | Always `Timeline.1`. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, `tellers.ai.textStyles` the shared CSS classes of rich-text clips. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …); this library keeps both as plain metadata, with no typed API. |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, `tellers.ai.textStyles` the shared CSS classes of rich-text clips. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library keeps as plain metadata, with no typed API. |
 | `name` | string \| null |  |  | Display name. |
 | `tracks` | [Stack](#stack) |  |  | The stack of every track. |
 
