@@ -274,7 +274,7 @@ class State:
         """Video tracks with 0, 1, 2 and 3 associated audio tracks, video clips
         with 0 to 3 synced audio clips, an audio-led column (an audio clip
         linked to a video clip), a clip played at 2x speed, a compound clip
-        (lower third) and a standalone music track."""
+        (lower third), a standalone music track and a track of transitions."""
         stack = self.stack = Stack()
 
         def clip(name: str, duration: float, ext: str = "mov", **spec: Any):
@@ -331,6 +331,12 @@ class State:
             {"duration": 2, "name": "Name", "text": True, "text_html": "<p>Jane Doe</p>"}))])
         name.set_name("name")
         insert("Text", 4.0, Item.from_composite([bar, name], name="Lower third"))
+        # Transitions: two clips sharing one, and a clip with one before and
+        # one after it (a move carries only the first). Spliced in below. Each
+        # clip has 3s of media on either side so both edges can be dragged.
+        add_track("video", "Transitions")
+        for start, label in [(0.0, "T1"), (2.0, "T2"), (5.0, "X"), (7.0, "Y"), (9.0, "Z")]:
+            insert("Transitions", start, clip(label, 2, media_duration=8, source_start=3))
         stack.normalize_track_order()
         # One marker of each kind: timeline-wide (a range), on a track, on a clip.
         v1 = next(t for t in self.stack.tracks() if t.get_name() == "V1")
@@ -340,6 +346,12 @@ class State:
         timeline.add_marker(6.5, name="Track note", comment="Marker on V1", color="GREEN", owner_id=v1.get_id())
         timeline.add_marker(5.0, name="Fix B", comment="Clip marker: moves with B", owner_id=clip_b.get_id())
         self.stack = timeline.get_stack()
+        # Items are [T1, T2, gap, X, Y, Z]: cuts T1|T2, X|Y and Y|Z, from the end.
+        track_index = next(i for i, t in enumerate(self.stack.tracks()) if t.get_name() == "Transitions")
+        cuts = [(5, {"kind": "Wipe", "direction": "right"}), (4, {"kind": "DipToColor", "color": "#ffffff"}), (1, {"kind": "Dissolve"})]
+        _splice_track(self, track_index, lambda children: [
+            children.insert(index, json.loads(_make_transition(spec).to_json())) for index, spec in cuts
+        ])
 
     def load_basic_sample(self) -> None:
         """One video track with one synced clip, and a text track."""

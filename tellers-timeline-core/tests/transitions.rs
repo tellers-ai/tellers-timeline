@@ -440,3 +440,220 @@ fn set_kind_named_writes_the_colour_a_dip_name_implies() {
     assert!(!push.set_kind_named("Spin"));
     assert_eq!(push.transition_type, "SMPTE_Dissolve");
 }
+
+fn move_ids(stack: &Stack) -> Vec<String> {
+    stack.children[0]
+        .items
+        .iter()
+        .map(|it| match it {
+            Item::Gap(_) => "gap".to_string(),
+            it => it.get_id().unwrap_or_default(),
+        })
+        .collect()
+}
+
+#[test]
+fn moving_a_clip_carries_its_transition() {
+    let mut stack = track_with(vec![
+        clip(2.0, "a"),
+        transition("t1"),
+        clip(2.0, "b"),
+        clip(2.0, "c"),
+        clip(2.0, "d"),
+    ]);
+    assert!(stack.move_item_at_index("b", "v1", 5, false, tellers_timeline_core::OverlapPolicy::Push));
+    assert_eq!(move_ids(&stack), vec!["a", "c", "d", "t1", "b"]);
+}
+
+#[test]
+fn moving_a_clip_with_two_transitions_keeps_the_first() {
+    let mut stack = track_with(vec![
+        clip(2.0, "a"),
+        transition("t1"),
+        clip(2.0, "b"),
+        transition("t2"),
+        clip(2.0, "c"),
+    ]);
+    assert!(stack.move_item_at_index("b", "v1", 5, false, tellers_timeline_core::OverlapPolicy::Push));
+    assert_eq!(move_ids(&stack), vec!["a", "c", "t1", "b"]);
+}
+
+#[test]
+fn moving_a_clip_carries_an_outgoing_transition_after_it() {
+    let mut stack = track_with(vec![
+        clip(2.0, "a"),
+        transition("t1"),
+        clip(2.0, "b"),
+        clip(2.0, "c"),
+    ]);
+    assert!(stack.move_item_at_index("a", "v1", 3, false, tellers_timeline_core::OverlapPolicy::Push));
+    assert_eq!(move_ids(&stack), vec!["b", "a", "t1", "c"]);
+}
+
+#[test]
+fn a_carried_transition_switches_side_rather_than_face_a_gap() {
+    let mut stack = track_with(vec![
+        clip(2.0, "a"),
+        transition("t1"),
+        clip(2.0, "b"),
+        clip(2.0, "c"),
+    ]);
+    // `b` lands right before `c` with a gap in front: the cut with `c` takes it.
+    assert!(stack.move_item_at_time(
+        "b",
+        "v1",
+        4.0,
+        true,
+        tellers_timeline_core::InsertPolicy::SplitAndInsert,
+        tellers_timeline_core::OverlapPolicy::Push,
+    ));
+    let got = move_ids(&stack);
+    let b = got.iter().position(|id| id == "b").unwrap();
+    assert_eq!(got[b - 1], "gap");
+    assert_eq!(got[b + 1], "t1");
+    assert_eq!(got[b + 2], "c");
+}
+
+#[test]
+fn a_carried_transition_is_dropped_between_gaps() {
+    let mut stack = track_with(vec![
+        clip(2.0, "a"),
+        transition("t1"),
+        clip(2.0, "b"),
+        clip(2.0, "c"),
+    ]);
+    assert!(stack.move_item_at_time(
+        "b",
+        "v1",
+        8.0,
+        true,
+        tellers_timeline_core::InsertPolicy::SplitAndInsert,
+        tellers_timeline_core::OverlapPolicy::Override,
+    ));
+    assert_eq!(move_ids(&stack), vec!["a", "gap", "c", "gap", "b"]);
+}
+
+fn media_clip(duration: f64, media: f64, id: &str) -> Item {
+    Item::Clip(Clip::new_single_media_reference(
+        TimeRange::new(duration, 0.0),
+        MediaReference::ExternalReference {
+            target_url: "file:///media.mov".to_string(),
+            available_range: Some(TimeRange::new(media, 0.0)),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::json!({}),
+        },
+        None,
+        Some(id.to_string()),
+    ))
+}
+
+#[test]
+fn extending_a_clip_over_its_neighbour_moves_the_transition_to_the_new_cut() {
+    let mut stack = track_with(vec![
+        media_clip(2.0, 10.0, "a"),
+        transition("t1"),
+        media_clip(2.0, 10.0, "b"),
+    ]);
+    assert!(stack.modify_item("a", 0.0, 3.0, true, false, false));
+    assert_eq!(move_ids(&stack), vec!["a", "t1", "b"]);
+    let track = &stack.children[0];
+    assert!((track.start_time_of_item(2) - 3.0).abs() < 1e-9);
+}
+
+#[test]
+fn trimming_a_head_off_its_neighbour_keeps_the_transition_on_the_trimmed_edge() {
+    let mut stack = track_with(vec![
+        media_clip(2.0, 10.0, "a"),
+        transition("t1"),
+        media_clip(2.0, 10.0, "b"),
+    ]);
+    assert!(stack.modify_item("b", 0.5, 1.5, true, true, false));
+    assert_eq!(move_ids(&stack), vec!["a", "gap", "t1", "b"]);
+}
+
+#[test]
+fn resizing_into_a_neighbour_keeps_the_transition_on_the_cut() {
+    let mut stack = track_with(vec![
+        media_clip(2.0, 10.0, "a"),
+        transition("t1"),
+        media_clip(2.0, 10.0, "b"),
+    ]);
+    assert!(stack.resize_item("a", 0.0, 3.0, tellers_timeline_core::OverlapPolicy::Override, true));
+    assert_eq!(move_ids(&stack), vec!["a", "t1", "b"]);
+}
+
+#[test]
+fn extending_over_a_gap_into_a_clip_moves_that_clips_transition_to_the_new_cut() {
+    let mut stack = track_with(vec![
+        media_clip(1.0, 10.0, "a"),
+        Item::Gap(tellers_timeline_core::Gap::make_gap(1.0)),
+        transition("t1"),
+        media_clip(2.0, 10.0, "b"),
+    ]);
+    assert!(stack.modify_item("a", 0.0, 3.0, true, false, false));
+    assert_eq!(move_ids(&stack), vec!["a", "t1", "b"]);
+}
+
+/// A 2s clip played from 3s into 8s of media, like the UI sample's
+/// Transitions track: both edges can be dragged 3s either way.
+fn handle_clip(id: &str) -> Item {
+    Item::Clip(Clip::new_single_media_reference(
+        TimeRange::new(2.0, 3.0),
+        MediaReference::ExternalReference {
+            target_url: "file:///media.mov".to_string(),
+            available_range: Some(TimeRange::new(8.0, 0.0)),
+            name: None,
+            available_image_bounds: None,
+            metadata: serde_json::json!({}),
+        },
+        None,
+        Some(id.to_string()),
+    ))
+}
+
+/// Ids, with each transition as `id@start`.
+fn cuts(stack: &Stack) -> Vec<String> {
+    let track = &stack.children[0];
+    track
+        .items
+        .iter()
+        .enumerate()
+        .map(|(i, it)| match it {
+            Item::Gap(_) => "gap".to_string(),
+            Item::Transition(_) => format!("{}@{}", it.get_id().unwrap_or_default(), track.start_time_of_item(i)),
+            it => it.get_id().unwrap_or_default(),
+        })
+        .collect()
+}
+
+#[test]
+fn ui_session_trimming_around_a_transition_keeps_it_on_the_cut() {
+    let mut stack = track_with(vec![
+        handle_clip("t1c"),
+        transition("dissolve"),
+        handle_clip("t2c"),
+        Item::Gap(tellers_timeline_core::Gap::make_gap(1.0)),
+        handle_clip("x"),
+    ]);
+    stack.sanitize();
+    let gap = stack.children[0].items[3].get_id().unwrap();
+
+    // T2's head dragged 1s left, over T1's tail: the cut moves to 1s.
+    assert!(stack.modify_item("t2c", 2.0, 3.0, true, true, false));
+    assert_eq!(cuts(&stack), vec!["t1c", "dissolve@1", "t2c", "gap", "x"]);
+    // Then 2s right: a gap opens, the dissolve stays on T2's head.
+    assert!(stack.modify_item("t2c", 4.0, 1.0, true, true, false));
+    assert_eq!(cuts(&stack), vec!["t1c", "gap", "dissolve@3", "t2c", "gap", "x"]);
+    // Then 1s back left.
+    assert!(stack.modify_item("t2c", 3.0, 2.0, true, true, false));
+    assert_eq!(cuts(&stack), vec!["t1c", "gap", "dissolve@2", "t2c", "gap", "x"]);
+    // The gap after T2 trimmed, then grown with push: the dissolve is untouched.
+    assert!(stack.modify_item(&gap, 0.0, 0.5, true, false, false));
+    assert!(stack.modify_item(&gap, 0.0, 1.5, true, false, true));
+    assert_eq!(cuts(&stack), vec!["t1c", "gap", "dissolve@2", "t2c", "gap", "x"]);
+    // T1's tail dragged over the gap and into T2's head: the dissolve moves
+    // to the new T1 | T2 cut instead of being deleted with T2's head.
+    assert!(stack.modify_item("t1c", 3.0, 3.0, true, false, false));
+    assert_eq!(cuts(&stack), vec!["t1c", "dissolve@3", "t2c", "gap", "x"]);
+}

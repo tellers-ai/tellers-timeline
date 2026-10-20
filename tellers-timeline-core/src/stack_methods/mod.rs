@@ -21,6 +21,7 @@ mod stack_partner_move_tests;
 mod stack_ripple;
 mod stack_snap;
 mod stack_track;
+mod stack_transition_cuts;
 
 pub use stack_snap::{SnapEdge, SnapMatch, SnapTarget};
 
@@ -1849,7 +1850,7 @@ impl Stack {
         }
     }
 
-    pub fn resize_item(
+    fn resize_item_inner(
         &mut self,
         item_id: &str,
         new_start_time: Seconds,
@@ -2178,7 +2179,7 @@ impl Stack {
         true
     }
 
-    pub fn modify_item(
+    fn modify_item_inner(
         &mut self,
         item_id: &str,
         source_start_time: Seconds,
