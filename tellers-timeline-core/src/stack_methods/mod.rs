@@ -2177,6 +2177,15 @@ impl Stack {
         true
     }
 
+    /// Resize an item from an edge drag: `source_start_time` and `duration`
+    /// are where the drag put the item's source start and length.
+    ///
+    /// The left edge moves `source_start_time - current source start`
+    /// seconds on the timeline. For a clip with a speed that is not the
+    /// source it skips: its source start moves by the media those timeline
+    /// seconds play (`speed` times as much for a constant speed, the integral
+    /// of a ramp, none for a freeze; see [`Clip::start_edge_source_delta`]),
+    /// and an extension stops where that would run before the media.
     pub fn modify_item(
         &mut self,
         item_id: &str,
@@ -2192,7 +2201,22 @@ impl Stack {
 
         let mut effective_source_start = source_start_time;
         let mut effective_duration = duration;
-        if effective_source_start < 0.0 {
+        let speed_clip = match &self.children[track_index].items[item_index] {
+            Item::Clip(clip) if clip.get_speed().is_some() => Some(clip),
+            _ => None,
+        };
+        if let Some(clip) = speed_clip {
+            // The left edge moves `source_start_time - source start` timeline
+            // seconds; it cannot extend past the media the clip would play.
+            let old_source_start = clip.source_range.start_time.to_seconds();
+            let wanted = old_source_start - source_start_time;
+            if wanted > 0.0 {
+                let floor = speed_clip_source_floor(clip, clamp_to_media);
+                let allowed = clip.start_extension_within(wanted, floor);
+                effective_duration -= wanted - allowed;
+                effective_source_start = old_source_start - allowed;
+            }
+        } else if effective_source_start < 0.0 {
             effective_duration += effective_source_start;
             effective_source_start = 0.0;
         }
@@ -2329,6 +2353,10 @@ impl Stack {
         resized
     }
 
+    /// [`Stack::resize_item`] after moving the item's (and its sync
+    /// partners') left edge by `source_start_time - current source start`
+    /// timeline seconds; a clip with a speed moves its source start by the
+    /// media those seconds play, as in [`Stack::modify_item`].
     pub fn resize_item_with_source_start(
         &mut self,
         item_id: &str,
@@ -2347,7 +2375,7 @@ impl Stack {
             Item::Gap(_) | Item::Transition(_) => 0.0,
         };
         if source_delta.abs() > EPS {
-            self.offset_synced_clip_source_starts(item_id, source_delta);
+            self.offset_synced_clip_start_edges(item_id, source_delta);
         }
         self.resize_item(
             item_id,
@@ -2361,7 +2389,7 @@ impl Stack {
     fn resize_synced_clips_with_leading_gap(
         &mut self,
         mut targets: Vec<(usize, usize)>,
-        source_delta: Seconds,
+        delta: Seconds,
         duration: Seconds,
     ) {
         targets.sort_unstable_by(|a, b| b.cmp(a));
@@ -2372,12 +2400,11 @@ impl Stack {
             if item_index >= track.items.len() {
                 continue;
             }
-            let source_start_time = item_source_start(&track.items[item_index]) + source_delta;
-            set_item_source_start(&mut track.items[item_index], source_start_time);
+            move_item_start_edge(&mut track.items[item_index], delta, f64::NEG_INFINITY);
             track.items[item_index].set_duration(duration);
             track
                 .items
-                .insert(item_index, Item::Gap(Gap::make_gap(source_delta)));
+                .insert(item_index, Item::Gap(Gap::make_gap(delta)));
         }
     }
 
@@ -2425,7 +2452,7 @@ impl Stack {
         }
     }
 
-    fn offset_synced_clip_source_starts(&mut self, item_id: &str, source_delta: Seconds) {
+    fn offset_synced_clip_start_edges(&mut self, item_id: &str, delta: Seconds) {
         for (track_index, item_index) in self.synced_clip_targets_for_item(item_id) {
             let Some(item) = self
                 .children
@@ -2434,8 +2461,7 @@ impl Stack {
             else {
                 continue;
             };
-            let source_start_time = (item_source_start(item) + source_delta).max(0.0);
-            set_item_source_start(item, source_start_time);
+            move_item_start_edge(item, delta, 0.0);
         }
     }
 
@@ -4032,6 +4058,34 @@ fn resize_effective_duration(
         }
     }
     item.duration().max(0.0)
+}
+
+/// Move an item's start edge `delta` timeline seconds, what plays after it
+/// staying in place: a clip's source start moves by the source those seconds
+/// play at its speed (see [`Clip::move_start_edge`]), other items' 1:1.
+fn move_item_start_edge(item: &mut Item, delta: Seconds, min_source_start: Seconds) {
+    match item {
+        Item::Clip(clip) => clip.move_start_edge(delta, min_source_start),
+        _ => {
+            let source_start_time = (item_source_start(item) + delta).max(min_source_start);
+            set_item_source_start(item, source_start_time);
+        }
+    }
+}
+
+/// The earliest source start a clip's left edge may reach: its media's
+/// available start when clamping to the media, else 0.
+fn speed_clip_source_floor(clip: &Clip, clamp_to_media: bool) -> Seconds {
+    let media_start = clip
+        .active_media_reference_key
+        .as_deref()
+        .and_then(|key| clip.media_references.get(key))
+        .and_then(|reference| reference.available_range().as_ref())
+        .map(|range| range.start_time.to_seconds());
+    match media_start {
+        Some(start) if clamp_to_media => start.max(0.0),
+        _ => 0.0,
+    }
 }
 
 fn item_source_start(item: &Item) -> Seconds {
