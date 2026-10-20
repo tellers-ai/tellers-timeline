@@ -43,9 +43,11 @@ impl Track {
                     .duration
                     .set_from_seconds(left_duration);
 
-                // Right clip keeps the rest, media_start advances by left_duration
+                // Right clip keeps the rest, media_start advances by the
+                // source the left half plays (left_duration at normal speed).
+                let left_source = clip.source_offset(left_duration);
                 clip.source_range.duration.set_from_seconds(right_duration);
-                let right_source_start = clip.source_range.start_time.to_seconds() + left_duration;
+                let right_source_start = clip.source_range.start_time.to_seconds() + left_source;
                 clip.source_range
                     .start_time
                     .set_from_seconds(right_source_start);

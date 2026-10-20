@@ -768,6 +768,19 @@ impl Clip {
         let clamped_end = requested_end.min(media_end);
 
         self.source_range.start_time.set_from_seconds(source_start);
+        if self.get_speed().is_some() {
+            // The duration is timeline time: keep it while the media it plays
+            // fits, else shorten it to what is left of the media.
+            let duration = (requested_end - source_start).max(0.0);
+            let available = (media_end - source_start).max(0.0);
+            let duration = if self.source_offset(duration) <= available + 1e-9 {
+                duration
+            } else {
+                self.timeline_duration_for_source(available).unwrap_or(duration).min(duration)
+            };
+            self.source_range.duration.set_from_seconds(duration);
+            return;
+        }
         self.source_range
             .duration
             .set_from_seconds((clamped_end - source_start).max(0.0));

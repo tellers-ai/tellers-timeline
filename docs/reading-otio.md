@@ -177,7 +177,18 @@ on top.
 
 `LinearTimeWarp.1` with `time_scalar` changes playback speed (2 is twice as
 fast). `FreezeFrame.1` holds a single frame. They work like
-`tellers.ai.TimeWarp`.
+`tellers.ai.TimeWarp`. The player applies the first enabled one of the three,
+clamps the speed to 0.25–4 and ignores a negative one (reverse is not
+supported). A clip keeps its duration on the timeline and plays the integral
+of its speed from `source_range.start_time`. A freeze plays no media and is
+silent. `preserve_pitch: false` (in `metadata["tellers.ai"].parameters`)
+resamples the audio instead of time-stretching it.
+
+`Clip.get_speed` reads the speed. `Clip.set_speed` writes a constant one
+(0 for a freeze) as `LinearTimeWarp.1` / `FreezeFrame.1`, replacing any other
+time effect. `Stack.set_item_speed` does the same on a clip's sync partners.
+Splitting a clip and clamping it to its media count the media it plays at
+that speed.
 
 ### Colour grading (`tellers.ai.ColorLut`)
 
