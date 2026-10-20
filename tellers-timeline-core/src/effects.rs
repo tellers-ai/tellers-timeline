@@ -39,8 +39,8 @@
 //! read and edit a composite's effects too. Gaps have none.
 //!
 //! The tellers effects of a stage, in list order, are its effect list. Other
-//! effects (`ColorLut`, see [`crate::color_grading`]; Resolve transforms,
-//! volume and crop; OTIO time warps) are left where they are. Indices passed
+//! effects (`ColorLut`, see [`crate::color_grading`]; Resolve transforms
+//! and crop, a legacy Resolve volume (see [`crate::volume`]); OTIO time warps) are left where they are. Indices passed
 //! to the list methods count tellers effects only, which are exactly what
 //! [`resolve_tellers_effects`] returns.
 

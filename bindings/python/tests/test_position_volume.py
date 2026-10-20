@@ -122,29 +122,11 @@ def test_volume_serialization_roundtrip():
     assert "effects" in clip_dict
     assert len(clip_dict["effects"]) > 0
 
-    # Find the Resolve Effect with Volume
-    volume_effect = None
-    for effect in clip_dict["effects"]:
-        if effect.get("effect_name") == "Resolve Effect":
-            metadata = effect.get("metadata", {})
-            resolve_otio = metadata.get("Resolve_OTIO")
-            if resolve_otio and resolve_otio.get("Name") == "Volume":
-                volume_effect = resolve_otio
-                break
-
-    assert volume_effect is not None
-    assert "Parameters" in volume_effect
-
-    # Check for volume parameter
-    params = volume_effect["Parameters"]
-    volume_param = None
-    for param in params:
-        if param.get("Parameter ID") == "volume":
-            volume_param = param
-            break
-
-    assert volume_param is not None
-    assert abs(volume_param["Parameter Value"] - (-15.3)) < 0.001
+    # The volume is written as tellers.ai.Volume, never as a Resolve effect
+    volume_effects = [e for e in clip_dict["effects"] if e.get("effect_name") == "tellers.ai.Volume"]
+    assert len(volume_effects) == 1
+    assert abs(volume_effects[0]["metadata"]["tellers.ai"]["parameters"]["volume"] - (-15.3)) < 0.001
+    assert not any(e.get("effect_name") == "Resolve Effect" for e in clip_dict["effects"])
 
     # Deserialize and verify volume is preserved
     clip2 = Clip.parse_json(json_str)
@@ -329,3 +311,33 @@ def test_parse_json_with_position_and_volume():
 
     volume2 = clip2.get_volume()
     assert abs(volume2 - (-12.5)) < 0.001
+
+
+def test_upgrade_legacy_resolve_volumes():
+    """A legacy Resolve volume is read, then folded into tellers.ai.Volume."""
+    ref = MediaReference("file:///test.mp4")
+    clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
+    clip_dict = json.loads(clip.to_json())
+    clip_dict["effects"] = [{
+        "OTIO_SCHEMA": "Effect.1",
+        "name": "",
+        "effect_name": "Resolve Effect",
+        "metadata": {"Resolve_OTIO": {
+            "Effect Name": "Fairlight Clip Volume and Fades",
+            "Enabled": True,
+            "Name": "Volume",
+            "Parameters": [{"Parameter ID": "volume", "Parameter Value": -9.0, "Variant Type": "Double"}],
+            "Type": 62,
+        }},
+    }]
+    timeline = Timeline.parse_json(json.dumps({
+        "OTIO_SCHEMA": "Timeline.1",
+        "tracks": {"OTIO_SCHEMA": "Stack.1", "children": [
+            {"OTIO_SCHEMA": "Track.1", "kind": "Audio", "children": [clip_dict]},
+        ]},
+    }))
+    assert timeline.upgrade_legacy_resolve_volumes() == 1
+    assert timeline.upgrade_legacy_resolve_volumes() == 0
+    migrated = json.loads(timeline.to_json(None, False))["tracks"]["children"][0]["children"][0]
+    assert [e["effect_name"] for e in migrated["effects"]] == ["tellers.ai.Volume"]
+    assert migrated["effects"][0]["metadata"]["tellers.ai"]["parameters"]["volume"] == -9.0

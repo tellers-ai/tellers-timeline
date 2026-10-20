@@ -136,7 +136,8 @@ impl Stack {
     }
 
     /// Bring LUT effects written in a legacy form (`ColorLut`, keys beside
-    /// `parameters`) up to date on the stack, its tracks and their clips.
+    /// `parameters`) up to date on the stack, its tracks and their clips, and
+    /// fold clips' legacy Resolve volumes into `tellers.ai.Volume`.
     fn upgrade_legacy_color_luts(&mut self) {
         upgrade_legacy_color_lut_effects(&mut self.effects);
         for track in &mut self.children {
@@ -146,6 +147,7 @@ impl Stack {
                     upgrade_legacy_color_lut_effects(&mut clip.effects);
                 }
             }
+            track.upgrade_legacy_resolve_volumes();
         }
     }
 

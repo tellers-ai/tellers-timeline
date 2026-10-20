@@ -111,11 +111,16 @@ def test_enable_parameter_replace_remove():
 def test_other_effects_are_kept():
     clip = make_clip()
     clip.push_color_lut("look")
-    clip.set_volume(0.5)
     clip.push_tellers_effect({"effect_name": "Transform", "parameters": {"x": 0.1}})
     clip.clear_tellers_effects()
     assert clip.get_color_luts()[0]["asset_id"] == "look"
-    assert clip.get_volume() == pytest.approx(0.5)
+
+
+def test_volume_is_a_tellers_effect():
+    clip = make_clip()
+    clip.set_volume(-6.0)
+    assert [e["effect_name"] for e in clip.get_tellers_effects()] == ["Volume"]
+    assert clip.get_tellers_effects()[0]["parameters"]["volume"] == pytest.approx(-6.0)
 
 
 def test_timeline_and_by_id_stages():

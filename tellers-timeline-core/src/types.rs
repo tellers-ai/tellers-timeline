@@ -1009,66 +1009,15 @@ impl Clip {
         }
     }
 
+    /// The clip volume in dB (see [`crate::volume`]); 1.0 when unset.
     pub fn get_volume(&self) -> f64 {
-        for effect in &self.effects {
-            if effect.effect_name == "Resolve Effect" {
-                if let Some(resolve_otio_effect) = effect.metadata.resolve_otio.as_ref() {
-                    if resolve_otio_effect.name == "Volume" ||
-                       resolve_otio_effect.effect_name == "Fairlight Clip Volume and Fades" {
-                        for parameter in &resolve_otio_effect.parameters {
-                            if let ResolveOTIOParameter::Double(param) = parameter {
-                                if param.parameter_id == "volume" {
-                                    return param.parameter_value;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return 1.0;
+        crate::volume::volume_db(&self.effects).unwrap_or(1.0)
     }
 
+    /// Set the clip volume to `volume` dB on its `tellers.ai.Volume` effect,
+    /// dropping a legacy Resolve volume (see [`crate::volume`]).
     pub fn set_volume(&mut self, volume: f64) {
-        self.effects.retain(|effect| {
-            if effect.effect_name == "Resolve Effect" {
-                if let Some(resolve_otio_effect) = &effect.metadata.resolve_otio {
-                    // Keep Transform effects, remove Volume effects
-                    if resolve_otio_effect.name == "Volume" || resolve_otio_effect.effect_name == "Fairlight Clip Volume and Fades" {
-                        return false;
-                    }
-                }
-            }
-            true
-        });
-
-        let volume_effect = ResolveOTIOEffect {
-            effect_name: "Fairlight Clip Volume and Fades".to_string(),
-            enabled: true,
-            name: "Volume".to_string(),
-            parameters: vec![
-                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                    variant_type: "Double".to_string(),
-                    parameter_id: "volume".to_string(),
-                    parameter_value: volume,
-                    default_parameter_value: Some(0.0),
-                    max_value: Some(30.0),
-                    min_value: Some(-100.0),
-                }),
-            ],
-            effect_type: 62,
-        };
-
-        self.effects.push(Effect {
-            otio_schema: default_effect_schema(),
-            name: "".to_string(),
-            effect_name: "Resolve Effect".to_string(),
-            metadata: EffectMetadata {
-                resolve_otio: Some(volume_effect),
-                other: serde_json::Map::new(),
-            },
-            ..Effect::default()
-        });
+        crate::volume::set_volume_db(&mut self.effects, volume);
     }
 
     pub fn get_crop(&self) -> MediaReferenceCrop {

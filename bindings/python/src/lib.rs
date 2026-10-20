@@ -2148,6 +2148,12 @@ impl PyTimeline {
         self.inner.sanitize();
     }
 
+    /// Fold every clip's legacy Resolve volume into `tellers.ai.Volume`;
+    /// returns how many Resolve effects were removed.
+    fn upgrade_legacy_resolve_volumes(&mut self) -> usize {
+        self.inner.upgrade_legacy_resolve_volumes()
+    }
+
     fn clear_target_urls(&mut self) {
         self.inner.clear_target_urls();
     }

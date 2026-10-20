@@ -164,7 +164,7 @@ The player reads three of them:
 |---|---|---|
 | `Transform` | `transformationPan`, `transformationTilt`, `transformationZoomX/Y`, `transformationRotationAngle` | Places a **video or image** clip: pan and tilt are offsets from the center in frame widths and heights, zoom multiplies the size, and rotation is in degrees. |
 | `Cropping` | crop insets | Crops the picture. |
-| volume | the clip's gain | Sets the clip's volume. |
+| `Fairlight Clip Volume and Fades` | `volume` (dB) | Legacy clip volume, read only when the clip's `tellers.ai.Volume` sets no `volume` (that one wins). Never written: `set_volume` and `sanitize` move it into `tellers.ai.Volume`. |
 
 Text clips are placed by the tellers `Transform` effect instead. Shape clips
 take it too, on top of any Resolve `Transform` and `Cropping`. A
