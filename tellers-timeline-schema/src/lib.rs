@@ -597,10 +597,11 @@ fn effects_section(out: &mut String) {
          timeline. Like the effects above, its data is in `parameters`:\n\n\
          | Parameter | Value |\n|---|---|\n\
          | `asset_id` | string: the `.cube` asset, what the timeline stores |\n\
-         | `cube_url` | string: the URL the player downloads, resolved from `asset_id` before \
-         playback and stripped before saving |\n\n\
-         Both used to be written beside `parameters`, directly in `tellers.ai`; they are \
-         still read there, and `sanitize` moves them in.\n"
+         | `target_url` | string: the URL the player downloads, resolved from `asset_id` before \
+         playback and stripped before saving, like a media reference's `target_url` |\n\n\
+         Both used to be written beside `parameters`, directly in `tellers.ai`, and the URL \
+         used to be named `cube_url`; those forms are still read, and `sanitize` upgrades \
+         them.\n"
     );
     out.push_str(
         "### Animatable parameters\n\n\

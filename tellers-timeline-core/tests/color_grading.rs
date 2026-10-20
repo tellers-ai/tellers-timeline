@@ -1,6 +1,6 @@
 // Tests for the `.cube` LUT list accessors on the timeline, its tracks and
 // its clips. A LUT is an OTIO `tellers.ai.ColorLut` effect (`ColorLut` is still read) whose
-// `metadata["tellers.ai"]` holds `{ "asset_id", "parameters": { "cube_url"? } }`, where `cube_url` is
+// `metadata["tellers.ai"]` holds `{ "asset_id", "parameters": { "target_url"? } }`, where `target_url` (formerly `cube_url`) is
 // the URL the player (video-player-js) reads, resolved from the asset id; the
 // effect's `name` is the display name. The stored JSON is part of the
 // contract with the player.
@@ -88,7 +88,7 @@ fn push_writes_color_lut_effects() {
                 "OTIO_SCHEMA": "Effect.1",
                 "name": "",
                 "effect_name": "tellers.ai.ColorLut",
-                "metadata": {"tellers.ai": {"parameters": {"asset_id": "warm", "cube_url": "https://cdn/warm.cube"}}}
+                "metadata": {"tellers.ai": {"parameters": {"asset_id": "warm", "target_url": "https://cdn/warm.cube"}}}
             }
         ])
     );
@@ -235,9 +235,9 @@ fn set_and_clear_urls_by_asset_id() {
     assert_eq!(
         ai(&effects),
         [
-            json!({"intensity": 0.5, "parameters": {"asset_id": "a", "cube_url": "https://cdn/a.cube"}}),
+            json!({"intensity": 0.5, "parameters": {"asset_id": "a", "target_url": "https://cdn/a.cube"}}),
             json!({"asset_id": "b"}),
-            json!({"parameters": {"asset_id": "a", "cube_url": "https://cdn/a.cube"}})
+            json!({"parameters": {"asset_id": "a", "target_url": "https://cdn/a.cube"}})
         ]
     );
 
@@ -676,7 +676,7 @@ fn upgrade_moves_legacy_keys_into_parameters() {
     assert_eq!(
         ai,
         [
-            json!({"note": 1, "parameters": {"asset_id": "a", "cube_url": "https://old/a.cube"}}),
+            json!({"note": 1, "parameters": {"asset_id": "a", "target_url": "https://old/a.cube"}}),
             json!({"parameters": {"asset_id": "b"}}),
             json!({"parameters": {"asset_id": "c"}}),
             json!({"asset_id": "x"})
@@ -694,4 +694,30 @@ fn reads_asset_id_from_parameters_or_beside_them() {
         {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"asset_id": "beside", "parameters": {"asset_id": "inside"}}}}
     ]));
     assert_eq!(ids(&resolve_color_luts(&effects)), ["new", "old", "inside"]);
+}
+
+
+#[test]
+fn reads_a_parameters_cube_url_and_upgrade_renames_it_target_url() {
+    let mut effects: Vec<Effect> = serde_json::from_value(json!([
+        {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"parameters": {"asset_id": "a", "cube_url": "https://old/a.cube"}}}},
+        {"effect_name": "tellers.ai.ColorLut", "metadata": {"tellers.ai": {"parameters": {"asset_id": "b", "cube_url": "https://old/b.cube", "target_url": "https://new/b.cube"}}}}
+    ]))
+    .unwrap();
+    let urls: Vec<_> = resolve_color_luts(&effects).into_iter().map(|lut| lut.url).collect();
+    assert_eq!(urls, vec![Some("https://old/a.cube".to_string()), Some("https://new/b.cube".to_string())]);
+
+    assert_eq!(upgrade_legacy_color_lut_effects(&mut effects), 2);
+    let parameters: Vec<_> = effects
+        .iter()
+        .map(|e| e.metadata.other["tellers.ai"]["parameters"].clone())
+        .collect();
+    assert_eq!(
+        parameters,
+        vec![
+            json!({"asset_id": "a", "target_url": "https://old/a.cube"}),
+            json!({"asset_id": "b", "target_url": "https://new/b.cube"}),
+        ]
+    );
+    assert_eq!(upgrade_legacy_color_lut_effects(&mut effects), 0);
 }
