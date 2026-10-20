@@ -171,9 +171,9 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
         "Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, \
          `tellers.ai.textStyles` the shared CSS classes of rich-text clips. The player also \
          reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip \
-         group: `x`, `y`, `scale`, `rotation`, `opacity`, …) and the top-level \
-         `tellers_aspect_ratio` (`16_9`, `9_16`, …); this library keeps both as plain metadata, \
-         with no typed API.",
+         group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) \
+         and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library \
+         keeps as plain metadata, with no typed API.",
     ),
     ("Stack", "OTIO_SCHEMA", "Always `Stack.1`."),
     ("Stack", "name", "Display name."),
