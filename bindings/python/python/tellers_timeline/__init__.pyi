@@ -376,6 +376,11 @@ class Transition:
     def set_transition_type(self, value: str) -> None: ...
     def get_kind(self) -> TransitionKind:
         """How the player draws it; any unknown ``transition_type`` is a ``"Dissolve"``."""
+    def is_audio(self) -> bool:
+        """Whether its ``transition_type`` is a ``tellers.ai.audio-<name>`` (see ``get_audio_kind``)."""
+    def allowed_on(self, kind: str) -> bool:
+        """Whether it goes on a track of ``kind``: audio transitions on audio tracks only,
+        any other on any other track. Raises ``ValueError`` on an unknown kind."""
     def set_kind(self, kind: str) -> None:
         """Writes the kind as ``transition_type`` (``"Dissolve"`` as ``"SMPTE_Dissolve"``).
 

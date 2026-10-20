@@ -760,6 +760,21 @@ impl PyTransition {
     fn get_kind(&self) -> &'static str {
         self.inner.kind().as_str()
     }
+    /// Whether it is an audio transition: its transition_type is a "tellers.ai.audio-<name>".
+    fn is_audio(&self) -> bool {
+        self.inner.is_audio()
+    }
+    /// Whether it goes on a track of `kind` ("video", "audio" or "other"): an audio
+    /// transition on audio tracks only, any other on any other track.
+    fn allowed_on(&self, kind: &str) -> PyResult<bool> {
+        let kind = match kind.to_ascii_lowercase().as_str() {
+            "video" => TrackKind::Video,
+            "audio" => TrackKind::Audio,
+            "other" => TrackKind::Other,
+            _ => return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("unknown track kind: {kind}"))),
+        };
+        Ok(self.inner.allowed_on(&kind))
+    }
     /// Writes a kind name (read like the player, e.g. "cross dissolve"); "DipToBlack" and
     /// "DipToWhite" also write their colour.
     fn set_kind(&mut self, kind: &str) -> PyResult<()> {
@@ -1162,11 +1177,11 @@ impl PyTrack {
     }
     /// Replace every tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it with `effects` (dicts like
     /// `get_tellers_effects` returns); other effects stay. False, changing
-    /// nothing, when an `effect_name` is unknown.
+    /// nothing, when an `effect_name` is unknown or an effect does not go on this kind of track (no Volume or Pan on a video track, no picture or text effect on an audio one).
     fn set_tellers_effects(&mut self, effects: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.set_tellers_effects(tellers_effects_from_python(effects)?))
     }
-    /// Append a tellers effect to this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it; False when its `effect_name` is unknown.
+    /// Append a tellers effect to this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it; False when its `effect_name` is unknown or it does not go on this kind of track.
     fn push_tellers_effect(&mut self, effect: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.push_tellers_effect(tellers_effect_from_python(effect)?))
     }
@@ -2461,11 +2476,11 @@ impl PyTimeline {
     }
     /// Replace every tellers effect of the clip or composite clip `item_id` with `effects` (dicts like
     /// `get_item_tellers_effects` returns); other effects stay. False, changing
-    /// nothing, when an `effect_name` is unknown or no clip or composite clip has this id.
+    /// nothing, when an `effect_name` is unknown, an effect does not go on the kind of track holding the item (no Volume or Pan on a video clip, no picture or text effect on an audio clip, no text effect on anything but a Text clip), or no clip or composite clip has this id.
     fn set_item_tellers_effects(&mut self, item_id: &str, effects: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.set_item_tellers_effects(item_id, tellers_effects_from_python(effects)?))
     }
-    /// Append a tellers effect to the clip or composite clip `item_id`; False when its `effect_name` is unknown.
+    /// Append a tellers effect to the clip or composite clip `item_id`; False when its `effect_name` is unknown or it does not go on the kind of track holding the item.
     fn push_item_tellers_effect(&mut self, item_id: &str, effect: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.push_item_tellers_effect(item_id, tellers_effect_from_python(effect)?))
     }
@@ -2512,11 +2527,11 @@ impl PyTimeline {
     }
     /// Replace every tellers effect of the track `track_id` with `effects` (dicts like
     /// `get_track_tellers_effects` returns); other effects stay. False, changing
-    /// nothing, when an `effect_name` is unknown or the id is unknown.
+    /// nothing, when an `effect_name` is unknown, an effect does not go on this kind of track (no Volume or Pan on a video track, no picture or text effect on an audio one), or the id is unknown.
     fn set_track_tellers_effects(&mut self, track_id: &str, effects: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.set_track_tellers_effects(track_id, tellers_effects_from_python(effects)?))
     }
-    /// Append a tellers effect to the track `track_id`; False when its `effect_name` is unknown.
+    /// Append a tellers effect to the track `track_id`; False when its `effect_name` is unknown or it does not go on this kind of track.
     fn push_track_tellers_effect(&mut self, track_id: &str, effect: &Bound<PyAny>) -> PyResult<bool> {
         Ok(self.inner.push_track_tellers_effect(track_id, tellers_effect_from_python(effect)?))
     }

@@ -684,3 +684,20 @@ fn audio_kind_reads_and_writes_tellers_audio_types() {
     t.set_kind(tellers_timeline_core::TransitionKind::Wipe);
     assert_eq!(t.audio_kind(), None);
 }
+
+#[test]
+fn audio_kinds_go_on_audio_tracks_and_picture_kinds_off_them() {
+    use tellers_timeline_core::{AudioTransitionKind, TrackKind, TransitionKind};
+    let mut t = Transition::new(0.5, 0.5, None, None);
+    assert!(!t.is_audio());
+    assert!(t.allowed_on(&TrackKind::Video) && t.allowed_on(&TrackKind::Other));
+    assert!(!t.allowed_on(&TrackKind::Audio));
+
+    t.set_audio_kind(AudioTransitionKind::ConstantGain);
+    assert!(t.is_audio());
+    assert!(t.allowed_on(&TrackKind::Audio));
+    assert!(!t.allowed_on(&TrackKind::Video) && !t.allowed_on(&TrackKind::Other));
+
+    t.set_kind(TransitionKind::Wipe);
+    assert!(!t.is_audio() && !t.allowed_on(&TrackKind::Audio));
+}

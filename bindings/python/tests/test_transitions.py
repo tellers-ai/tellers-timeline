@@ -146,3 +146,18 @@ def test_audio_kind():
     assert t.get_audio_kind() == "constant-power"
     with pytest.raises(ValueError):
         t.set_audio_kind("exponential")
+
+
+def test_audio_kinds_go_on_audio_tracks_only():
+    t = Transition(0.5, 0.5)
+    assert not t.is_audio()
+    assert t.allowed_on("video") and t.allowed_on("other") and not t.allowed_on("audio")
+
+    t.set_audio_kind("constant-power")
+    assert t.is_audio()
+    assert t.allowed_on("audio") and not t.allowed_on("video") and not t.allowed_on("other")
+
+    t.set_kind("Wipe")
+    assert not t.is_audio() and not t.allowed_on("audio")
+    with pytest.raises(ValueError):
+        t.allowed_on("subtitles")

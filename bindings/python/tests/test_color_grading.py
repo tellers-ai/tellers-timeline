@@ -78,9 +78,11 @@ def test_set_and_clear_effect_target_urls():
     tl.push_tellers_effect(lut("look"))
     tl.set_item_tellers_effects("c1", [lut("log"), lut("warm")])
     tl.push_item_tellers_effect("c2", lut("log"))
-    tl.push_item_tellers_effect("a", lut("audio_lut"))
+    # A LUT is a picture effect: refused on an audio clip.
+    assert not tl.push_item_tellers_effect("a", lut("audio_lut"))
+    tl.push_track_tellers_effect("t1", lut("track_lut"))
 
-    assert tl.effect_asset_ids() == ["look", "log", "warm", "audio_lut"]
+    assert tl.effect_asset_ids() == ["look", "track_lut", "log", "warm"]
 
     # One asset id, every effect that uses it.
     assert tl.set_effect_target_url("log", "https://cdn/log.cube") == 2
@@ -102,7 +104,7 @@ def test_set_and_clear_effect_target_urls():
         {"asset_id": "log"},
         {"asset_id": "warm"},
     ]
-    assert tl.effect_asset_ids() == ["look", "log", "warm", "audio_lut"]
+    assert tl.effect_asset_ids() == ["look", "track_lut", "log", "warm"]
 
 
 def test_clear_target_urls_strips_media_and_effect_urls():

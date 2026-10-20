@@ -165,3 +165,44 @@ def test_specs_validate_and_evaluate():
     assert evaluate_animatable(FADE_IN, 2.0) == 8.0
     assert evaluate_animatable(FADE_IN, 0.5) == pytest.approx(8.0 * (1 - 0.5**3))
     assert evaluate_animatable({"keyframes": []}, 0.0) is None
+
+
+def test_effects_only_go_on_their_kind_of_track():
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    audio = Track(kind="audio", id="a", children=[Item.from_clip(make_clip("ac"))])
+    tl = Timeline([video, audio])
+    volume = {"effect_name": "Volume", "parameters": {"volume": -6.0}}
+    blur = {"effect_name": "Blur", "parameters": {"strength": 2}}
+
+    # Sound effects on audio tracks and their clips only.
+    assert not tl.push_track_tellers_effect("v", volume)
+    assert not tl.push_item_tellers_effect("vc", volume)
+    assert tl.push_track_tellers_effect("a", volume)
+    assert tl.push_item_tellers_effect("ac", {"effect_name": "Pan", "parameters": {"pan": 0.5}})
+    # Picture effects on video tracks and their clips only.
+    assert not tl.push_track_tellers_effect("a", blur)
+    assert not tl.set_item_tellers_effects("ac", [blur])
+    assert tl.replace_item_tellers_effect_at("ac", 0, blur) is None
+    assert tl.push_item_tellers_effect("vc", blur)
+    # Speed goes anywhere.
+    assert tl.push_item_tellers_effect("ac", {"effect_name": "TimeWarp", "parameters": {"speed": 2}})
+
+    assert [e["effect_name"] for e in tl.get_item_tellers_effects("ac")] == ["Pan", "TimeWarp"]
+    assert [e["effect_name"] for e in tl.get_item_tellers_effects("vc")] == ["Blur"]
+    assert tl.get_track_tellers_effects("v") == []
+
+
+def test_text_effects_only_go_on_text_clips():
+    text = Clip.new_text(2.0, {"text": "Caption"}, id="tc")
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc")), Item.from_clip(text)])
+    tl = Timeline([video])
+    wave = {"effect_name": "TextWave", "parameters": {"amplitude": 4}}
+
+    assert not tl.push_item_tellers_effect("vc", wave)
+    assert tl.push_item_tellers_effect("tc", wave)
+    # Picture effects go on text clips too.
+    assert tl.push_item_tellers_effect("tc", {"effect_name": "DropShadow", "parameters": {}})
+    # A track applies its text effects to its text clips.
+    assert tl.push_track_tellers_effect("v", wave)
+    assert [e["effect_name"] for e in tl.get_item_tellers_effects("tc")] == ["TextWave", "DropShadow"]
+    assert tl.get_item_tellers_effects("vc") == []

@@ -19,11 +19,15 @@
 //! `transition_type` fades at constant power between two clips and at
 //! constant gain from or to silence. The player draws an audio kind on a
 //! picture as a dissolve.
+//!
+//! Like effects (see [`crate::EffectTarget`]), a transition belongs on its
+//! kind of track ([`Transition::allowed_on`]): an audio kind on audio tracks
+//! only, any other type on any other track.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::Transition;
+use crate::{TrackKind, Transition};
 
 /// The colour a dip goes through when none is set.
 pub const DEFAULT_TRANSITION_COLOR: &str = "#000000";
@@ -224,6 +228,20 @@ impl Transition {
         AudioTransitionKind::parse(&self.transition_type).filter(|_| {
             alias_key(&self.transition_type).starts_with(&alias_key(AUDIO_TRANSITION_PREFIX))
         })
+    }
+
+    /// Whether this is an audio transition: its `transition_type` is an
+    /// [`AudioTransitionKind`].
+    pub fn is_audio(&self) -> bool {
+        self.audio_kind().is_some()
+    }
+
+    /// Whether this transition belongs on a track of `kind`: an audio one on
+    /// audio tracks only, any other on any other track. Picture types still
+    /// fade the sound of an audio track (at the automatic curve), so this
+    /// refuses writes, not timelines that already hold one.
+    pub fn allowed_on(&self, kind: &TrackKind) -> bool {
+        self.is_audio() == (*kind == TrackKind::Audio)
     }
 
     /// Writes `kind` as the `transition_type`.

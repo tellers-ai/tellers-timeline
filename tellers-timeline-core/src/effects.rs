@@ -33,6 +33,16 @@
 //! effects can be written on the root stack, but the player applies only a
 //! `MotionBlur` there, as every clip's default.
 //!
+//! Each effect has a target ([`EffectTarget`]) deciding where it may go:
+//! picture effects on video (and other) tracks and their clips, text clips
+//! included; text effects (`Text*`) on text clips only (and on non-audio
+//! tracks, which apply them to their text clips); sound effects (`Volume`,
+//! `Pan`) on audio tracks and their clips only; a `TimeWarp` anywhere. The
+//! track accessors and the timeline's `*_track_*` and `*_item_*` accessors
+//! refuse an effect on the wrong kind of track or clip; the clip accessors
+//! cannot tell (a clip does not know its track), nor can the free functions
+//! on an effect list.
+//!
 //! A composite clip (a nested `Stack`, [`crate::CompositeStack`]) is an item
 //! like a clip: the player applies its filters, `Transform` and `Blend` to
 //! the composited image, so the item accessors (`*_item_tellers_effect*`)
@@ -76,10 +86,34 @@ pub enum EffectTarget {
     Video,
     /// The sound of a clip, or of every clip of a track.
     Audio,
-    /// The letters of a Text clip.
+    /// The letters of a Text clip (a `Text` generator); no other clip.
     Text,
     /// The playback speed of a clip.
     Time,
+}
+
+impl EffectTarget {
+    /// Whether an effect of this target belongs on a track of `kind`, or on
+    /// a clip of one: picture and text effects on any track but an audio
+    /// one, sound effects on audio tracks only (video tracks carry no
+    /// sound; it plays from their bound audio clips), speed on any track.
+    /// A text effect also needs a text clip; see [`Self::allowed_on_item`].
+    pub fn allowed_on(self, kind: &TrackKind) -> bool {
+        match self {
+            EffectTarget::Video | EffectTarget::Text => *kind != TrackKind::Audio,
+            EffectTarget::Audio => *kind == TrackKind::Audio,
+            EffectTarget::Time => true,
+        }
+    }
+
+    /// Whether an effect of this target belongs on `item`, on a track of
+    /// `kind`: as [`Self::allowed_on`], and a text effect only on a text
+    /// clip. Picture effects go on text clips too.
+    pub fn allowed_on_item(self, kind: &TrackKind, item: &Item) -> bool {
+        self.allowed_on(kind)
+            && (self != EffectTarget::Text
+                || matches!(item, Item::Clip(clip) if clip.is_text_clip()))
+    }
 }
 
 /// The type of a tellers effect parameter.
@@ -538,6 +572,12 @@ impl TellersEffect {
         effect_spec(&self.effect_name)
     }
 
+    /// Whether this effect is known and may go on a track of `kind`, or on
+    /// a clip of one; see [`EffectTarget::allowed_on`].
+    pub fn allowed_on(&self, kind: &TrackKind) -> bool {
+        self.spec().is_some_and(|spec| spec.target.allowed_on(kind))
+    }
+
     /// The numeric parameter `key`, read as the player does; see
     /// [`Animatable::from_value`].
     pub fn animatable(&self, key: &str) -> Option<Animatable> {
@@ -785,10 +825,16 @@ pub fn set_tellers_effect_parameter(
 trait EffectStage {
     fn stage_effects(&self) -> Option<&[Effect]>;
     fn stage_effects_mut(&mut self) -> Option<&mut Vec<Effect>>;
+    /// Whether `effect` may be added here; a track takes only the effects
+    /// of its kind (see [`EffectTarget::allowed_on`]). A clip does not know
+    /// its track, so the [`Timeline`] checks it for `*_item_*` edits.
+    fn stage_accepts(&self, _effect: &TellersEffect) -> bool {
+        true
+    }
 }
 
 macro_rules! impl_effect_stage {
-    ($ty:ty, |$s:ident| $effects:expr) => {
+    ($ty:ty, |$s:ident| $effects:expr $(, accepts |$a:ident, $e:ident| $accepts:expr)?) => {
         impl EffectStage for $ty {
             fn stage_effects(&self) -> Option<&[Effect]> {
                 let $s = self;
@@ -798,13 +844,17 @@ macro_rules! impl_effect_stage {
                 let $s = self;
                 Some(&mut $effects)
             }
+            $(fn stage_accepts(&self, $e: &TellersEffect) -> bool {
+                let $a = self;
+                $accepts
+            })?
         }
     };
 }
 
 impl_effect_stage!(Clip, |c| c.effects);
 impl_effect_stage!(CompositeStack, |s| s.effects);
-impl_effect_stage!(Track, |t| t.effects);
+impl_effect_stage!(Track, |t| t.effects, accepts |t, e| e.allowed_on(&t.kind));
 // OTIO timelines have no effects of their own; the root stack holds them.
 impl_effect_stage!(Timeline, |t| t.tracks.effects);
 
@@ -846,17 +896,20 @@ macro_rules! impl_tellers_effects {
 
             #[doc = concat!("Replace every tellers effect of ", $stage, "; see [`set_tellers_effects`].")]
             pub fn set_tellers_effects(&mut self, effects: Vec<TellersEffect>) -> bool {
-                self.stage_effects_mut().is_some_and(|e| set_tellers_effects(e, effects))
+                effects.iter().all(|e| self.stage_accepts(e))
+                    && self.stage_effects_mut().is_some_and(|e| set_tellers_effects(e, effects))
             }
 
             #[doc = concat!("Append a tellers effect to ", $stage, "; see [`push_tellers_effect`].")]
             pub fn push_tellers_effect(&mut self, effect: TellersEffect) -> bool {
-                self.stage_effects_mut().is_some_and(|e| push_tellers_effect(e, effect))
+                self.stage_accepts(&effect)
+                    && self.stage_effects_mut().is_some_and(|e| push_tellers_effect(e, effect))
             }
 
             #[doc = concat!("Insert a tellers effect into ", $stage, "; see [`insert_tellers_effect_at`].")]
             pub fn insert_tellers_effect_at(&mut self, index: usize, effect: TellersEffect) -> bool {
-                self.stage_effects_mut().is_some_and(|e| insert_tellers_effect_at(e, index, effect))
+                self.stage_accepts(&effect)
+                    && self.stage_effects_mut().is_some_and(|e| insert_tellers_effect_at(e, index, effect))
             }
 
             #[doc = concat!("Replace a tellers effect of ", $stage, "; see [`replace_tellers_effect_at`].")]
@@ -865,6 +918,9 @@ macro_rules! impl_tellers_effects {
                 index: usize,
                 effect: TellersEffect,
             ) -> Option<TellersEffect> {
+                if !self.stage_accepts(&effect) {
+                    return None;
+                }
                 replace_tellers_effect_at(self.stage_effects_mut()?, index, effect)
             }
 
@@ -908,7 +964,7 @@ impl_tellers_effects!(Item, "this clip or composite clip (none for a gap)");
 /// Generates the by-id accessors of [`Timeline`] for a stage found by id
 /// (`$find` / `$find_mut` return `Option<&Stage>` / `Option<&mut Stage>`).
 macro_rules! impl_timeline_stage_effects {
-    ($what:literal, $find:ident, $find_mut:ident,
+    ($what:literal, $find:ident, $find_mut:ident, $accepts:ident,
      $get:ident, $set:ident, $push:ident, $insert:ident, $replace:ident,
      $remove:ident, $clear:ident, $enable:ident, $param:ident) => {
         impl Timeline {
@@ -919,18 +975,21 @@ macro_rules! impl_timeline_stage_effects {
 
             #[doc = concat!("`set_tellers_effects` on the ", $what, " `id`; `false` when it is unknown.")]
             pub fn $set(&mut self, id: &str, effects: Vec<TellersEffect>) -> bool {
-                self.$find_mut(id).is_some_and(|s| s.set_tellers_effects(effects))
+                effects.iter().all(|e| self.$accepts(id, e))
+                    && self.$find_mut(id).is_some_and(|s| s.set_tellers_effects(effects))
             }
 
             #[doc = concat!("`push_tellers_effect` on the ", $what, " `id`; `false` when it is unknown.")]
             pub fn $push(&mut self, id: &str, effect: TellersEffect) -> bool {
-                self.$find_mut(id).is_some_and(|s| s.push_tellers_effect(effect))
+                self.$accepts(id, &effect)
+                    && self.$find_mut(id).is_some_and(|s| s.push_tellers_effect(effect))
             }
 
             #[doc = concat!("`insert_tellers_effect_at` on the ", $what, " `id`; `false` when it is unknown.")]
             pub fn $insert(&mut self, id: &str, index: usize, effect: TellersEffect) -> bool {
-                self.$find_mut(id)
-                    .is_some_and(|s| s.insert_tellers_effect_at(index, effect))
+                self.$accepts(id, &effect)
+                    && self.$find_mut(id)
+                        .is_some_and(|s| s.insert_tellers_effect_at(index, effect))
             }
 
             #[doc = concat!("`replace_tellers_effect_at` on the ", $what, " `id`.")]
@@ -940,6 +999,9 @@ macro_rules! impl_timeline_stage_effects {
                 index: usize,
                 effect: TellersEffect,
             ) -> Option<TellersEffect> {
+                if !self.$accepts(id, &effect) {
+                    return None;
+                }
                 self.$find_mut(id)?.replace_tellers_effect_at(index, effect)
             }
 
@@ -978,6 +1040,7 @@ impl_timeline_stage_effects!(
     "track",
     effect_track,
     effect_track_mut,
+    track_accepts_effect,
     get_track_tellers_effects,
     set_track_tellers_effects,
     push_track_tellers_effect,
@@ -993,6 +1056,7 @@ impl_timeline_stage_effects!(
     "clip or composite clip",
     effect_item,
     effect_item_mut,
+    item_accepts_effect,
     get_item_tellers_effects,
     set_item_tellers_effects,
     push_item_tellers_effect,
@@ -1009,6 +1073,25 @@ impl Timeline {
     /// composite clips too), to tell which [`EffectTarget`]s apply to it.
     pub fn item_track_kind(&self, item_id: &str) -> Option<TrackKind> {
         Some(self.tracks.get_nested_item_track(item_id)?.kind.clone())
+    }
+
+    /// Whether `effect` may go on the track `track_id`: the track checks
+    /// its own kind, so this only needs the track to exist.
+    fn track_accepts_effect(&self, track_id: &str, effect: &TellersEffect) -> bool {
+        self.effect_track(track_id).is_some_and(|t| t.stage_accepts(effect))
+    }
+
+    /// Whether `effect` may go on the clip or composite clip `item_id`,
+    /// given the kind of the track holding it (see
+    /// [`EffectTarget::allowed_on_item`]): no Volume on a video clip, no
+    /// Blur on an audio clip, no TextWave on anything but a text clip.
+    fn item_accepts_effect(&self, item_id: &str, effect: &TellersEffect) -> bool {
+        let (Some(kind), Some(item), Some(spec)) =
+            (self.item_track_kind(item_id), self.effect_item(item_id), effect.spec())
+        else {
+            return false;
+        };
+        spec.target.allowed_on_item(&kind, item)
     }
 
     fn effect_track(&self, track_id: &str) -> Option<&Track> {
@@ -1177,7 +1260,7 @@ mod tests {
 
     #[test]
     fn enable_and_parameter_writes() {
-        let mut track = Track::default();
+        let mut track = Track { kind: TrackKind::Audio, ..Track::default() };
         assert!(track.push_tellers_effect(TellersEffect::new("Volume")));
         assert!(track.set_tellers_effect_parameter(
             0,
@@ -1268,6 +1351,96 @@ mod tests {
         assert!(!timeline.get_item_tellers_effects("c1").unwrap()[0].enabled);
         assert!(timeline.clear_track_tellers_effects("t1"));
         assert_eq!(timeline.get_track_tellers_effects("t1"), Some(vec![]));
+    }
+
+    #[test]
+    fn effects_go_on_their_kind_of_track() {
+        assert!(EffectTarget::Video.allowed_on(&TrackKind::Video));
+        assert!(EffectTarget::Video.allowed_on(&TrackKind::Other));
+        assert!(!EffectTarget::Video.allowed_on(&TrackKind::Audio));
+        assert!(!EffectTarget::Text.allowed_on(&TrackKind::Audio));
+        assert!(EffectTarget::Audio.allowed_on(&TrackKind::Audio));
+        assert!(!EffectTarget::Audio.allowed_on(&TrackKind::Video));
+        assert!(!EffectTarget::Audio.allowed_on(&TrackKind::Other));
+        assert!(EffectTarget::Time.allowed_on(&TrackKind::Audio));
+        assert!(EffectTarget::Time.allowed_on(&TrackKind::Video));
+        assert!(!TellersEffect::new("Nope").allowed_on(&TrackKind::Video));
+
+        let mut video = Track::default();
+        assert!(!video.push_tellers_effect(TellersEffect::new("Volume")));
+        assert!(!video.set_tellers_effects(vec![TellersEffect::new("Blur"), TellersEffect::new("Pan")]));
+        assert!(video.push_tellers_effect(TellersEffect::new("Blur")));
+        assert!(video.replace_tellers_effect_at(0, TellersEffect::new("Pan")).is_none());
+        assert!(!video.insert_tellers_effect_at(0, TellersEffect::new("Pan")));
+        assert_eq!(video.get_tellers_effects().len(), 1);
+
+        let mut audio = Track { kind: TrackKind::Audio, ..Track::default() };
+        assert!(!audio.push_tellers_effect(TellersEffect::new("Blur")));
+        assert!(audio.push_tellers_effect(TellersEffect::new("Pan")));
+        assert!(audio.push_tellers_effect(TellersEffect::new("TimeWarp")));
+
+        let clip = |id: &str| json!({
+            "OTIO_SCHEMA": "Clip.2",
+            "metadata": { "tellers.ai": { "timeline_id": id } },
+            "source_range": {
+                "OTIO_SCHEMA": "TimeRange.1",
+                "start_time": { "OTIO_SCHEMA": "RationalTime.1", "value": 0, "rate": 1 },
+                "duration": { "OTIO_SCHEMA": "RationalTime.1", "value": 1, "rate": 1 }
+            }
+        });
+        let mut timeline: Timeline = serde_json::from_value(json!({
+            "OTIO_SCHEMA": "Timeline.1",
+            "tracks": {
+                "OTIO_SCHEMA": "Stack.1",
+                "children": [
+                    { "OTIO_SCHEMA": "Track.1", "kind": "Video",
+                      "metadata": { "tellers.ai": { "timeline_id": "v" } }, "children": [clip("vc")] },
+                    { "OTIO_SCHEMA": "Track.1", "kind": "Audio",
+                      "metadata": { "tellers.ai": { "timeline_id": "a" } }, "children": [clip("ac")] }
+                ]
+            }
+        }))
+        .unwrap();
+        assert!(!timeline.push_track_tellers_effect("v", TellersEffect::new("Volume")));
+        assert!(!timeline.push_track_tellers_effect("a", TellersEffect::new("Blur")));
+        assert!(timeline.push_track_tellers_effect("a", TellersEffect::new("Volume")));
+        assert!(!timeline.push_item_tellers_effect("vc", TellersEffect::new("Volume")));
+        assert!(!timeline.insert_item_tellers_effect_at("ac", 0, TellersEffect::new("Transform")));
+        assert!(!timeline.set_item_tellers_effects("ac", vec![TellersEffect::new("Mask")]));
+        assert!(timeline.push_item_tellers_effect("vc", TellersEffect::new("Blur")));
+        assert!(timeline.push_item_tellers_effect("ac", TellersEffect::new("Pan")));
+        assert!(timeline.replace_item_tellers_effect_at("ac", 0, TellersEffect::new("Blur")).is_none());
+        assert!(timeline.replace_item_tellers_effect_at("vc", 0, TellersEffect::new("Volume")).is_none());
+        assert_eq!(timeline.get_item_tellers_effects("vc").unwrap()[0].effect_name, "Blur");
+        assert_eq!(timeline.get_item_tellers_effects("ac").unwrap()[0].effect_name, "Pan");
+
+        // Text effects on text clips only; picture effects on text clips too.
+        let text = Clip::new_text(
+            1.0,
+            &crate::TextParameters::with_text("Title"),
+            None,
+            Some("tc".to_string()),
+        )
+        .unwrap();
+        timeline.tracks.children[0].items.push(Item::Clip(text));
+        assert!(!timeline.push_item_tellers_effect("vc", TellersEffect::new("TextWave")));
+        assert!(!timeline.push_item_tellers_effect("ac", TellersEffect::new("TextWave")));
+        assert!(timeline.push_item_tellers_effect("tc", TellersEffect::new("TextWave")));
+        assert!(timeline.push_item_tellers_effect("tc", TellersEffect::new("DropShadow")));
+        assert!(!timeline.push_item_tellers_effect("tc", TellersEffect::new("Volume")));
+        assert!(!timeline.set_item_tellers_effects("vc", vec![TellersEffect::new("TextKaraoke")]));
+        assert!(timeline.replace_item_tellers_effect_at("vc", 0, TellersEffect::new("TextColor")).is_none());
+        // A track applies its text effects to its text clips.
+        assert!(timeline.push_track_tellers_effect("v", TellersEffect::new("TextWave")));
+        assert!(!timeline.push_track_tellers_effect("a", TellersEffect::new("TextWave")));
+        assert!(EffectTarget::Text.allowed_on_item(
+            &TrackKind::Video,
+            timeline.tracks.get_nested_item("tc").unwrap()
+        ));
+        assert!(!EffectTarget::Text.allowed_on_item(
+            &TrackKind::Video,
+            timeline.tracks.get_nested_item("vc").unwrap()
+        ));
     }
 
     #[test]
