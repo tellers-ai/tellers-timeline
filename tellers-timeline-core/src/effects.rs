@@ -36,7 +36,8 @@
 //! A composite clip (a nested `Stack`, [`crate::CompositeStack`]) is an item
 //! like a clip: the player applies its filters, `Transform` and `Blend` to
 //! the composited image, so the item accessors (`*_item_tellers_effect*`)
-//! read and edit a composite's effects too. Gaps have none.
+//! read and edit a composite's effects too. They find items at any depth,
+//! inside composite clips as well. Gaps have none.
 //!
 //! An effect referencing an asset (a `ColorLut`'s `.cube` file) names it in
 //! its `asset_id` parameter and is loaded from its `target_url` parameter,
@@ -1004,13 +1005,10 @@ impl_timeline_stage_effects!(
 );
 
 impl Timeline {
-    /// The kind of the track holding the clip `item_id`, to tell which
-    /// [`EffectTarget`]s apply to it.
+    /// The kind of the track holding the clip `item_id` (at any depth, inside
+    /// composite clips too), to tell which [`EffectTarget`]s apply to it.
     pub fn item_track_kind(&self, item_id: &str) -> Option<TrackKind> {
-        self.tracks.children.iter().find_map(|track| {
-            track.get_item_by_id(item_id)?;
-            Some(track.kind.clone())
-        })
+        Some(self.tracks.get_nested_item_track(item_id)?.kind.clone())
     }
 
     fn effect_track(&self, track_id: &str) -> Option<&Track> {
@@ -1022,19 +1020,19 @@ impl Timeline {
         self.tracks.children.get_mut(index)
     }
 
-    /// The clip or composite clip `item_id`; gaps hold no effects.
+    /// The clip or composite clip `item_id`, at any depth (effects do not
+    /// change lengths, so nested items need no [`crate::Stack::with_composite_mut`]);
+    /// gaps hold no effects.
     fn effect_item(&self, item_id: &str) -> Option<&Item> {
-        self.tracks.children.iter().find_map(|track| {
-            let (_, item) = track.get_item_by_id(item_id)?;
-            item.stage_effects().is_some().then_some(item)
-        })
+        self.tracks
+            .get_nested_item(item_id)
+            .filter(|item| item.stage_effects().is_some())
     }
 
     fn effect_item_mut(&mut self, item_id: &str) -> Option<&mut Item> {
-        self.tracks.children.iter_mut().find_map(|track| {
-            let (index, _) = track.get_item_by_id(item_id)?;
-            track.items.get_mut(index).filter(|item| item.stage_effects().is_some())
-        })
+        self.tracks
+            .get_nested_item_mut(item_id)
+            .filter(|item| item.stage_effects().is_some())
     }
 }
 

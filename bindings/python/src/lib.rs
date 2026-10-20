@@ -1433,6 +1433,67 @@ impl PyStack {
             (ti, ii, Py::new(py, PyItem { inner: item }).unwrap())
         })
     }
+    /// The item `id` at any depth, inside composite clips too (`get_item` sees
+    /// top-level items only).
+    fn get_nested_item(&self, py: Python<'_>, id: &str) -> Option<Py<PyItem>> {
+        let item = self.inner.get_nested_item(id)?.clone();
+        Some(Py::new(py, PyItem { inner: item }).unwrap())
+    }
+    /// The ids of the composite clips enclosing the item `id`, outermost
+    /// first: `[]` for a top-level item, None when there is no such item. Its
+    /// last entry is the composite to pass to `edit_composite` to edit the item.
+    fn composite_path(&self, id: &str) -> Option<Vec<String>> {
+        self.inner.composite_path(id)
+    }
+    /// A copy of the tracks of the composite clip `composite_id` (at any
+    /// depth) as a Stack named after it; None when there is no such composite.
+    fn composite_stack(&self, py: Python<'_>, composite_id: &str) -> Option<Py<PyStack>> {
+        let composite = self.inner.get_composite(composite_id)?;
+        let inner = Stack {
+            name: composite.name.clone(),
+            children: composite.children.clone(),
+            ..Stack::default()
+        };
+        Some(Py::new(py, PyStack { inner }).unwrap())
+    }
+    /// Call `edit(stack)` with the tracks of the composite clip `composite_id`
+    /// (at any depth) as a working Stack, so item ops apply inside it, and
+    /// return what `edit` returns. The tracks `edit` leaves become the
+    /// composite's; the stack is only valid during the call. When `edit`
+    /// raises, the composite is left unchanged and the error propagates.
+    /// A composite without source_range follows its content's length and the
+    /// enclosing tracks ripple (a resize of its tail with "push"); emptying
+    /// one removes it. Raises KeyError when there is no such composite.
+    fn edit_composite(
+        &mut self,
+        py: Python<'_>,
+        composite_id: &str,
+        edit: &Bound<PyAny>,
+    ) -> PyResult<PyObject> {
+        let outcome = self.inner.with_composite_mut(composite_id, |stack| {
+            let original = stack.children.clone();
+            let working = Py::new(py, PyStack { inner: std::mem::take(stack) }).unwrap();
+            let result = edit.call1((working.clone_ref(py),));
+            let mut working = working.borrow_mut(py);
+            *stack = std::mem::take(&mut working.inner);
+            if result.is_err() {
+                stack.children = original;
+            }
+            result.map(Bound::unbind)
+        });
+        match outcome {
+            Some(result) => result,
+            None => Err(PyErr::new::<pyo3::exceptions::PyKeyError, _>(format!(
+                "no composite clip {composite_id:?}"
+            ))),
+        }
+    }
+    /// Replace the tracks of the composite clip `composite_id` (at any depth),
+    /// rippling as `edit_composite` does; False when there is no such composite.
+    fn set_composite_tracks(&mut self, composite_id: &str, tracks: Vec<PyTrack>) -> bool {
+        self.inner
+            .set_composite_tracks(composite_id, tracks.into_iter().map(|t| t.inner).collect())
+    }
     #[pyo3(signature = (id, replace_with_gap, with_sync_clips=true))]
     fn delete_item(
         &mut self,

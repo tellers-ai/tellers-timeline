@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Literal, Optional, TypedDict, Union
+from typing import Any, Callable, Literal, Optional, TypedDict, TypeVar, Union
 
 from typing_extensions import Required
+
+_T = TypeVar("_T")
 
 class TimeRange:
     def __init__(self, duration: float, start_time: float = 0.0) -> None: ...
@@ -515,6 +517,24 @@ class Stack:
     def get_track_by_name(self, name: str) -> Optional[tuple[int, Track]]: ...
     def find_tracks_by_name(self, name: str) -> list[tuple[int, Track]]: ...
     def get_item(self, id: str) -> Optional[tuple[int, int, Item]]: ...
+    def get_nested_item(self, id: str) -> Optional[Item]:
+        """The item `id` at any depth, inside composite clips too."""
+        ...
+    def composite_path(self, id: str) -> Optional[list[str]]:
+        """Ids of the composite clips enclosing item `id`, outermost first
+        (`[]` at the top level, None when unknown)."""
+        ...
+    def composite_stack(self, composite_id: str) -> Optional[Stack]:
+        """A copy of the composite clip's tracks as a Stack named after it."""
+        ...
+    def edit_composite(self, composite_id: str, edit: Callable[[Stack], _T]) -> _T:
+        """Call `edit` with the composite's tracks as a working Stack (valid
+        during the call only); the tracks it leaves become the composite's. An
+        auto-length composite follows its content and the enclosing tracks
+        ripple. Raises KeyError when there is no such composite; when `edit`
+        raises, the composite is left unchanged."""
+        ...
+    def set_composite_tracks(self, composite_id: str, tracks: list[Track]) -> bool: ...
     def delete_item(
         self,
         id: str,
