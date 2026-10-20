@@ -16,19 +16,19 @@ The document. Its `tracks` stack holds every track; timeline-wide settings (font
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Timeline.1"` | Always `Timeline.1`. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, `tellers.ai.textStyles` the shared CSS classes of rich-text clips. |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, `tellers.ai.textStyles` the shared CSS classes of rich-text clips. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …); this library keeps both as plain metadata, with no typed API. |
 | `name` | string \| null |  |  | Display name. |
 | `tracks` | [Stack](#stack) |  |  | The stack of every track. |
 
 ### Stack
 
-The tracks of the timeline, composited together. Tracks render in list order: the first is the bottom layer, the last the top one (painter's order). Its `effects` apply to the whole composited image.
+The tracks of the timeline, composited together. Tracks render in list order: the first is the bottom layer, the last the top one (painter's order). Of its `effects`, the player applies `ColorLut`s to the whole composited image and uses a `MotionBlur` as every clip's default; it ignores the others there. The player also reads `enabled: false` on this stack (nothing plays), a field this library drops on load.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Stack.1"` | Always `Stack.1`. |
 | `children` | array of [Track](#track) |  |  | The tracks, bottom layer first. |
-| `effects` | array of [Effect](#effect) |  |  | Effects applied over the whole composited image (the timeline stage). |
+| `effects` | array of [Effect](#effect) |  |  | The timeline stage: `ColorLut`s grade the whole composited image and a `MotionBlur` is every clip's default; the player applies no other effect here. |
 | `markers` | array of [Marker](#marker) |  |  | Timeline markers, in timeline time. |
 | `metadata` | any JSON |  |  | Free JSON. |
 | `name` | string \| null |  |  | Display name. |
@@ -72,7 +72,7 @@ A piece of media (or generated content) placed on a track for the duration of it
 | `enabled` | boolean |  | `true` | A disabled clip is neither drawn nor heard; it still takes its time. |
 | `markers` | array of [Marker](#marker) |  |  | Clip markers, in source (media) time. |
 | `media_references` | map of string → [MediaReference](#mediareference) |  |  | The clip's media, by key; usually a single `DEFAULT_MEDIA`. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id, `tellers.ai.group_id` links clips that move together, and the Resolve `Link Group ID` ties a video to its audio (sync partners). |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id, `tellers.ai.group_id` names the player group whose transform applies (see the timeline's `tellers.ai.groups`), `tellers.ai["Tellers Group ID"]` is this library's edit group, and the Resolve `Link Group ID` ties a video to its audio (sync partners). |
 | `name` | string \| null |  |  | Display name. |
 | `source_range` | [TimeRange](#timerange) | yes |  | The part of the media played: `start_time` in the media's own time, and `duration`, which is also how long the clip lasts on the track. |
 
@@ -119,7 +119,7 @@ A transition between the two items around it on a track. It takes no time of its
 
 ### MediaReference
 
-What a clip plays, chosen by `OTIO_SCHEMA`. `MissingReference.1` is also accepted and read as an external reference with an empty `target_url`.
+What a clip plays, chosen by `OTIO_SCHEMA`. `MissingReference.1` is also accepted and read as an external reference with an empty `target_url` (and written back as `ExternalReference.1`); the player draws it as a gap.
 
 #### `ExternalReference.1`
 
@@ -320,7 +320,7 @@ Every effect the player renders has the same shape: an `Effect.1` whose `effect_
 }
 ```
 
-The same effect can sit on a clip, a track (applied to each of its clips) or the stack (applied over the whole image); clip effects apply first, then the track's, then the timeline's. Where an effect applies once (`Transform`, `Blend`, `Volume`, ...), the first enabled one wins. Parameters left out take the player's defaults.
+The same effect can sit on a clip or a track (applied to each of its clips); clip effects apply first, then the track's. On the stack the player applies only a `MotionBlur` (every clip's default) and `ColorLut`s. Where an effect applies once (`Transform`, `Blend`, `Volume`, ...), the first enabled one wins. Parameters left out take the player's defaults.
 
 | Effect | `effect_name` | Applies to | Parameters |
 |---|---|---|---|

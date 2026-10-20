@@ -88,20 +88,20 @@ remaining work; it is not a claim of complete OTIO conformance.
 
 | Area | Status | Available today / remaining work |
 | --- | --- | --- |
-| Timeline structure | ✅ Supported | Timelines, stacks of audio/video/other tracks, clips, gaps, and enabled state. |
+| Timeline structure | 🟡 Partial | Timelines, stacks of audio/video/other tracks, clips, gaps, and enabled state on tracks and items. The root stack's `enabled` is dropped on load; `metadata.tellers_aspect_ratio` is kept as plain metadata, with no typed API. |
 | Time and ranges | 🟡 Partial | `RationalTime`, `TimeRange`, rate conversion, and editing in seconds. Broader OTIO time APIs remain. |
-| Media references | 🟡 Partial | External and generator references, multiple references per clip, and available ranges. Missing references load as empty external references; image sequences remain. |
+| Media references | 🟡 Partial | External and generator references, multiple references per clip, and available ranges. Missing references load as empty external references and are written back as `ExternalReference.1`; image sequences remain. |
 | Metadata and serialization | ✅ Supported | Arbitrary JSON metadata, OTIO JSON reading/writing, configurable numeric precision, and JSON Schema generation. |
 | Markers | ✅ Supported | Point/range markers, names, comments, colors, IDs, and source-to-timeline time conversion. |
-| Effect data | 🟡 Partial | Effect lists on clips, tracks, and stacks; Resolve parameter parsing; transform, crop, volume, and LUT helpers. Portable effect schemas remain a standardization target. |
+| Effect data | 🟡 Partial | Effect lists on clips, tracks, and stacks; typed tellers effects (`tellers.ai.<Effect>`: filters, transforms, masks, audio, text animations); Resolve parameter parsing; transform, crop, volume, and LUT helpers. Group transforms (`metadata["tellers.ai"].groups`) have no typed API. Portable effect schemas remain a standardization target. |
 | Insert and overlap policies | ✅ Supported | Push or override overlaps; insert before, after, nearest boundary, or split a gap to insert. |
 | Timeline editing | ✅ Supported | Move, replace, split, resize, delete, reorder tracks, and find snap targets. |
 | Audio/video sync and groups | ✅ Supported | Linked editing, sync partner placement, associated tracks, group discovery, and optional track normalization. |
 | Sanitization | ✅ Supported | Clamp clips to available media, repair missing/duplicate track and item IDs, merge gaps, remove zero-length items/trailing gaps, and clean dangling sync links. |
 | Validation | 🟡 Partial | Negative item-duration checks. Comprehensive structural and schema validation remains. |
-| Rich text and styling | ✅ Supported | Resolve rich-text generators, timeline font declarations, named CSS text styles, and LUT asset/URL helpers. |
-| Nested compositions | ⬜ Missing | Arbitrary stacks and tracks nested inside other compositions. |
-| Transitions and time effects | ⬜ Missing | Transition-aware editing, speed changes, time warps, and freeze-frame semantics. |
+| Rich text and styling | 🟡 Partial | Resolve rich-text generators, typed Text and Shape generator clips, timeline font declarations, named CSS text styles, and LUT asset/URL helpers. Rich-text HTML cannot be edited after the clip is created. |
+| Nested compositions | 🟡 Partial | Composite clips (a `Stack.1` on a track) load, round-trip, and move, split, resize, and delete like clips; their effects are editable. Deeper editing inside nested tracks remains. |
+| Transitions and time effects | 🟡 Partial | `Transition.1` items load, round-trip, and are edited (type, offsets); a transition's `direction` and `color` have no typed API. `TimeWarp`, `LinearTimeWarp.1`, and `FreezeFrame.1` are kept as effect data; speed-aware editing remains. |
 | Full OTIO schema coverage | ⬜ Missing | Remaining object types, schema-version handling, and comprehensive interoperability fixtures. |
 | Format adapters | ⬜ Missing | Native AAF, EDL, FCPXML, and other format adapters. Use the OTIO ecosystem to convert to/from `.otio`. |
 | Language bindings | 🟡 Partial | Rust and typed Python APIs today; additional bindings are future work. |
@@ -131,6 +131,8 @@ standardization work should be shaped by interoperability tests and adoption.
 
 ## Explore and build
 
+- **[Reading a timeline file](https://github.com/tellers-ai/tellers-timeline/blob/main/docs/reading-otio.md)** — the tree, time, layers, media, effects and `tellers.ai` metadata, with a worked example.
+- **[Format reference](https://github.com/tellers-ai/tellers-timeline/blob/main/docs/otio-reference.md)** — every object, field and tellers effect (generated from the code).
 - **[Developer guide](https://github.com/tellers-ai/tellers-timeline/blob/main/DEVELOPMENT.md)** — architecture, local setup, editing semantics, visual test UI, and releases.
 - **[Contributing](https://github.com/tellers-ai/tellers-timeline/blob/main/CONTRIBUTING.md)** — bug reports, feature proposals, compatibility fixtures, and pull requests.
 - **[Rust API](https://docs.rs/tellers-timeline-core)** · **[Python type signatures](https://github.com/tellers-ai/tellers-timeline/blob/main/bindings/python/python/tellers_timeline/__init__.pyi)** · **[Example timelines](https://github.com/tellers-ai/tellers-timeline/tree/main/spec/examples)** · **[JSON Schema](https://github.com/tellers-ai/tellers-timeline/blob/main/spec/otio.schema.json)**
