@@ -66,9 +66,18 @@ def test_invalid_text_parameters_raise():
     with pytest.raises(ValueError):
         Clip.new_text(1.0, {"text": "x", "maxWidth": 0})
     with pytest.raises(ValueError):
-        Clip.new_text(1.0, {"text": "x", "style": {"align": "justify"}})
+        Clip.new_text(1.0, {"text": "x", "style": {"align": 3}})
     with pytest.raises(ValueError):
         Clip.new_text(1.0, {"words": [{"text": "no start"}]})
+
+
+def test_unknown_text_style_values_are_kept():
+    # The player draws them as its defaults (centred, block box).
+    clip = Clip.new_text(1.0, {"text": "x", "style": {"align": "justify", "background": {"mode": "pill"}}})
+    style = clip.get_text_parameters()["style"]
+    assert style["align"] == "justify"
+    assert style["background"]["mode"] == "pill"
+    assert clip.get_text() == "x"
 
 
 def test_shape_clip_round_trip():

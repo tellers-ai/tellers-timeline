@@ -2039,6 +2039,21 @@ fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<Py
         .collect()
 }
 
+fn value_error(message: String) -> PyErr {
+    PyErr::new::<pyo3::exceptions::PyValueError, _>(message)
+}
+
+fn clip_group_to_python(py: Python<'_>, group: &tellers_timeline_core::ClipGroup) -> PyResult<PyObject> {
+    generator_parameters_to_python(py, &serde_json::json!({"id": group.id, "parameters": group.parameters}))
+}
+
+fn clip_group_from_python(group: &Bound<PyAny>) -> PyResult<tellers_timeline_core::ClipGroup> {
+    let value: serde_json::Value = generator_parameters_from_python(group)?;
+    let id = value.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let parameters = value.get("parameters").and_then(|v| v.as_object()).cloned().unwrap_or_default();
+    Ok(tellers_timeline_core::ClipGroup { id, parameters })
+}
+
 fn generator_error(error: GeneratorError) -> PyErr {
     PyErr::new::<pyo3::exceptions::PyValueError, _>(error.to_string())
 }
@@ -2631,6 +2646,65 @@ impl PyTimeline {
     /// this id.
     fn clear_item_color_luts(&mut self, item_id: &str) -> bool {
         self.inner.clear_item_color_luts(item_id)
+    }
+    /// Every clip group (`metadata["tellers.ai"].groups`), by id, as
+    /// `{"id", "parameters"}` dicts.
+    fn get_clip_groups(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        self.inner.get_clip_groups().iter().map(|g| clip_group_to_python(py, g)).collect()
+    }
+    fn get_clip_group(&self, py: Python<'_>, id: &str) -> PyResult<Option<PyObject>> {
+        self.inner.get_clip_group(id).map(|g| clip_group_to_python(py, &g)).transpose()
+    }
+    /// Add or replace a group's transform from a `{"id", "parameters"}` dict;
+    /// raises ValueError for an unknown parameter or a bad value.
+    fn set_clip_group(&mut self, group: &Bound<PyAny>) -> PyResult<()> {
+        let group = clip_group_from_python(group)?;
+        self.inner.set_clip_group(&group).map_err(value_error)
+    }
+    /// Group the clips and composite clips `item_ids` with the transform
+    /// `parameters`; returns the new group id. Raises ValueError, changing
+    /// nothing, for an id that is not a clip or a bad parameter.
+    #[pyo3(signature = (item_ids, parameters=None))]
+    fn create_clip_group(&mut self, item_ids: Vec<String>, parameters: Option<&Bound<PyAny>>) -> PyResult<String> {
+        let parameters = match parameters {
+            Some(p) => generator_parameters_from_python(p)?,
+            None => serde_json::Map::new(),
+        };
+        self.inner.create_clip_group(&item_ids, parameters).map_err(value_error)
+    }
+    /// Remove a group and take its members out of it; False when it did not exist.
+    fn remove_clip_group(&mut self, id: &str) -> bool {
+        self.inner.remove_clip_group(id)
+    }
+    fn get_item_clip_group_id(&self, item_id: &str) -> Option<String> {
+        self.inner.get_item_clip_group_id(item_id)
+    }
+    /// Put a clip or composite clip in a group (None takes it out); False when no such item.
+    #[pyo3(signature = (item_id, group_id=None))]
+    fn set_item_clip_group_id(&mut self, item_id: &str, group_id: Option<String>) -> bool {
+        self.inner.set_item_clip_group_id(item_id, group_id.as_deref())
+    }
+    fn clip_group_member_ids(&self, id: &str) -> Vec<String> {
+        self.inner.clip_group_member_ids(id)
+    }
+    /// Timeline seconds of the group's keyframe time 0 (its earliest member's start).
+    fn clip_group_start(&self, id: &str) -> Option<f64> {
+        self.inner.clip_group_start(id)
+    }
+    /// The group transform at `t` seconds from `clip_group_start`, as the player evaluates it.
+    fn clip_group_transform_at(&self, py: Python<'_>, id: &str, t: f64) -> PyResult<Option<PyObject>> {
+        self.inner
+            .get_clip_group(id)
+            .map(|group| {
+                let at = group.transform_at(t);
+                let value = serde_json::json!({
+                    "x": at.x, "y": at.y, "scale_x": at.scale_x, "scale_y": at.scale_y,
+                    "rotation": at.rotation, "opacity": at.opacity,
+                    "pivot_x": at.pivot_x, "pivot_y": at.pivot_y,
+                });
+                generator_parameters_to_python(py, &value)
+            })
+            .transpose()
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the clip or composite clip `item_id`,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.

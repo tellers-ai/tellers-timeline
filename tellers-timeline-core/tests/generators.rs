@@ -119,6 +119,45 @@ fn text_parameters_keep_unknown_keys_at_every_level() {
 }
 
 #[test]
+fn unknown_text_style_values_read_as_the_player_draws_them_and_are_kept() {
+    // The player draws a value it does not know as its default (block box,
+    // centred, upright text); reading must not fail on it.
+    let mut clip: Clip = serde_json::from_value(clip_json(json!({
+        "OTIO_SCHEMA": "GeneratorReference.1",
+        "generator_kind": "Text",
+        "parameters": {
+            "text": "Hi",
+            "style": {
+                "fontStyle": "oblique",
+                "align": "justify",
+                "background": {"mode": "pill", "padding": 6.0}
+            }
+        }
+    })))
+    .unwrap();
+
+    assert_eq!(clip.get_text().as_deref(), Some("Hi"));
+    let mut params = clip.text_parameters().unwrap();
+    let style = params.style.as_mut().unwrap();
+    assert_eq!(style.font_style, Some(TextFontStyle::Other("oblique".to_string())));
+    assert_eq!(style.font_style.as_ref().unwrap().resolved(), TextFontStyle::Normal);
+    assert_eq!(style.align.as_ref().unwrap().resolved(), TextAlign::Center);
+    let mode = style.background.as_ref().unwrap().mode.clone().unwrap();
+    assert_eq!(mode, TextBackgroundMode::Other("pill".to_string()));
+    assert_eq!(mode.as_str(), "pill");
+    assert_eq!(mode.resolved(), TextBackgroundMode::Block);
+    assert_eq!(TextBackgroundMode::Line.resolved(), TextBackgroundMode::Line);
+
+    style.fill = Some("#fff".to_string());
+    clip.set_text_parameters(&params).unwrap();
+    let written = serde_json::to_value(&clip).unwrap();
+    let style = &written["media_references"]["DEFAULT_MEDIA"]["parameters"]["style"];
+    assert_eq!(style["fontStyle"], json!("oblique"));
+    assert_eq!(style["align"], json!("justify"));
+    assert_eq!(style["background"]["mode"], json!("pill"));
+}
+
+#[test]
 fn new_text_clip_serializes_like_the_player_expects() {
     let mut params = TextParameters::with_text("Title");
     params.max_width = Some(0.8);
@@ -192,7 +231,7 @@ fn malformed_text_parameters_still_load_but_do_not_parse() {
     let clip: Clip = serde_json::from_value(clip_json(json!({
         "OTIO_SCHEMA": "GeneratorReference.1",
         "generator_kind": "Text",
-        "parameters": {"text": "x", "style": {"align": "justify"}}
+        "parameters": {"text": "x", "style": {"align": 3}}
     })))
     .unwrap();
     assert!(matches!(clip.text_parameters(), Err(GeneratorError::Invalid(_))));
