@@ -223,6 +223,12 @@ metadata is kept as it is.
   after. `transition_type` can be `Dissolve`, `DipToBlack`, `DipToWhite`,
   `DipToColor`, `Wipe`, `Push`, `Slide` or `Zoom`. A `direction` and a
   `color` are set in `metadata["tellers.ai"].parameters`.
+- **Audio transitions:** sound fades over every transition, on audio tracks
+  as on video ones: two clips crossfade, and a clip next to a gap fades from
+  or to silence. `transition_type` `tellers.ai.audio-constant-power` (equal
+  power) or `tellers.ai.audio-constant-gain` (linear) picks the curve; any
+  other type fades at constant power between two clips and at constant gain
+  from or to silence. A picture draws an audio type as a dissolve.
 - **Composite clips:** a `Stack.1` placed inside a video track is drawn as
   one clip made of its own video tracks. Inside it, the player draws video,
   image, Text and Shape clips; it skips Rich Text clips and transitions.

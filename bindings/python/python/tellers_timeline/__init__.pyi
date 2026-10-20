@@ -42,6 +42,8 @@ class TextStyle(TypedDict):
     declarations: str
 
 MARKER_COLORS: list[str]
+AUDIO_TRANSITION_TYPES: list[str]
+"""The ``transition_type`` of each audio transition: ``"tellers.ai.audio-<name>"``."""
 
 Ease = Literal["linear", "hold", "easeIn", "easeOut", "easeInOut"]
 
@@ -346,10 +348,9 @@ class Gap:
     def get_effects(self) -> list[Effect]: ...
     def set_effects(self, value: list[Effect]) -> None: ...
 
-TransitionKind = Literal[
-    "Dissolve", "DipToColor", "Wipe", "Push", "Slide", "Zoom", "AudioConstantPower", "AudioConstantGain"
-]
+TransitionKind = Literal["Dissolve", "DipToColor", "Wipe", "Push", "Slide", "Zoom"]
 TransitionDirection = Literal["left", "right", "up", "down"]
+AudioTransitionKind = Literal["constant-power", "constant-gain"]
 
 class Transition:
     """An OTIO ``Transition.1`` between two neighbouring items.
@@ -374,22 +375,30 @@ class Transition:
     def get_transition_type(self) -> str: ...
     def set_transition_type(self, value: str) -> None: ...
     def get_kind(self) -> TransitionKind:
-        """How the player plays it; any unknown ``transition_type`` is a ``"Dissolve"``.
-
-        ``"AudioConstantPower"`` and ``"AudioConstantGain"`` are audio fade curves, written
-        as ``tellers.ai.audio-constant-power`` / ``tellers.ai.audio-constant-gain``.
-        """
+        """How the player draws it; any unknown ``transition_type`` is a ``"Dissolve"``."""
     def is_audio(self) -> bool:
-        """Whether it is an audio transition (a fade curve) rather than a picture one."""
+        """Whether its ``transition_type`` is a ``tellers.ai.audio-<name>`` (see ``get_audio_kind``)."""
     def allowed_on(self, kind: str) -> bool:
         """Whether it goes on a track of ``kind``: audio transitions on audio tracks only,
-        picture ones on any other track. Raises ``ValueError`` on an unknown kind."""
+        any other on any other track. Raises ``ValueError`` on an unknown kind."""
     def set_kind(self, kind: str) -> None:
         """Writes the kind as ``transition_type`` (``"Dissolve"`` as ``"SMPTE_Dissolve"``).
 
         Accepts the player's aliases (``"cross dissolve"``) and keeps an equivalent
         ``transition_type``; ``"DipToBlack"``/``"DipToWhite"`` also write their colour.
         Raises ``ValueError`` on an unknown name.
+        """
+    def get_audio_kind(self) -> Optional[AudioTransitionKind]:
+        """The curve the sound fades along for a ``"tellers.ai.audio-<name>"`` type; ``None`` for any other.
+
+        Sound fades over every transition (a crossfade between two clips, a fade from or
+        to silence next to a gap); without an audio kind it is constant power between two
+        clips and constant gain from or to silence. Pictures draw an audio kind as a dissolve.
+        """
+    def set_audio_kind(self, kind: str) -> None:
+        """Writes ``"tellers.ai.audio-<kind>"`` as ``transition_type``; takes the name or the full type.
+
+        Raises ``ValueError`` on an unknown kind.
         """
     def get_direction(self) -> TransitionDirection:
         """``parameters.direction`` of a wipe, push or slide; ``"left"`` when unset or unknown."""

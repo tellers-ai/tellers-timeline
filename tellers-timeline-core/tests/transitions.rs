@@ -659,38 +659,45 @@ fn ui_session_trimming_around_a_transition_keeps_it_on_the_cut() {
 }
 
 #[test]
-fn audio_kinds_read_the_player_types_and_go_on_audio_tracks_only() {
-    use tellers_timeline_core::{TrackKind, TransitionKind, TransitionKind::*};
-    for (transition_type, kind) in [
-        ("tellers.ai.audio-constant-power", AudioConstantPower),
-        ("tellers.ai.audio-constant-gain", AudioConstantGain),
-        // The player knows the audio kinds only by their tellers.ai type.
-        ("AudioConstantGain", Dissolve),
-        ("Cross Fade 0DB", Dissolve),
-    ] {
-        assert_eq!(typed(transition_type, serde_json::json!({})).kind(), kind, "{transition_type}");
+fn audio_kind_reads_and_writes_tellers_audio_types() {
+    use tellers_timeline_core::AudioTransitionKind::{self, *};
+    for kind in AudioTransitionKind::ALL {
+        assert_eq!(kind.transition_type(), format!("tellers.ai.audio-{}", kind.as_str()));
+        assert_eq!(AudioTransitionKind::parse(kind.transition_type()), Some(kind));
+        assert_eq!(AudioTransitionKind::parse(kind.as_str()), Some(kind));
     }
+    assert_eq!(AudioTransitionKind::parse("Constant Gain"), Some(ConstantGain));
+    assert_eq!(AudioTransitionKind::parse("Dissolve"), None);
 
     let mut t = Transition::new(0.5, 0.5, None, None);
-    assert!(t.set_kind_named("AudioConstantGain"));
+    assert_eq!(t.audio_kind(), None);
+    t.set_audio_kind(ConstantGain);
     assert_eq!(t.transition_type, "tellers.ai.audio-constant-gain");
-    t.set_kind(AudioConstantPower);
-    assert_eq!(t.transition_type, "tellers.ai.audio-constant-power");
-    assert!(t.allowed_on(&TrackKind::Audio));
-    assert!(!t.allowed_on(&TrackKind::Video));
-    assert!(!t.allowed_on(&TrackKind::Other));
-    t.set_kind(Dissolve);
-    assert_eq!(t.transition_type, "SMPTE_Dissolve");
-    assert!(!t.allowed_on(&TrackKind::Audio));
-    assert!(t.allowed_on(&TrackKind::Video));
-    assert!(t.allowed_on(&TrackKind::Other));
+    assert_eq!(t.audio_kind(), Some(ConstantGain));
+    // The player draws an audio kind on a picture as a dissolve.
+    assert_eq!(t.kind(), tellers_timeline_core::TransitionKind::Dissolve);
+    // A bare name is not a transition type: the player would not read it.
+    t.transition_type = "constant-power".into();
+    assert_eq!(t.audio_kind(), None);
+    t.transition_type = "TELLERS.AI.AUDIO-CONSTANT-POWER".into();
+    assert_eq!(t.audio_kind(), Some(ConstantPower));
+    t.set_kind(tellers_timeline_core::TransitionKind::Wipe);
+    assert_eq!(t.audio_kind(), None);
+}
 
-    for kind in [Dissolve, DipToColor, Wipe, Push, Slide, Zoom] {
-        assert!(!kind.is_audio() && kind.allowed_on(&TrackKind::Video) && !kind.allowed_on(&TrackKind::Audio));
-    }
-    for kind in [AudioConstantPower, AudioConstantGain] {
-        assert!(kind.is_audio() && kind.allowed_on(&TrackKind::Audio) && !kind.allowed_on(&TrackKind::Video));
-        assert_eq!(TransitionKind::parse(kind.as_str()), Some(kind));
-        assert_eq!(TransitionKind::from_transition_type(kind.transition_type()), kind);
-    }
+#[test]
+fn audio_kinds_go_on_audio_tracks_and_picture_kinds_off_them() {
+    use tellers_timeline_core::{AudioTransitionKind, TrackKind, TransitionKind};
+    let mut t = Transition::new(0.5, 0.5, None, None);
+    assert!(!t.is_audio());
+    assert!(t.allowed_on(&TrackKind::Video) && t.allowed_on(&TrackKind::Other));
+    assert!(!t.allowed_on(&TrackKind::Audio));
+
+    t.set_audio_kind(AudioTransitionKind::ConstantGain);
+    assert!(t.is_audio());
+    assert!(t.allowed_on(&TrackKind::Audio));
+    assert!(!t.allowed_on(&TrackKind::Video) && !t.allowed_on(&TrackKind::Other));
+
+    t.set_kind(TransitionKind::Wipe);
+    assert!(!t.is_audio() && !t.allowed_on(&TrackKind::Audio));
 }

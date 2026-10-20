@@ -132,20 +132,32 @@ def test_typed_kind_direction_and_color():
         t.set_direction("Up")
 
 
+def test_audio_kind():
+    import tellers_timeline
+
+    assert tellers_timeline.AUDIO_TRANSITION_TYPES == ["tellers.ai.audio-constant-power", "tellers.ai.audio-constant-gain"]
+    t = Transition(0.5, 0.5)
+    assert t.get_audio_kind() is None
+    t.set_audio_kind("constant-gain")
+    assert t.get_transition_type() == "tellers.ai.audio-constant-gain"
+    assert t.get_audio_kind() == "constant-gain"
+    assert t.get_kind() == "Dissolve"
+    t.set_audio_kind("tellers.ai.audio-constant-power")
+    assert t.get_audio_kind() == "constant-power"
+    with pytest.raises(ValueError):
+        t.set_audio_kind("exponential")
+
+
 def test_audio_kinds_go_on_audio_tracks_only():
     t = Transition(0.5, 0.5)
     assert not t.is_audio()
     assert t.allowed_on("video") and t.allowed_on("other") and not t.allowed_on("audio")
 
-    t.set_kind("AudioConstantPower")
-    assert t.get_transition_type() == "tellers.ai.audio-constant-power"
-    assert t.get_kind() == "AudioConstantPower" and t.is_audio()
+    t.set_audio_kind("constant-power")
+    assert t.is_audio()
     assert t.allowed_on("audio") and not t.allowed_on("video") and not t.allowed_on("other")
 
-    t.set_transition_type("tellers.ai.audio-constant-gain")
-    assert t.get_kind() == "AudioConstantGain"
-
     t.set_kind("Wipe")
-    assert t.get_transition_type() == "Wipe" and not t.allowed_on("audio")
+    assert not t.is_audio() and not t.allowed_on("audio")
     with pytest.raises(ValueError):
         t.allowed_on("subtitles")

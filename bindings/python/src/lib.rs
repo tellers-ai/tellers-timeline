@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection,
+    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection, AudioTransitionKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
@@ -756,17 +756,16 @@ impl PyTransition {
     fn set_transition_type(&mut self, transition_type: String) {
         self.inner.transition_type = transition_type;
     }
-    /// How the player plays it: a picture kind ("Dissolve", "DipToColor", "Wipe", "Push",
-    /// "Slide", "Zoom") or an audio fade curve ("AudioConstantPower", "AudioConstantGain").
+    /// How the player draws it: "Dissolve", "DipToColor", "Wipe", "Push", "Slide" or "Zoom".
     fn get_kind(&self) -> &'static str {
         self.inner.kind().as_str()
     }
-    /// Whether it is an audio transition (a fade curve) rather than a picture one.
+    /// Whether it is an audio transition: its transition_type is a "tellers.ai.audio-<name>".
     fn is_audio(&self) -> bool {
-        self.inner.kind().is_audio()
+        self.inner.is_audio()
     }
     /// Whether it goes on a track of `kind` ("video", "audio" or "other"): an audio
-    /// transition on audio tracks only, a picture one on any other track.
+    /// transition on audio tracks only, any other on any other track.
     fn allowed_on(&self, kind: &str) -> PyResult<bool> {
         let kind = match kind.to_ascii_lowercase().as_str() {
             "video" => TrackKind::Video,
@@ -784,6 +783,19 @@ impl PyTransition {
         } else {
             Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("unknown transition kind: {kind}")))
         }
+    }
+    /// The audio fade curve of a "tellers.ai.audio-<name>" type: "constant-power" or
+    /// "constant-gain"; None for any other type.
+    fn get_audio_kind(&self) -> Option<&'static str> {
+        self.inner.audio_kind().map(AudioTransitionKind::as_str)
+    }
+    /// Writes "tellers.ai.audio-<name>" as the transition_type; takes the name or the full type.
+    fn set_audio_kind(&mut self, kind: &str) -> PyResult<()> {
+        let kind = AudioTransitionKind::parse(kind).ok_or_else(|| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("unknown audio transition kind: {kind}"))
+        })?;
+        self.inner.set_audio_kind(kind);
+        Ok(())
     }
     /// "left", "right", "up" or "down"; "left" when unset.
     fn get_direction(&self) -> &'static str {
@@ -2711,5 +2723,9 @@ fn tellers_timeline(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_tellers_effect, m)?)?;
     m.add_function(wrap_pyfunction!(evaluate_animatable, m)?)?;
     m.add("MARKER_COLORS", tellers_timeline_core::MARKER_COLORS.to_vec())?;
+    m.add(
+        "AUDIO_TRANSITION_TYPES",
+        AudioTransitionKind::ALL.map(AudioTransitionKind::transition_type).to_vec(),
+    )?;
     Ok(())
 }
