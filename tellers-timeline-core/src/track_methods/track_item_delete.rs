@@ -156,8 +156,7 @@ impl Track {
         {
             return;
         }
-        let head_media_end =
-            head.source_range.start_time.to_seconds() + head.source_range.duration.to_seconds();
+        let head_media_end = head.source_range.start_time.to_seconds() + head.source_duration();
         let Some(tail_index) = self.get_item_at_time(end) else {
             return;
         };

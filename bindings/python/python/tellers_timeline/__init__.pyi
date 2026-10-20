@@ -74,6 +74,11 @@ class EffectParameterSpec(TypedDict, total=False):
     kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points"]]
     options: list[str]
 
+# A clip's speed: `speed` is a number (0 for a freeze frame) or keyframes.
+class ClipSpeed(TypedDict):
+    speed: Union[float, dict[str, Any]]
+    preserve_pitch: bool
+
 class TellersEffectSpec(TypedDict):
     effect_name: str
     target: Literal["video", "audio", "text", "time"]
@@ -278,6 +283,11 @@ class Clip:
     def set_volume(self, volume: float) -> None: ...
     def get_crop(self) -> MediaReferenceCrop: ...
     def set_crop(self, crop: MediaReferenceCrop) -> None: ...
+    # Speed (OTIO LinearTimeWarp.1 / FreezeFrame.1, or a tellers TimeWarp).
+    def get_speed(self) -> Optional[ClipSpeed]: ...
+    def set_speed(self, speed: float, preserve_pitch: Optional[bool] = None) -> None: ...
+    def clear_speed(self) -> bool: ...
+    def get_source_duration(self) -> float: ...
     @staticmethod
     def new_text(
         duration: float,
@@ -571,6 +581,13 @@ class Stack:
         overlap_policy: OverlapPolicy,
     ) -> bool: ...
     def split_item_at_time(self, item_id: str, split_time: float) -> bool: ...
+    def set_item_speed(
+        self,
+        item_id: str,
+        speed: float,
+        preserve_pitch: Optional[bool] = None,
+        with_sync_clips: bool = True,
+    ) -> int: ...
     def resize_item(
         self,
         item_id: str,
