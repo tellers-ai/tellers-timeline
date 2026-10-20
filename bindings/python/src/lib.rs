@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, ColorLut, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition,
+    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
@@ -500,12 +500,6 @@ impl PyClip {
     fn set_position(&mut self, position: PyRef<PyMediaReferencePosition>) {
         self.inner.set_position(position.inner.clone());
     }
-    fn get_volume(&self) -> f64 {
-        self.inner.get_volume()
-    }
-    fn set_volume(&mut self, volume: f64) {
-        self.inner.set_volume(volume);
-    }
     /// The speed the player plays this clip at, as `{"speed", "preserve_pitch"}`
     /// (`speed` a number, 0 for a freeze frame, or `{"keyframes": [...]}`), or
     /// None at normal speed.
@@ -601,61 +595,6 @@ impl PyClip {
     fn set_text(&mut self, text: String) -> PyResult<()> {
         self.inner.set_text(text).map_err(generator_error)
     }
-    /// Whether the player grades this clip's LUTs when it sits on a video
-    /// track: its active media is video or an image (not text).
-    fn is_color_gradable(&self) -> bool {
-        self.inner.is_color_gradable()
-    }
-    /// The `.cube` LUTs graded on this clip, in order, as `{"asset_id", "name", "url"}` dicts.
-    fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        color_luts_to_python(py, self.inner.get_color_luts())
-    }
-    /// Replace every LUT graded on this clip with `luts` (`{"asset_id", "name"?, "url"?}`
-    /// dicts); an empty list removes them all. Returns False, changing
-    /// nothing, when an asset id is empty.
-    fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
-        Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
-    }
-    /// Append a LUT graded on this clip (graded last). Returns False, changing
-    /// nothing, when the asset id is empty.
-    #[pyo3(signature = (asset_id, name=None, url=None))]
-    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.push_color_lut(ColorLut { asset_id, name, url })
-    }
-    /// Insert a LUT graded on this clip at `index` (0 grades first, the list
-    /// length appends). Returns False, changing nothing, when `index` is past
-    /// the end or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
-    }
-    /// Replace the LUT at `index`, returning the previous one, or None
-    /// (changing nothing) when there is none or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn replace_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove and return the LUT at `index`, or None when there is none.
-    fn remove_color_lut_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
-        self.inner
-            .remove_color_lut_at(index)
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove every LUT graded on this clip, returning whether any was present.
-    fn clear_color_luts(&mut self) -> bool {
-        self.inner.clear_color_luts()
-    }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of this clip,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
     fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
@@ -706,15 +645,6 @@ impl PyClip {
     fn set_tellers_effect_parameter(&mut self, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
         let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
         Ok(self.inner.set_tellers_effect_parameter(index, key, value))
-    }
-    /// Set the resolved `.cube` URL of this clip's LUTs whose asset id is a
-    /// key of `urls` (asset id -> URL). Returns how many were updated.
-    fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
-        self.inner.set_color_lut_urls(&urls)
-    }
-    /// Strip the resolved URL from this clip's LUTs, keeping the asset ids.
-    fn clear_color_lut_urls(&mut self) -> usize {
-        self.inner.clear_color_lut_urls()
     }
     #[staticmethod]
     fn parse_json(s: &str) -> PyResult<Self> {
@@ -1091,73 +1021,12 @@ impl PyItem {
     fn set_position(&mut self, position: PyRef<PyMediaReferencePosition>) {
         self.inner.set_position(position.inner.clone());
     }
-    fn get_volume(&self) -> f64 {
-        self.inner.get_volume()
-    }
-    fn set_volume(&mut self, volume: f64) {
-        self.inner.set_volume(volume);
-    }
     fn get_crop(&self, py: Python<'_>) -> Py<PyMediaReferenceCrop> {
         let crop = self.inner.get_crop();
         Py::new(py, PyMediaReferenceCrop { inner: crop }).unwrap()
     }
     fn set_crop(&mut self, crop: PyRef<PyMediaReferenceCrop>) {
         self.inner.set_crop(crop.inner.clone());
-    }
-    /// Whether the player grades this clip's LUTs when it sits on a video
-    /// track: its active media is video or an image (not text).
-    fn is_color_gradable(&self) -> bool {
-        self.inner.is_color_gradable()
-    }
-    /// The `.cube` LUTs graded on this clip (empty for gaps), in order, as `{"asset_id", "name", "url"}` dicts.
-    fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        color_luts_to_python(py, self.inner.get_color_luts())
-    }
-    /// Replace every LUT graded on this clip (empty for gaps) with `luts` (`{"asset_id", "name"?, "url"?}`
-    /// dicts); an empty list removes them all. Returns False, changing
-    /// nothing, when an asset id is empty.
-    fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
-        Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
-    }
-    /// Append a LUT graded on this clip (empty for gaps) (graded last). Returns False, changing
-    /// nothing, when the asset id is empty.
-    #[pyo3(signature = (asset_id, name=None, url=None))]
-    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.push_color_lut(ColorLut { asset_id, name, url })
-    }
-    /// Insert a LUT graded on this clip (empty for gaps) at `index` (0 grades first, the list
-    /// length appends). Returns False, changing nothing, when `index` is past
-    /// the end or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
-    }
-    /// Replace the LUT at `index`, returning the previous one, or None
-    /// (changing nothing) when there is none or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn replace_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove and return the LUT at `index`, or None when there is none.
-    fn remove_color_lut_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
-        self.inner
-            .remove_color_lut_at(index)
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove every LUT graded on this clip (empty for gaps), returning whether any was present.
-    fn clear_color_luts(&mut self) -> bool {
-        self.inner.clear_color_luts()
     }
 }
 
@@ -1236,63 +1105,6 @@ impl PyTrack {
     fn remove_text_style(&mut self, name: &str) -> bool {
         self.inner.remove_text_style(name)
     }
-    /// Whether the player grades this track's LUTs: it is a video track.
-    fn is_color_gradable(&self) -> bool {
-        self.inner.is_color_gradable()
-    }
-    /// The `.cube` LUTs graded on every video and image clip of this track,
-    /// after each clip's own, in order, as `{"asset_id", "name", "url"}` dicts.
-    fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        color_luts_to_python(py, self.inner.get_color_luts())
-    }
-    /// Replace every LUT of this track object with `luts` (`{"asset_id",
-    /// "name"?, "url"?}` dicts); an empty list removes them all. Returns
-    /// False, changing nothing, when an asset id is empty. Tracks returned by
-    /// a timeline are copies: use `Timeline.set_track_color_luts` to change a
-    /// track already in one.
-    fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
-        Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
-    }
-    /// Append a LUT to this track object (graded last). Returns False,
-    /// changing nothing, when the asset id is empty.
-    #[pyo3(signature = (asset_id, name=None, url=None))]
-    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.push_color_lut(ColorLut { asset_id, name, url })
-    }
-    /// Insert a LUT into this track object at `index` (0 grades first, the
-    /// list length appends). Returns False, changing nothing, when `index` is
-    /// past the end or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
-    }
-    /// Replace the LUT at `index`, returning the previous one, or None
-    /// (changing nothing) when there is none or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn replace_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove and return the LUT at `index`, or None when there is none.
-    fn remove_color_lut_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
-        self.inner
-            .remove_color_lut_at(index)
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove every LUT of this track object, returning whether any was present.
-    fn clear_color_luts(&mut self) -> bool {
-        self.inner.clear_color_luts()
-    }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
     fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
@@ -1343,15 +1155,6 @@ impl PyTrack {
     fn set_tellers_effect_parameter(&mut self, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
         let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
         Ok(self.inner.set_tellers_effect_parameter(index, key, value))
-    }
-    /// Set the resolved `.cube` URL of this track's LUTs whose asset id is a
-    /// key of `urls` (asset id -> URL). Returns how many were updated.
-    fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
-        self.inner.set_color_lut_urls(&urls)
-    }
-    /// Strip the resolved URL from this track's LUTs, keeping the asset ids.
-    fn clear_color_lut_urls(&mut self) -> usize {
-        self.inner.clear_color_lut_urls()
     }
     /// Rename the track; this clears its auto-created mark.
     fn set_name(&mut self, name: Option<String>) {
@@ -2077,51 +1880,6 @@ fn generator_parameters_from_python<T: serde::de::DeserializeOwned>(parameters: 
     })
 }
 
-fn color_lut_to_python(py: Python<'_>, lut: ColorLut) -> PyResult<PyObject> {
-    let dict = PyDict::new(py);
-    dict.set_item("asset_id", lut.asset_id)?;
-    dict.set_item("name", lut.name)?;
-    dict.set_item("url", lut.url)?;
-    Ok(dict.into_py(py))
-}
-
-fn color_luts_to_python(py: Python<'_>, luts: Vec<ColorLut>) -> PyResult<Vec<PyObject>> {
-    luts.into_iter().map(|lut| color_lut_to_python(py, lut)).collect()
-}
-
-/// A list of `{"asset_id", "name"?, "url"?}` dicts as LUTs.
-fn color_luts_from_python(luts: &Bound<PyAny>) -> PyResult<Vec<ColorLut>> {
-    luts.iter()?
-        .map(|entry| {
-            let entry = entry?;
-            let dict = entry.downcast::<PyDict>().map_err(|_| {
-                PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                    "color LUTs must be {\"asset_id\", \"name\", \"url\"} dicts",
-                )
-            })?;
-            let asset_id: String = dict
-                .get_item("asset_id")?
-                .ok_or_else(|| {
-                    PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                        "color LUT is missing \"asset_id\"",
-                    )
-                })?
-                .extract()?;
-            let optional = |key: &str| -> PyResult<Option<String>> {
-                match dict.get_item(key)? {
-                    Some(value) => value.extract(),
-                    None => Ok(None),
-                }
-            };
-            Ok(ColorLut {
-                asset_id,
-                name: optional("name")?,
-                url: optional("url")?,
-            })
-        })
-        .collect()
-}
-
 fn text_styles_to_python(py: Python<'_>, styles: Vec<TextStyle>) -> PyResult<Vec<PyObject>> {
     styles
         .into_iter()
@@ -2216,8 +1974,33 @@ impl PyTimeline {
         self.inner.upgrade_legacy_resolve_volumes()
     }
 
+    /// Clear the `target_url` of every media reference and every effect.
     fn clear_target_urls(&mut self) {
         self.inner.clear_target_urls();
+    }
+
+    /// Every distinct asset id referenced by an effect's `asset_id`
+    /// parameter (e.g. a `ColorLut`'s `.cube`), in timeline order: the ids
+    /// to resolve for `set_effect_target_urls`.
+    fn effect_asset_ids(&self) -> Vec<String> {
+        self.inner.effect_asset_ids()
+    }
+
+    /// Set the `target_url` parameter of every effect whose `asset_id` is in
+    /// `urls` (asset id -> URL), on every stage. Returns how many were set.
+    fn set_effect_target_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
+        self.inner.set_effect_target_urls(&urls)
+    }
+
+    /// `set_effect_target_urls` for the single asset `asset_id`.
+    fn set_effect_target_url(&mut self, asset_id: &str, url: &str) -> usize {
+        self.inner.set_effect_target_url(asset_id, url)
+    }
+
+    /// Remove the `target_url` parameter of every effect, keeping the asset
+    /// ids. Returns how many had one. `clear_target_urls` does this too.
+    fn clear_effect_target_urls(&mut self) -> usize {
+        self.inner.clear_effect_target_urls()
     }
 
     fn get_name(&self) -> Option<String> {
@@ -2450,56 +2233,6 @@ impl PyTimeline {
     fn track_text_styles_css(&self, track_id: &str) -> Option<String> {
         self.inner.track_text_styles_css(track_id)
     }
-    /// The `.cube` LUTs graded over the whole composited image, in order, as `{"asset_id", "name", "url"}` dicts.
-    fn get_color_luts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        color_luts_to_python(py, self.inner.get_color_luts())
-    }
-    /// Replace every LUT graded over the whole composited image with `luts` (`{"asset_id", "name"?, "url"?}`
-    /// dicts); an empty list removes them all. Returns False, changing
-    /// nothing, when an asset id is empty.
-    fn set_color_luts(&mut self, luts: &Bound<PyAny>) -> PyResult<bool> {
-        Ok(self.inner.set_color_luts(color_luts_from_python(luts)?))
-    }
-    /// Append a LUT graded over the whole composited image (graded last). Returns False, changing
-    /// nothing, when the asset id is empty.
-    #[pyo3(signature = (asset_id, name=None, url=None))]
-    fn push_color_lut(&mut self, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.push_color_lut(ColorLut { asset_id, name, url })
-    }
-    /// Insert a LUT graded over the whole composited image at `index` (0 grades first, the list
-    /// length appends). Returns False, changing nothing, when `index` is past
-    /// the end or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn insert_color_lut_at(&mut self, index: usize, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.insert_color_lut_at(index, ColorLut { asset_id, name, url })
-    }
-    /// Replace the LUT at `index`, returning the previous one, or None
-    /// (changing nothing) when there is none or the asset id is empty.
-    #[pyo3(signature = (index, asset_id, name=None, url=None))]
-    fn replace_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .replace_color_lut_at(index, ColorLut { asset_id, name, url })
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove and return the LUT at `index`, or None when there is none.
-    fn remove_color_lut_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
-        self.inner
-            .remove_color_lut_at(index)
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// Remove every LUT graded over the whole composited image, returning whether any was present.
-    fn clear_color_luts(&mut self) -> bool {
-        self.inner.clear_color_luts()
-    }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the timeline, applied over the whole composited image,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
     fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
@@ -2550,102 +2283,6 @@ impl PyTimeline {
     fn set_tellers_effect_parameter(&mut self, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
         let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
         Ok(self.inner.set_tellers_effect_parameter(index, key, value))
-    }
-    /// Whether the player grades the LUTs of the item `item_id`: a clip on a
-    /// video track whose media is video or an image. False for gaps, text
-    /// clips, clips on audio or other tracks, and unknown ids. The by-id LUT
-    /// writers refuse other clips, and URL resolution skips them.
-    fn is_item_color_gradable(&self, item_id: &str) -> bool {
-        self.inner.is_item_color_gradable(item_id)
-    }
-    /// Every distinct LUT asset id the player grades with: the timeline's,
-    /// then, for each video track in order, its graded clips' and the track's
-    /// own. These are the ids to resolve into URLs for `set_color_lut_urls`.
-    fn color_lut_asset_ids(&self) -> Vec<String> {
-        self.inner.color_lut_asset_ids()
-    }
-    /// Set the resolved `.cube` URL of every LUT (timeline, video tracks and
-    /// graded clips) whose asset id is `asset_id`. Returns how many entries were updated; 0 when
-    /// the URL is empty.
-    fn set_color_lut_url(&mut self, asset_id: &str, url: &str) -> usize {
-        self.inner.set_color_lut_url(asset_id, url)
-    }
-    /// Set the resolved `.cube` URL of every LUT (timeline, video tracks and
-    /// graded clips) whose asset id is a key of `urls` (asset id -> URL). Unknown ids are
-    /// ignored. Returns how many entries were updated.
-    fn set_color_lut_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
-        self.inner.set_color_lut_urls(&urls)
-    }
-    /// Strip the resolved URL from every LUT (timeline, tracks and clips), keeping
-    /// the asset ids. Returns how many entries had one.
-    fn clear_color_lut_urls(&mut self) -> usize {
-        self.inner.clear_color_lut_urls()
-    }
-    /// The LUTs of the clip `item_id`, or None when no clip has this id.
-    fn get_item_color_luts(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<Vec<PyObject>>> {
-        self.inner
-            .get_item_color_luts(item_id)
-            .map(|luts| color_luts_to_python(py, luts))
-            .transpose()
-    }
-    /// `Clip.set_color_luts` on the clip `item_id`; False when no clip has
-    /// this id.
-    fn set_item_color_luts(&mut self, item_id: &str, luts: &Bound<PyAny>) -> PyResult<bool> {
-        Ok(self.inner.set_item_color_luts(item_id, color_luts_from_python(luts)?))
-    }
-    /// `Clip.push_color_lut` on the clip `item_id`; False when no clip has
-    /// this id.
-    #[pyo3(signature = (item_id, asset_id, name=None, url=None))]
-    fn push_item_color_lut(&mut self, item_id: &str, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.push_item_color_lut(item_id, ColorLut { asset_id, name, url })
-    }
-    /// `Clip.insert_color_lut_at` on the clip `item_id`; False when no clip
-    /// has this id.
-    #[pyo3(signature = (item_id, index, asset_id, name=None, url=None))]
-    fn insert_item_color_lut_at(
-        &mut self,
-        item_id: &str,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> bool {
-        self.inner.insert_item_color_lut_at(item_id, index, ColorLut { asset_id, name, url })
-    }
-    /// `Clip.replace_color_lut_at` on the clip `item_id`; None when no clip
-    /// has this id.
-    #[pyo3(signature = (item_id, index, asset_id, name=None, url=None))]
-    fn replace_item_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        item_id: &str,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .replace_item_color_lut_at(item_id, index, ColorLut { asset_id, name, url })
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// `Clip.remove_color_lut_at` on the clip `item_id`; None when no clip
-    /// has this id.
-    fn remove_item_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        item_id: &str,
-        index: usize,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .remove_item_color_lut_at(item_id, index)
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// `Clip.clear_color_luts` on the clip `item_id`; False when no clip has
-    /// this id.
-    fn clear_item_color_luts(&mut self, item_id: &str) -> bool {
-        self.inner.clear_item_color_luts(item_id)
     }
     /// Every clip group (`metadata["tellers.ai"].groups`), by id, as
     /// `{"id", "parameters"}` dicts.
@@ -2756,79 +2393,6 @@ impl PyTimeline {
     fn set_item_tellers_effect_parameter(&mut self, item_id: &str, index: usize, key: &str, value: Option<&Bound<PyAny>>) -> PyResult<bool> {
         let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
         Ok(self.inner.set_item_tellers_effect_parameter(item_id, index, key, value))
-    }
-    /// Whether the player grades the LUTs of the track `track_id`: it is a
-    /// video track. False for audio or other tracks and unknown ids. The
-    /// by-id track LUT writers refuse other tracks, and URL resolution skips
-    /// them.
-    fn is_track_color_gradable(&self, track_id: &str) -> bool {
-        self.inner.is_track_color_gradable(track_id)
-    }
-    /// The LUTs of the track `track_id`, or None when no track has this id.
-    fn get_track_color_luts(&self, py: Python<'_>, track_id: &str) -> PyResult<Option<Vec<PyObject>>> {
-        self.inner
-            .get_track_color_luts(track_id)
-            .map(|luts| color_luts_to_python(py, luts))
-            .transpose()
-    }
-    /// `Track.set_color_luts` on the track `track_id`; False when it is not a
-    /// video track.
-    fn set_track_color_luts(&mut self, track_id: &str, luts: &Bound<PyAny>) -> PyResult<bool> {
-        Ok(self.inner.set_track_color_luts(track_id, color_luts_from_python(luts)?))
-    }
-    /// `Track.push_color_lut` on the track `track_id`; False when it is not a
-    /// video track.
-    #[pyo3(signature = (track_id, asset_id, name=None, url=None))]
-    fn push_track_color_lut(&mut self, track_id: &str, asset_id: String, name: Option<String>, url: Option<String>) -> bool {
-        self.inner.push_track_color_lut(track_id, ColorLut { asset_id, name, url })
-    }
-    /// `Track.insert_color_lut_at` on the track `track_id`; False when it is
-    /// not a video track.
-    #[pyo3(signature = (track_id, index, asset_id, name=None, url=None))]
-    fn insert_track_color_lut_at(
-        &mut self,
-        track_id: &str,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> bool {
-        self.inner.insert_track_color_lut_at(track_id, index, ColorLut { asset_id, name, url })
-    }
-    /// `Track.replace_color_lut_at` on the track `track_id`; None when it is
-    /// not a video track.
-    #[pyo3(signature = (track_id, index, asset_id, name=None, url=None))]
-    fn replace_track_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        track_id: &str,
-        index: usize,
-        asset_id: String,
-        name: Option<String>,
-        url: Option<String>,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .replace_track_color_lut_at(track_id, index, ColorLut { asset_id, name, url })
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// `Track.remove_color_lut_at` on the track `track_id`, graded or not;
-    /// None when no track has this id.
-    fn remove_track_color_lut_at(
-        &mut self,
-        py: Python<'_>,
-        track_id: &str,
-        index: usize,
-    ) -> PyResult<Option<PyObject>> {
-        self.inner
-            .remove_track_color_lut_at(track_id, index)
-            .map(|lut| color_lut_to_python(py, lut))
-            .transpose()
-    }
-    /// `Track.clear_color_luts` on the track `track_id`, graded or not; False
-    /// when no track has this id.
-    fn clear_track_color_luts(&mut self, track_id: &str) -> bool {
-        self.inner.clear_track_color_luts(track_id)
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the track `track_id`,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.

@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 use tellers_timeline_core::{
-    Ease, EffectTarget, ParameterKind, COLOR_LUT_EFFECT_NAME, EFFECT_SPECS,
+    Ease, EffectTarget, ParameterKind, EFFECT_SPECS,
     TELLERS_EFFECT_PREFIX,
 };
 
@@ -592,16 +592,15 @@ fn effects_section(out: &mut String) {
     }
     let _ = writeln!(
         out,
-        "### ColorLut\n\n\
-         `{COLOR_LUT_EFFECT_NAME}`: a `.cube` LUT graded on a clip, a track or the whole \
-         timeline. Like the effects above, its data is in `parameters`:\n\n\
-         | Parameter | Value |\n|---|---|\n\
-         | `asset_id` | string: the `.cube` asset, what the timeline stores |\n\
-         | `target_url` | string: the URL the player downloads, resolved from `asset_id` before \
-         playback and stripped before saving, like a media reference's `target_url` |\n\n\
-         Both used to be written beside `parameters`, directly in `tellers.ai`, and the URL \
-         used to be named `cube_url`; those forms are still read, and `sanitize` upgrades \
-         them.\n"
+        "### Asset references\n\n\
+         An effect that loads an asset (a `ColorLut`'s `.cube` file) names it in its \
+         `asset_id` parameter, which is what the timeline stores, and the player loads it \
+         from its `target_url` parameter. `target_url` is resolved from `asset_id` before \
+         playback and stripped before saving, like a media reference's `target_url`; this \
+         holds for every effect with an `asset_id`, whatever its name.\n\n\
+         A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, directly \
+         in `tellers.ai`, and the URL used to be named `cube_url`; `sanitize` upgrades \
+         those forms.\n"
     );
     out.push_str(
         "### Animatable parameters\n\n\

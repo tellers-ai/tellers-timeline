@@ -1,5 +1,5 @@
 use tellers_timeline_core::{
-    upgrade_legacy_resolve_volume_effects, Animatable, Clip, Keyframe, TellersEffect, Timeline, Track,
+    upgrade_legacy_resolve_volume_effects, Animatable, Clip, Keyframe, TellersEffect, Timeline,
 };
 
 fn clip_json() -> &'static str {
@@ -11,31 +11,6 @@ fn clip_json() -> &'static str {
             "duration": { "OTIO_SCHEMA": "RationalTime.1", "rate": 1, "value": 2 }
         }
     }"#
-}
-
-#[test]
-fn track_set_volume_applies_to_every_clip() {
-    let track_json = format!(
-        r#"{{
-            "OTIO_SCHEMA": "Track.1",
-            "kind": "Audio",
-            "children": [{c}, {c}]
-        }}"#,
-        c = clip_json(),
-    );
-    let mut track: Track = serde_json::from_str(&track_json).unwrap();
-
-    // Clips start at the default volume.
-    for item in &track.items {
-        assert_eq!(item.get_volume(), 1.0);
-    }
-
-    track.set_volume(0.25);
-
-    // Every item now reflects the track volume.
-    for item in &track.items {
-        assert_eq!(item.get_volume(), 0.25);
-    }
 }
 
 fn resolve_volume(db: f64) -> serde_json::Value {
@@ -71,40 +46,10 @@ fn effect_names(clip: &Clip) -> Vec<String> {
 }
 
 #[test]
-fn set_volume_writes_tellers_volume_and_drops_resolve() {
-    let mut clip = clip_with(serde_json::json!([resolve_volume(-6.0)]));
-    assert_eq!(clip.get_volume(), -6.0);
-
-    clip.set_volume(-3.0);
-
-    assert_eq!(effect_names(&clip), vec!["tellers.ai.Volume"]);
-    let (_, volume) = clip.find_tellers_effect("Volume").unwrap();
-    assert_eq!(volume.value_at("volume", 0.0), Some(-3.0));
-    assert_eq!(clip.get_volume(), -3.0);
-}
-
-#[test]
-fn set_volume_keeps_fades() {
-    let mut clip = clip_with(serde_json::json!([]));
-    clip.push_tellers_effect(TellersEffect::new("Volume").with_parameter("fadeIn", 0.5));
-    clip.set_volume(-2.0);
-    let (_, volume) = clip.find_tellers_effect("Volume").unwrap();
-    assert_eq!(volume.value_at("fadeIn", 0.0), Some(0.5));
-    assert_eq!(volume.value_at("volume", 0.0), Some(-2.0));
-}
-
-#[test]
-fn legacy_resolve_volume_is_still_read() {
-    let clip = clip_with(serde_json::json!([resolve_volume(-12.0)]));
-    assert_eq!(clip.get_volume(), -12.0);
-}
-
-#[test]
 fn a_tellers_volume_overrides_the_resolve_one() {
     let mut clip = clip_with(serde_json::json!([resolve_volume(-6.0)]));
     let ramp = Animatable::from(vec![Keyframe::new(0.0, -2.0), Keyframe::new(1.0, -10.0)]);
     clip.push_tellers_effect(TellersEffect::new("Volume").with_parameter("volume", ramp.to_value()));
-    assert_eq!(clip.get_volume(), -2.0);
 
     assert_eq!(upgrade_legacy_resolve_volume_effects(&mut clip.effects), 1);
 
@@ -119,14 +64,23 @@ fn a_tellers_volume_overrides_the_resolve_one() {
 fn upgrade_moves_resolve_db_into_a_fades_only_tellers_volume() {
     let mut clip = clip_with(serde_json::json!([resolve_volume(-6.0)]));
     clip.push_tellers_effect(TellersEffect::new("Volume").with_parameter("fadeIn", 0.5));
-    assert_eq!(clip.get_volume(), -6.0);
 
     assert_eq!(upgrade_legacy_resolve_volume_effects(&mut clip.effects), 1);
 
     let (_, volume) = clip.find_tellers_effect("Volume").unwrap();
     assert_eq!(volume.value_at("volume", 0.0), Some(-6.0));
     assert_eq!(volume.value_at("fadeIn", 0.0), Some(0.5));
-    assert_eq!(clip.get_volume(), -6.0);
+}
+
+#[test]
+fn upgrade_adds_a_tellers_volume_holding_the_resolve_db() {
+    let mut clip = clip_with(serde_json::json!([resolve_volume(-12.0)]));
+
+    assert_eq!(upgrade_legacy_resolve_volume_effects(&mut clip.effects), 1);
+
+    assert_eq!(effect_names(&clip), vec!["tellers.ai.Volume"]);
+    let (_, volume) = clip.find_tellers_effect("Volume").unwrap();
+    assert_eq!(volume.value_at("volume", 0.0), Some(-12.0));
 }
 
 #[test]

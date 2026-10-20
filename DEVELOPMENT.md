@@ -141,19 +141,21 @@ Relevant Rust/Python APIs: `associated_track_ids`, `track_groups`,
 
 ### Effects and assets
 
-LUTs use `Effect.1` / `tellers.ai.ColorLut`. Like every tellers effect, all
-their data is in `metadata["tellers.ai"]["parameters"]`: the persistent
-`asset_id` and the resolved delivery URL `target_url`, named like a media
-reference's. Both used to be written beside `parameters`, and the URL used to be
-`cube_url`; those forms are still read, and `sanitize` upgrades them.
-Resolve URLs before playback; clear temporary media and LUT URLs before
-persistence when appropriate.
+LUTs (`tellers.ai.ColorLut`) and clip volume (`tellers.ai.Volume`) are ordinary
+tellers effects, edited with the `*_tellers_effect*` methods like any other.
+All their data is in `metadata["tellers.ai"]["parameters"]`.
 
-Grading stages are clip → video track → stack. Clip/track grading helpers at the
-timeline level exclude ineligible items, while object-level helpers lack that
-context. Rendering is the consuming application's responsibility. See the module
-documentation in `color_grading.rs`, `fonts.rs`, `text_styles.rs`, and `markers.rs`
-for conventions and compatibility behavior.
+An effect that loads an asset (a LUT's `.cube`) stores the persistent
+`asset_id` and is played from `target_url`, named like a media reference's.
+`Timeline.effect_asset_ids` lists the ids to resolve, `set_effect_target_urls`
+fills the URLs on every stage before playback, and `clear_target_urls` strips
+media and effect URLs before persistence (see `effect_assets.rs`).
+
+Legacy forms are migrated by `sanitize`: LUT keys written beside `parameters`
+and the `cube_url` name (`color_grading.rs`), and the Resolve clip volume
+(`volume.rs`). Rendering is the consuming application's responsibility. See the
+module documentation in `effects.rs`, `fonts.rs`, `text_styles.rs`, and
+`markers.rs` for conventions and compatibility behavior.
 
 ## Visual test UI
 

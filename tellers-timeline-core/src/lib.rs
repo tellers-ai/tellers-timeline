@@ -1,5 +1,6 @@
 pub mod associated_tracks;
 pub mod color_grading;
+pub mod effect_assets;
 pub mod effects;
 pub mod fonts;
 pub mod generators;
@@ -18,6 +19,7 @@ pub mod volume;
 
 pub use associated_tracks::*;
 pub use color_grading::*;
+pub use effect_assets::*;
 pub use effects::*;
 pub use fonts::*;
 pub use generators::*;

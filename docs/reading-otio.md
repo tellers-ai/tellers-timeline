@@ -166,7 +166,7 @@ The player reads three of them:
 |---|---|---|
 | `Transform` | `transformationPan`, `transformationTilt`, `transformationZoomX/Y`, `transformationRotationAngle` | Places a **video or image** clip: pan and tilt are offsets from the center in frame widths and heights, zoom multiplies the size, and rotation is in degrees. |
 | `Cropping` | crop insets | Crops the picture. |
-| `Fairlight Clip Volume and Fades` | `volume` (dB) | Legacy clip volume, read only when the clip's `tellers.ai.Volume` sets no `volume` (that one wins). Never written: `set_volume` and `sanitize` move it into `tellers.ai.Volume`. |
+| `Fairlight Clip Volume and Fades` | `volume` (dB) | Legacy clip volume, read only when the clip's `tellers.ai.Volume` sets no `volume` (that one wins). Never written: `sanitize` moves it into `tellers.ai.Volume`. |
 
 Text clips are placed by the tellers `Transform` effect instead. Shape clips
 take it too, on top of any Resolve `Transform` and `Cropping`. A
@@ -192,9 +192,10 @@ that speed.
 
 ### Colour grading (`tellers.ai.ColorLut`)
 
-A `.cube` LUT, identified by its `asset_id` parameter; `target_url`, the
-file the player downloads, is filled in from it before playback, like a media
-reference's `target_url` (`cube_url`, its former name, is still read). It grades a
+A `.cube` LUT, an ordinary tellers effect identified by its `asset_id`
+parameter; `target_url`, the file the player downloads, is filled in from it
+before playback, like a media reference's `target_url` and like any effect with
+an `asset_id` (`cube_url`, its former name, is still read). It grades a
 clip, every clip of a track, or the whole image when it is on the stack.
 Clip LUTs apply first, then the track's, then the timeline's.
 

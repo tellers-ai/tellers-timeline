@@ -38,11 +38,15 @@
 //! the composited image, so the item accessors (`*_item_tellers_effect*`)
 //! read and edit a composite's effects too. Gaps have none.
 //!
+//! An effect referencing an asset (a `ColorLut`'s `.cube` file) names it in
+//! its `asset_id` parameter and is loaded from its `target_url` parameter,
+//! resolved from the id (see [`crate::effect_assets`]).
+//!
 //! The tellers effects of a stage, in list order, are its effect list. Other
-//! effects (`ColorLut`, see [`crate::color_grading`]; Resolve transforms
-//! and crop, a legacy Resolve volume (see [`crate::volume`]); OTIO time warps) are left where they are. Indices passed
-//! to the list methods count tellers effects only, which are exactly what
-//! [`resolve_tellers_effects`] returns.
+//! effects (Resolve transforms and crop, a legacy Resolve volume (see
+//! [`crate::volume`]); OTIO time warps) are left where they are. Indices
+//! passed to the list methods count tellers effects only, which are exactly
+//! what [`resolve_tellers_effects`] returns.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -119,6 +123,9 @@ impl EffectSpec {
 const fn anim(name: &'static str) -> ParameterSpec {
     ParameterSpec { name, kind: ParameterKind::Animatable }
 }
+const fn string(name: &'static str) -> ParameterSpec {
+    ParameterSpec { name, kind: ParameterKind::String }
+}
 const fn color(name: &'static str) -> ParameterSpec {
     ParameterSpec { name, kind: ParameterKind::Color }
 }
@@ -191,6 +198,8 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("amount"),
         ],
     ),
+    // `target_url` is resolved from `asset_id`; see `crate::effect_assets`.
+    effect("ColorLut", Video, &[string("asset_id"), string("target_url")]),
     effect("Noise", Video, &[anim("amount"), anim("speed"), anim("seed")]),
     effect("RGBSplit", Video, &[anim("amount"), anim("angle")]),
     effect(
@@ -299,7 +308,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
         Video,
         &[
             choice("mode", &["alpha", "luma", "alpha_inverted", "luma_inverted"]),
-            ParameterSpec { name: "track", kind: ParameterKind::String },
+            string("track"),
         ],
     ),
     effect("Volume", Audio, &[anim("volume"), anim("fadeIn"), anim("fadeOut")]),
@@ -325,7 +334,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
         "TextColor",
         Text,
         &[
-            ParameterSpec { name: "colors", kind: ParameterKind::String },
+            string("colors"),
             anim("period"),
             anim("position"),
         ],
@@ -1119,21 +1128,26 @@ mod tests {
 
     #[test]
     fn non_tellers_effects_are_skipped_and_kept() {
-        let lut = crate::ColorLut::new("look").to_effect();
+        let other = effect_json(json!({
+            "OTIO_SCHEMA": "LinearTimeWarp.1",
+            "name": "",
+            "effect_name": "",
+            "time_scalar": 2.0,
+            "metadata": {}
+        }));
         let mut clip = test_clip();
-        clip.effects = vec![lut.clone()];
+        clip.effects = vec![other.clone()];
         assert!(clip.get_tellers_effects().is_empty());
 
         assert!(clip.push_tellers_effect(TellersEffect::new("Blur").with_parameter("strength", 4.0)));
         assert!(clip.insert_tellers_effect_at(0, TellersEffect::new("Pixelate")));
-        assert_eq!(clip.effects[0], lut);
+        assert_eq!(clip.effects[0], other);
         let names: Vec<_> = clip
             .get_tellers_effects()
             .into_iter()
             .map(|e| e.effect_name)
             .collect();
         assert_eq!(names, ["Pixelate", "Blur"]);
-        assert_eq!(clip.get_color_luts().len(), 1);
 
         assert!(!clip.push_tellers_effect(TellersEffect::new("NotAnEffect")));
         assert!(!clip.insert_tellers_effect_at(5, TellersEffect::new("Blur")));
@@ -1141,7 +1155,7 @@ mod tests {
         let removed = clip.remove_tellers_effect_at(0).unwrap();
         assert_eq!(removed.effect_name, "Pixelate");
         assert!(clip.clear_tellers_effects());
-        assert_eq!(clip.effects, vec![lut]);
+        assert_eq!(clip.effects, vec![other]);
     }
 
     #[test]
@@ -1282,7 +1296,8 @@ mod tests {
                             "OTIO_SCHEMA": "Stack.1",
                             "metadata": { "tellers.ai": { "timeline_id": "s1" } },
                             "effects": [
-                                crate::ColorLut::new("look").to_effect(),
+                                { "OTIO_SCHEMA": "LinearTimeWarp.1", "name": "", "effect_name": "",
+                                  "time_scalar": 2.0, "metadata": {} },
                                 { "OTIO_SCHEMA": "Effect.1", "effect_name": "tellers.ai.Blur",
                                   "metadata": { "tellers.ai": { "parameters": { "strength": 3 } } } }
                             ],
@@ -1344,7 +1359,7 @@ mod tests {
         let Item::Composite(stack) = &timeline.tracks.children[0].items[1] else {
             panic!("expected a composite");
         };
-        // The LUT is not a tellers effect and stays.
+        // The time warp is not a tellers effect and stays.
         assert_eq!(stack.effects.len(), 1);
 
         // Gaps hold no effects.

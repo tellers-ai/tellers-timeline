@@ -76,7 +76,7 @@ def test_crop_serialization_roundtrip():
 
 
 def test_crop_with_position_and_volume():
-    """Test setting crop alongside position and volume on the same clip."""
+    """Test setting crop alongside position and a Volume effect on the same clip."""
     ref = MediaReference("file:///test.mp4")
     clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
 
@@ -85,14 +85,14 @@ def test_crop_with_position_and_volume():
         crop_left=0.1, crop_right=0.2, crop_top=0.3, crop_bottom=0.4
     )
     clip.set_position(pos)
-    clip.set_volume(-20.0)
+    clip.push_tellers_effect({"effect_name": "Volume", "parameters": {"volume": -20.0}})
     clip.set_crop(crop)
 
     pos_after = clip.get_position()
     assert abs(pos_after.get_x() - 0.4) < 0.001
     assert abs(pos_after.get_rotation() - 90.0) < 0.001
 
-    assert abs(clip.get_volume() - (-20.0)) < 0.001
+    assert clip.get_tellers_effects()[0]["parameters"]["volume"] == -20.0
 
     crop_after = clip.get_crop()
     assert abs(crop_after.get_crop_left() - 0.1) < 0.001
@@ -103,7 +103,7 @@ def test_crop_with_position_and_volume():
 
     pos2 = clip2.get_position()
     assert abs(pos2.get_x() - 0.4) < 0.001
-    assert abs(clip2.get_volume() - (-20.0)) < 0.001
+    assert clip2.get_tellers_effects()[0]["parameters"]["volume"] == -20.0
     crop2 = clip2.get_crop()
     assert abs(crop2.get_crop_left() - 0.1) < 0.001
     assert abs(crop2.get_crop_bottom() - 0.4) < 0.001

@@ -500,11 +500,14 @@ impl Item {
             c.media_references = references;
         }
     }
-    /// Clear the `target_url` on every media reference of this item, including
-    /// the clips nested inside a composite.
-    ///
-    /// No-op for gaps, which have no media references.
+    /// Clear the `target_url` on every media reference and every effect (see
+    /// [`crate::effect_assets`]) of this item, including the clips nested
+    /// inside a composite.
     pub fn clear_target_urls(&mut self) {
+        self.clear_effect_target_urls();
+        self.clear_media_target_urls();
+    }
+    fn clear_media_target_urls(&mut self) {
         match self {
             Item::Clip(c) => {
                 for reference in c.media_references.values_mut() {
@@ -512,7 +515,7 @@ impl Item {
                 }
             }
             Item::Gap(_) | Item::Transition(_) => {}
-            Item::Composite(s) => s.for_each_item_mut(&mut Item::clear_target_urls),
+            Item::Composite(s) => s.for_each_item_mut(&mut Item::clear_media_target_urls),
         }
     }
     pub fn get_effects(&self) -> Vec<Effect> {
@@ -550,23 +553,12 @@ impl Item {
             c.set_position(position);
         }
     }
-    pub fn get_volume(&self) -> f64 {
-        match self {
-            Item::Clip(c) => c.get_volume(),
-            Item::Gap(_) | Item::Composite(_) | Item::Transition(_) => 1.0,
-        }
-    }
     /// The Rich Text Title HTML of this item's active media reference, if any.
     /// None for gaps, composites and non-rich-text clips.
     pub fn get_rich_text(&self) -> Option<String> {
         match self {
             Item::Clip(c) => c.get_rich_text(),
             Item::Gap(_) | Item::Composite(_) | Item::Transition(_) => None,
-        }
-    }
-    pub fn set_volume(&mut self, volume: f64) {
-        if let Item::Clip(c) = self {
-            c.set_volume(volume);
         }
     }
     pub fn get_crop(&self) -> MediaReferenceCrop {
@@ -1020,17 +1012,6 @@ impl Clip {
                 ..Effect::default()
             });
         }
-    }
-
-    /// The clip volume in dB (see [`crate::volume`]); 1.0 when unset.
-    pub fn get_volume(&self) -> f64 {
-        crate::volume::volume_db(&self.effects).unwrap_or(1.0)
-    }
-
-    /// Set the clip volume to `volume` dB on its `tellers.ai.Volume` effect,
-    /// dropping a legacy Resolve volume (see [`crate::volume`]).
-    pub fn set_volume(&mut self, volume: f64) {
-        crate::volume::set_volume_db(&mut self.effects, volume);
     }
 
     pub fn get_crop(&self) -> MediaReferenceCrop {
@@ -1936,15 +1917,18 @@ impl Timeline {
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         self.tracks.delete_track(id)
     }
-    /// Clear the `target_url` on every media reference of every clip in the timeline.
+    /// Clear the `target_url` on every media reference of every clip and on
+    /// every effect (see [`crate::effect_assets`]) in the timeline.
     ///
     /// Used before serving a project or applying a front-end update so that
-    /// ephemeral (e.g. presigned) media URLs are not persisted or sent onward;
-    /// consumers re-resolve media from the reference metadata instead.
+    /// ephemeral (e.g. presigned) URLs are not persisted or sent onward;
+    /// consumers re-resolve them from the media reference metadata and the
+    /// effects' `asset_id` instead.
     pub fn clear_target_urls(&mut self) {
+        self.clear_effect_target_urls();
         for track in &mut self.tracks.children {
             for item in &mut track.items {
-                item.clear_target_urls();
+                item.clear_media_target_urls();
             }
         }
     }
@@ -1991,35 +1975,6 @@ impl Track {
             .iter()
             .filter_map(crate::metadata::IdMetadataExt::get_id)
             .collect()
-    }
-
-    /// The mean volume across the track's clips (gaps ignored). Returns 0.0 when
-    /// the track has no clips. Mirrors the app's `Track.averageVolume`.
-    pub fn average_volume(&self) -> f64 {
-        let mut sum = 0.0;
-        let mut count = 0usize;
-        for item in &self.items {
-            if let Item::Clip(_) = item {
-                sum += item.get_volume();
-                count += 1;
-            }
-        }
-        if count == 0 {
-            0.0
-        } else {
-            sum / count as f64
-        }
-    }
-
-    /// Set the volume on every item in the track.
-    ///
-    /// A track has no single volume field, so "track volume" is applied by
-    /// setting the given `volume` on each of its items (see
-    /// [`Item::set_volume`]).
-    pub fn set_volume(&mut self, volume: f64) {
-        for item in &mut self.items {
-            item.set_volume(volume);
-        }
     }
 }
 

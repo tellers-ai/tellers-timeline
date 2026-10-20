@@ -329,6 +329,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [Adjustment](#effect-adjustment) | `tellers.ai.Adjustment` | video (picture) | `gamma`, `saturation`, `contrast`, `brightness`, `red`, `green`, `blue`, `alpha` |
 | [ColorMatrix](#effect-colormatrix) | `tellers.ai.ColorMatrix` | video (picture) | `preset`, `hue`, `amount` |
 | [HslAdjustment](#effect-hsladjustment) | `tellers.ai.HslAdjustment` | video (picture) | `hue`, `saturation`, `lightness`, `colorize`, `amount` |
+| [ColorLut](#effect-colorlut) | `tellers.ai.ColorLut` | video (picture) | `asset_id`, `target_url` |
 | [Noise](#effect-noise) | `tellers.ai.Noise` | video (picture) | `amount`, `speed`, `seed` |
 | [RGBSplit](#effect-rgbsplit) | `tellers.ai.RGBSplit` | video (picture) | `amount`, `angle` |
 | [ZoomBlur](#effect-zoomblur) | `tellers.ai.ZoomBlur` | video (picture) | `strength`, `centerX`, `centerY`, `innerRadius` |
@@ -407,6 +408,16 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `lightness` | [animatable](#animatable-parameters) number |
 | `colorize` | [animatable](#animatable-parameters) number |
 | `amount` | [animatable](#animatable-parameters) number |
+
+<a id="effect-colorlut"></a>
+### ColorLut
+
+`tellers.ai.ColorLut`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `asset_id` | string |
+| `target_url` | string |
 
 <a id="effect-noise"></a>
 ### Noise
@@ -630,16 +641,11 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `period` | [animatable](#animatable-parameters) number |
 | `position` | [animatable](#animatable-parameters) number |
 
-### ColorLut
+### Asset references
 
-`tellers.ai.ColorLut`: a `.cube` LUT graded on a clip, a track or the whole timeline. Like the effects above, its data is in `parameters`:
+An effect that loads an asset (a `ColorLut`'s `.cube` file) names it in its `asset_id` parameter, which is what the timeline stores, and the player loads it from its `target_url` parameter. `target_url` is resolved from `asset_id` before playback and stripped before saving, like a media reference's `target_url`; this holds for every effect with an `asset_id`, whatever its name.
 
-| Parameter | Value |
-|---|---|
-| `asset_id` | string: the `.cube` asset, what the timeline stores |
-| `target_url` | string: the URL the player downloads, resolved from `asset_id` before playback and stripped before saving, like a media reference's `target_url` |
-
-Both used to be written beside `parameters`, directly in `tellers.ai`, and the URL used to be named `cube_url`; those forms are still read, and `sanitize` upgrades them.
+A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, directly in `tellers.ai`, and the URL used to be named `cube_url`; `sanitize` upgrades those forms.
 
 ### Animatable parameters
 
