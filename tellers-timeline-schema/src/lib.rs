@@ -249,16 +249,19 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
         "Transition",
         "transition_type",
         "OTIO's `SMPTE_Dissolve` (a dissolve) or `Custom_Transition`. The player also reads \
-         `Dissolve`, `DipToBlack`, `DipToWhite`, `DipToColor`, `Wipe`, `Push`, `Slide` and \
-         `Zoom`, and dissolves on anything else.",
+         `Dissolve`, `CrossDissolve`, `DipToBlack`, `DipToWhite`, `DipToColor`, `Wipe`, `Push`, \
+         `Slide` and `Zoom`, compared without case or punctuation, and dissolves on anything \
+         else. `Transition::kind` / `set_kind` read and write it as a `TransitionKind`.",
     ),
     ("Transition", "in_offset", "How far it reaches back into the item before it."),
     ("Transition", "out_offset", "How far it reaches into the item after it."),
     (
         "Transition",
         "metadata",
-        "Free JSON. `tellers.ai.parameters` holds the player's `color` (dips) and `direction` \
-         (`left`, `right`, `up`, `down`).",
+        "Free JSON. `tellers.ai.parameters` holds the player's `color` (dips, `#000000` by \
+         default; `DipToBlack` / `DipToWhite` override it) and `direction` (`left`, `right`, \
+         `up`, `down`; `left` by default), read and written by `Transition::color` and \
+         `Transition::direction`.",
     ),
     ("MediaReference", "OTIO_SCHEMA", "Picks the kind of reference."),
     ("MediaReference", "name", "Display name."),

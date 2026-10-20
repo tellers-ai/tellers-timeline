@@ -344,6 +344,9 @@ class Gap:
     def get_effects(self) -> list[Effect]: ...
     def set_effects(self, value: list[Effect]) -> None: ...
 
+TransitionKind = Literal["Dissolve", "DipToColor", "Wipe", "Push", "Slide", "Zoom"]
+TransitionDirection = Literal["left", "right", "up", "down"]
+
 class Transition:
     """An OTIO ``Transition.1`` between two neighbouring items.
 
@@ -366,6 +369,23 @@ class Transition:
     def set_name(self, value: Optional[str]) -> None: ...
     def get_transition_type(self) -> str: ...
     def set_transition_type(self, value: str) -> None: ...
+    def get_kind(self) -> TransitionKind:
+        """How the player draws it; any unknown ``transition_type`` is a ``"Dissolve"``."""
+    def set_kind(self, kind: str) -> None:
+        """Writes the kind as ``transition_type`` (``"Dissolve"`` as ``"SMPTE_Dissolve"``).
+
+        Accepts the player's aliases (``"cross dissolve"``) and keeps an equivalent
+        ``transition_type``; ``"DipToBlack"``/``"DipToWhite"`` also write their colour.
+        Raises ``ValueError`` on an unknown name.
+        """
+    def get_direction(self) -> TransitionDirection:
+        """``parameters.direction`` of a wipe, push or slide; ``"left"`` when unset or unknown."""
+    def set_direction(self, direction: Optional[TransitionDirection] = None) -> None:
+        """Writes ``parameters.direction``; ``None`` removes it."""
+    def get_color(self) -> str:
+        """A dip's colour: the one ``DipToBlack``/``DipToWhite`` implies, else ``parameters.color``, else ``"#000000"``."""
+    def set_color(self, color: Optional[str] = None) -> None:
+        """Writes ``parameters.color`` (blank or ``None`` removes it); a ``DipToBlack``/``DipToWhite`` becomes ``DipToColor``."""
     def get_in_offset(self) -> float: ...
     def set_in_offset(self, seconds: float) -> None: ...
     def get_out_offset(self) -> float: ...

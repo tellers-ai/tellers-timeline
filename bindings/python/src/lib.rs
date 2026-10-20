@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition,
+    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
@@ -755,6 +755,43 @@ impl PyTransition {
     }
     fn set_transition_type(&mut self, transition_type: String) {
         self.inner.transition_type = transition_type;
+    }
+    /// How the player draws it: "Dissolve", "DipToColor", "Wipe", "Push", "Slide" or "Zoom".
+    fn get_kind(&self) -> &'static str {
+        self.inner.kind().as_str()
+    }
+    /// Writes a kind name (read like the player, e.g. "cross dissolve"); "DipToBlack" and
+    /// "DipToWhite" also write their colour.
+    fn set_kind(&mut self, kind: &str) -> PyResult<()> {
+        if self.inner.set_kind_named(kind) {
+            Ok(())
+        } else {
+            Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("unknown transition kind: {kind}")))
+        }
+    }
+    /// "left", "right", "up" or "down"; "left" when unset.
+    fn get_direction(&self) -> &'static str {
+        self.inner.direction().as_str()
+    }
+    #[pyo3(signature = (direction=None))]
+    fn set_direction(&mut self, direction: Option<&str>) -> PyResult<()> {
+        let direction = direction
+            .map(|d| {
+                TransitionDirection::parse(d).ok_or_else(|| {
+                    PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("unknown transition direction: {d}"))
+                })
+            })
+            .transpose()?;
+        self.inner.set_direction(direction);
+        Ok(())
+    }
+    /// The colour a dip goes through; "#000000" when unset.
+    fn get_color(&self) -> String {
+        self.inner.color()
+    }
+    #[pyo3(signature = (color=None))]
+    fn set_color(&mut self, color: Option<&str>) {
+        self.inner.set_color(color);
     }
     fn get_in_offset(&self) -> f64 {
         self.inner.in_offset_seconds()
