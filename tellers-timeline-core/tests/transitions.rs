@@ -657,3 +657,30 @@ fn ui_session_trimming_around_a_transition_keeps_it_on_the_cut() {
     assert!(stack.modify_item("t1c", 3.0, 3.0, true, false, false));
     assert_eq!(cuts(&stack), vec!["t1c", "dissolve@3", "t2c", "gap", "x"]);
 }
+
+#[test]
+fn audio_kind_reads_and_writes_tellers_audio_types() {
+    use tellers_timeline_core::AudioTransitionKind::{self, *};
+    for kind in AudioTransitionKind::ALL {
+        assert_eq!(kind.transition_type(), format!("tellers.ai.audio-{}", kind.as_str()));
+        assert_eq!(AudioTransitionKind::parse(kind.transition_type()), Some(kind));
+        assert_eq!(AudioTransitionKind::parse(kind.as_str()), Some(kind));
+    }
+    assert_eq!(AudioTransitionKind::parse("Constant Gain"), Some(ConstantGain));
+    assert_eq!(AudioTransitionKind::parse("Dissolve"), None);
+
+    let mut t = Transition::new(0.5, 0.5, None, None);
+    assert_eq!(t.audio_kind(), None);
+    t.set_audio_kind(ConstantGain);
+    assert_eq!(t.transition_type, "tellers.ai.audio-constant-gain");
+    assert_eq!(t.audio_kind(), Some(ConstantGain));
+    // The player draws an audio kind on a picture as a dissolve.
+    assert_eq!(t.kind(), tellers_timeline_core::TransitionKind::Dissolve);
+    // A bare name is not a transition type: the player would not read it.
+    t.transition_type = "constant-power".into();
+    assert_eq!(t.audio_kind(), None);
+    t.transition_type = "TELLERS.AI.AUDIO-CONSTANT-POWER".into();
+    assert_eq!(t.audio_kind(), Some(ConstantPower));
+    t.set_kind(tellers_timeline_core::TransitionKind::Wipe);
+    assert_eq!(t.audio_kind(), None);
+}

@@ -12,6 +12,13 @@
 //! { "OTIO_SCHEMA": "Transition.1", "transition_type": "Push",
 //!   "metadata": { "tellers.ai": { "parameters": { "direction": "up" } } } }
 //! ```
+//!
+//! Sound fades over any transition: two clips crossfade, and a clip next to
+//! a gap fades from or to silence. `tellers.ai.audio-<name>`, an
+//! [`AudioTransitionKind`], picks the curve both sides fade along; any other
+//! `transition_type` fades at constant power between two clips and at
+//! constant gain from or to silence. The player draws an audio kind on a
+//! picture as a dissolve.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -75,6 +82,55 @@ impl TransitionKind {
     }
 }
 
+/// Prefix of an audio transition's `transition_type`, as in
+/// `tellers.ai.audio-constant-power`.
+pub const AUDIO_TRANSITION_PREFIX: &str = "tellers.ai.audio-";
+
+/// The curve the sound of an audio transition fades along.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AudioTransitionKind {
+    /// Equal power: the loudness holds through a crossfade.
+    ConstantPower,
+    /// Linear gain: the loudness dips mid-crossfade.
+    ConstantGain,
+}
+
+impl AudioTransitionKind {
+    pub const ALL: [AudioTransitionKind; 2] = [
+        AudioTransitionKind::ConstantPower,
+        AudioTransitionKind::ConstantGain,
+    ];
+
+    /// The `<name>` of `tellers.ai.audio-<name>`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AudioTransitionKind::ConstantPower => "constant-power",
+            AudioTransitionKind::ConstantGain => "constant-gain",
+        }
+    }
+
+    /// The `transition_type` written for the kind.
+    pub fn transition_type(self) -> &'static str {
+        match self {
+            AudioTransitionKind::ConstantPower => "tellers.ai.audio-constant-power",
+            AudioTransitionKind::ConstantGain => "tellers.ai.audio-constant-gain",
+        }
+    }
+
+    /// Reads `tellers.ai.audio-<name>` or the bare `<name>`, compared like
+    /// the player without case or punctuation.
+    pub fn parse(name: &str) -> Option<AudioTransitionKind> {
+        let key = alias_key(name);
+        let key = key
+            .strip_prefix(&alias_key(AUDIO_TRANSITION_PREFIX))
+            .unwrap_or(&key);
+        AudioTransitionKind::ALL
+            .into_iter()
+            .find(|kind| alias_key(kind.as_str()) == key)
+    }
+}
+
 /// The side a wipe, push or slide moves towards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -113,12 +169,7 @@ impl TransitionDirection {
 
 /// The player's `TYPE_ALIASES`: the kind, and the colour the name implies.
 fn alias(name: &str) -> Option<(TransitionKind, Option<&'static str>)> {
-    let key: String = name
-        .chars()
-        .filter(|c| c.is_ascii_alphabetic())
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    Some(match key.as_str() {
+    Some(match alias_key(name).as_str() {
         "dissolve" | "crossdissolve" => (TransitionKind::Dissolve, None),
         "diptocolor" => (TransitionKind::DipToColor, None),
         "diptoblack" => (TransitionKind::DipToColor, Some("#000000")),
@@ -129,6 +180,14 @@ fn alias(name: &str) -> Option<(TransitionKind, Option<&'static str>)> {
         "zoom" => (TransitionKind::Zoom, None),
         _ => return None,
     })
+}
+
+/// A `transition_type` as the player compares it: letters only, lowercase.
+fn alias_key(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphabetic())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 impl Transition {
@@ -157,6 +216,21 @@ impl Transition {
             self.set_color(implied);
         }
         true
+    }
+
+    /// The curve the sound fades along when the `transition_type` is a
+    /// `tellers.ai.audio-<name>`; `None` for any other type.
+    pub fn audio_kind(&self) -> Option<AudioTransitionKind> {
+        AudioTransitionKind::parse(&self.transition_type).filter(|_| {
+            alias_key(&self.transition_type).starts_with(&alias_key(AUDIO_TRANSITION_PREFIX))
+        })
+    }
+
+    /// Writes `kind` as the `transition_type`.
+    pub fn set_audio_kind(&mut self, kind: AudioTransitionKind) {
+        if self.audio_kind() != Some(kind) {
+            self.transition_type = kind.transition_type().to_string();
+        }
     }
 
     /// The direction the player uses: `parameters.direction`, `left` when

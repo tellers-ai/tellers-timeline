@@ -251,7 +251,13 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
         "OTIO's `SMPTE_Dissolve` (a dissolve) or `Custom_Transition`. The player also reads \
          `Dissolve`, `CrossDissolve`, `DipToBlack`, `DipToWhite`, `DipToColor`, `Wipe`, `Push`, \
          `Slide` and `Zoom`, compared without case or punctuation, and dissolves on anything \
-         else. `Transition::kind` / `set_kind` read and write it as a `TransitionKind`.",
+         else. `Transition::kind` / `set_kind` read and write it as a `TransitionKind`. Sound \
+         fades over every transition (a crossfade between two clips, a fade from or to silence \
+         next to a gap): `tellers.ai.audio-constant-power` (equal power) and \
+         `tellers.ai.audio-constant-gain` (linear) pick the curve, read and written by \
+         `Transition::audio_kind` / `set_audio_kind`; any other type fades at constant power \
+         between two clips and at constant gain from or to silence. Pictures draw an audio \
+         type as a dissolve.",
     ),
     ("Transition", "in_offset", "How far it reaches back into the item before it."),
     ("Transition", "out_offset", "How far it reaches into the item after it."),

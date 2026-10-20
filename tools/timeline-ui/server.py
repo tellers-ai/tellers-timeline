@@ -184,6 +184,7 @@ class State:
                         name=transition.get_name(),
                         transition_type=transition.get_transition_type(),
                         transition_kind=transition.get_kind(),
+                        audio_kind=transition.get_audio_kind(),
                         direction=transition.get_direction(),
                         color=transition.get_color(),
                         in_offset=transition.get_in_offset(),
@@ -320,7 +321,8 @@ class State:
         stack.link_item([by_name["F"], by_name["F voice"]])
         # Music: an audio track no video track owns. Text: no partner track.
         add_track("audio", "Music", 0)
-        insert("Music", 0.0, clip("Music", 6, "wav"))
+        insert("Music", 0.0, clip("Music", 6, "wav", media_duration=8))
+        insert("Music", 6.0, clip("Music 2", 4, "wav", media_duration=8, source_start=2))
         add_track("video", "Text")
         insert("Text", 1.0, make_item({"duration": 2, "name": "Title", "text": True, "text_html": "<p>Hello</p>"}))
         # A compound (composite clip, an OTIO Stack.1 in the track): a lower
@@ -352,6 +354,9 @@ class State:
         _splice_track(self, track_index, lambda children: [
             children.insert(index, json.loads(_make_transition(spec).to_json())) for index, spec in cuts
         ])
+        # Music: a constant-power crossfade between its two clips.
+        music_index = next(i for i, t in enumerate(self.stack.tracks()) if t.get_name() == "Music")
+        _splice_track(self, music_index, lambda children: children.insert(1, json.loads(_make_transition({"audio_kind": "constant-power"}).to_json())))
 
     def load_basic_sample(self) -> None:
         """One video track with one synced clip, and a text track."""
@@ -790,6 +795,8 @@ def _make_transition(p: dict, transition: Optional[Transition] = None) -> Transi
         t.set_out_offset(float(p["out_offset"]))
     if p.get("kind"):
         t.set_kind(p["kind"])
+    if p.get("audio_kind"):
+        t.set_audio_kind(p["audio_kind"])
     if "direction" in p:
         t.set_direction(p["direction"] or None)
     if "color" in p:
@@ -833,7 +840,7 @@ def op_update_transition(state: State, p: dict):
         children[item_index] = json.loads(t.to_json())
 
     _splice_track(state, track_index, replace)
-    fields = ", ".join(f"{k}={_fmt(p[k])}" for k in ("kind", "direction", "color", "in_offset", "out_offset", "name") if k in p)
+    fields = ", ".join(f"{k}={_fmt(p[k])}" for k in ("kind", "audio_kind", "direction", "color", "in_offset", "out_offset", "name") if k in p)
     return True, f"transition.set_*({fields})  # {_fmt(p['id'])}, via JSON"
 
 
