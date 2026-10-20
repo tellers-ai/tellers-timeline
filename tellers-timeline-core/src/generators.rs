@@ -22,6 +22,73 @@ pub const SHAPE_GENERATOR_KIND: &str = "Shape";
 
 type Extra = serde_json::Map<String, serde_json::Value>;
 
+/// A string enum read the way the player reads it: a value it does not know
+/// does not fail the read but is kept as `Other` and written back as it is.
+/// The player draws such a value as its default, which `resolved` gives.
+macro_rules! lenient_str_enum {
+    (
+        $(#[$meta:meta])*
+        $name:ident (default $default:ident) { $($variant:ident => $value:literal),+ $(,)? }
+    ) => {
+        $(#[$meta])*
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum $name {
+            $($variant,)+
+            /// A value this library does not know, kept as written.
+            Other(String),
+        }
+
+        impl $name {
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $($name::$variant => $value,)+
+                    $name::Other(value) => value,
+                }
+            }
+
+            /// What the player draws: the value itself, or its default
+            #[doc = concat!("(`", stringify!($default), "`) for an unknown one.")]
+            pub fn resolved(&self) -> $name {
+                match self {
+                    $name::Other(_) => $name::$default,
+                    known => known.clone(),
+                }
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let value = String::deserialize(deserializer)?;
+                Ok(match value.as_str() {
+                    $($value => $name::$variant,)+
+                    _ => $name::Other(value),
+                })
+            }
+        }
+
+        impl JsonSchema for $name {
+            fn schema_name() -> String {
+                stringify!($name).to_string()
+            }
+
+            fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+                schemars::schema::SchemaObject {
+                    instance_type: Some(schemars::schema::InstanceType::String.into()),
+                    enum_values: Some(vec![$(serde_json::Value::from($value)),+]),
+                    ..Default::default()
+                }
+                .into()
+            }
+        }
+    };
+}
+
 /// One word of a Text clip, timed in seconds from the clip start.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Default)]
 pub struct TextWord {
@@ -33,19 +100,19 @@ pub struct TextWord {
     pub other: Extra,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum TextFontStyle {
-    Normal,
-    Italic,
+lenient_str_enum! {
+    TextFontStyle (default Normal) {
+        Normal => "normal",
+        Italic => "italic",
+    }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum TextAlign {
-    Left,
-    Center,
-    Right,
+lenient_str_enum! {
+    TextAlign (default Center) {
+        Left => "left",
+        Center => "center",
+        Right => "right",
+    }
 }
 
 /// `fontWeight`: a CSS keyword (`"bold"`) or a number (`700`).
@@ -82,14 +149,14 @@ pub struct TextDropShadow {
     pub other: Extra,
 }
 
-/// What a text background box wraps: the whole text, each line, or the word
-/// being spoken.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum TextBackgroundMode {
-    Block,
-    Line,
-    Word,
+lenient_str_enum! {
+    /// What a text background box wraps: the whole text, each line, or the word
+    /// being spoken.
+    TextBackgroundMode (default Block) {
+        Block => "block",
+        Line => "line",
+        Word => "word",
+    }
 }
 
 /// Background `padding`: one number for both axes, or `[x]` / `[x, y]`.
