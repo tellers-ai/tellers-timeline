@@ -1,5 +1,6 @@
 pub mod associated_tracks;
 pub mod color_grading;
+pub mod detect;
 pub mod effect_assets;
 pub mod effects;
 pub mod follow;
@@ -21,6 +22,7 @@ pub mod volume;
 
 pub use associated_tracks::*;
 pub use color_grading::*;
+pub use detect::*;
 pub use effect_assets::*;
 pub use effects::*;
 pub use follow::*;

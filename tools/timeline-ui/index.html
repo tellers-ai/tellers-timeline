@@ -1083,9 +1083,9 @@
     return [
       { sep: true },
       { label: `Speed: ${cur}`, disabled: true },
-      ...[0.5, 2, 4].map(v => ({ label: `  set_item_speed ${v}×`, disabled: it.speed && it.speed.speed === v, run: () => set(v) })),
+      ...[0.5, 2, 4, -1].map(v => ({ label: `  set_item_speed ${v}×`, disabled: it.speed && it.speed.speed === v, run: () => set(v) })),
       { label: '  Freeze frame (0)', disabled: it.speed && it.speed.speed === 0, run: () => set(0) },
-      { label: '  Custom…', run: () => { const v = prompt('Speed (0 = freeze frame, 1 = normal):', it.speed && typeof it.speed.speed === 'number' ? it.speed.speed : 1); if (v !== null && v.trim() !== '') set(parseFloat(v)); } },
+      { label: '  Custom…', run: () => { const v = prompt('Speed (0 = freeze frame, 1 = normal, negative = backwards):', it.speed && typeof it.speed.speed === 'number' ? it.speed.speed : 1); if (v !== null && v.trim() !== '') set(parseFloat(v)); } },
       { label: '  Normal (1×)', disabled: !it.speed, run: () => set(1) },
     ];
   }

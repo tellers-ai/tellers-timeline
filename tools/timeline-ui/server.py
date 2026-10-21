@@ -782,7 +782,7 @@ def op_clear_effects(state: State, p: dict):
 
 @op("set_speed")
 def op_set_speed(state: State, p: dict):
-    """1.0 removes the time warp, 0 is a freeze frame."""
+    """1.0 removes the time warp, 0 is a freeze frame, negative plays backwards."""
     speed = float(p["speed"])
     preserve = p.get("preserve_pitch")
     sync = bool(p.get("with_sync_clips", True))
