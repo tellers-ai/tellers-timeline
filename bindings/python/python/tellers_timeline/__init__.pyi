@@ -75,8 +75,26 @@ class TellersEffectInput(TypedDict, total=False):
 
 class EffectParameterSpec(TypedDict, total=False):
     name: Required[str]
-    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions"]]
+    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions", "follow"]]
     options: list[str]
+
+# The `follow` parameter of a Transform (an auto-tracking zoom recipe), with
+# the player's `followTransform` option names; left-out settings take its defaults.
+class Follow(TypedDict, total=False):
+    region: Required[dict[str, Any]]
+    target: Literal["faces", "people", "animals", "vehicles"]
+    fill: float
+    aspect: float
+    minZoom: float
+    maxZoom: float
+    deadZone: float
+    zoomDeadZone: float
+    panSmoothing: float
+    zoomSmoothing: float
+    anchorX: float
+    anchorY: float
+    hold: float
+    tolerance: float
 
 # A clip's speed: `speed` is a number (0 for a freeze frame) or keyframes.
 class ClipSpeed(TypedDict):
@@ -746,6 +764,9 @@ class Timeline:
     def clear_item_tellers_effects(self, item_id: str) -> bool: ...
     def set_item_tellers_effect_enabled(self, item_id: str, index: int, enabled: bool) -> bool: ...
     def set_item_tellers_effect_parameter(self, item_id: str, index: int, key: str, value: Optional[EffectParameter] = None) -> bool: ...
+    def get_item_follow(self, item_id: str) -> Optional[Follow]: ...
+    def set_item_follow(self, item_id: str, follow: Follow, transform: Optional[dict[str, Animatable]] = None) -> bool: ...
+    def clear_item_follow(self, item_id: str) -> bool: ...
     def get_track_tellers_effects(self, track_id: str) -> Optional[list[TellersEffect]]: ...
     def set_track_tellers_effects(self, track_id: str, effects: list[TellersEffectInput]) -> bool: ...
     def push_track_tellers_effect(self, track_id: str, effect: TellersEffectInput) -> bool: ...

@@ -206,3 +206,32 @@ def test_text_effects_only_go_on_text_clips():
     assert tl.push_track_tellers_effect("v", wave)
     assert [e["effect_name"] for e in tl.get_item_tellers_effects("tc")] == ["TextWave", "DropShadow"]
     assert tl.get_item_tellers_effects("vc") == []
+
+
+def test_item_follow_round_trips_through_the_transform():
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    audio = Track(kind="audio", id="a", children=[Item.from_clip(make_clip("ac"))])
+    tl = Timeline([video, audio])
+    region = {"shape": "rectangle", "width": 0.1, "height": 0.4,
+              "x": {"keyframes": [{"t": 0, "v": 0.4}, {"t": 7, "v": -0.4}]}}
+    follow = {"region": region, "target": "people", "panSmoothing": 0.8}
+    baked = {"x": {"keyframes": [{"t": 0, "v": -1.5}, {"t": 7, "v": 1.5}]}, "scale": 4.1}
+
+    assert tl.get_item_follow("vc") is None
+    assert tl.set_item_follow("vc", follow, baked)
+    assert tl.get_item_follow("vc") == follow
+    (transform,) = tl.get_item_tellers_effects("vc")
+    assert transform["effect_name"] == "Transform" and transform["name"] == "Follow"
+    assert transform["parameters"]["scale"] == 4.1
+    assert transform["parameters"]["follow"] == follow
+
+    assert not tl.set_item_follow("ac", follow, baked)
+    assert not tl.set_item_follow("vc", {"fill": 0.6})
+    assert not tl.set_item_follow("vc", {**follow, "target": "cars"})
+    assert not tl.set_item_follow("vc", follow, {"rotation": 3})
+
+    assert tl.clear_item_follow("vc")
+    assert tl.get_item_follow("vc") is None
+    assert tl.get_item_tellers_effects("vc")[0]["parameters"]["scale"] == 4.1
+    kinds = {p["name"]: p["kind"] for s in tellers_effect_specs() if s["effect_name"] == "Transform" for p in s["parameters"]}
+    assert kinds["follow"] == "follow"

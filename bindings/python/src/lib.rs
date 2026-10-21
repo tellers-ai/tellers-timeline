@@ -2520,6 +2520,40 @@ impl PyTimeline {
         let value = value.filter(|v| !v.is_none()).map(json_from_python).transpose()?;
         Ok(self.inner.set_item_tellers_effect_parameter(item_id, index, key, value))
     }
+    /// The follow (auto-tracking zoom recipe) of the clip or composite clip `item_id`: the `follow`
+    /// parameter of its first enabled Transform, as a `{"region", "target"?, "fill"?, ...}` dict
+    /// with the player's option names; None when it has none.
+    fn get_item_follow(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<PyObject>> {
+        self.inner
+            .get_item_follow(item_id)
+            .map(|follow| match follow.to_value() {
+                serde_json::Value::Object(map) => json_to_python(py, &map),
+                _ => unreachable!("a follow serializes to an object"),
+            })
+            .transpose()
+    }
+    /// Make the clip or composite clip `item_id` follow `follow["region"]`: write `follow` and the
+    /// keyframes `followTransform` computed from it (`transform`: any of `x`, `y`, `scale`) on its
+    /// first enabled Transform, keeping its other parameters, or on a new Transform named "Follow".
+    /// False, changing nothing, when `follow` or `transform` is invalid, the item is on an audio
+    /// track, or no clip or composite clip has this id.
+    #[pyo3(signature = (item_id, follow, transform=None))]
+    fn set_item_follow(&mut self, item_id: &str, follow: &Bound<PyAny>, transform: Option<&Bound<PyAny>>) -> PyResult<bool> {
+        let Some(follow) = tellers_timeline_core::Follow::from_value(&json_from_python(follow)?) else {
+            return Ok(false);
+        };
+        let transform = match transform.filter(|t| !t.is_none()).map(json_from_python).transpose()? {
+            None => serde_json::Map::new(),
+            Some(serde_json::Value::Object(map)) => map,
+            Some(_) => return Ok(false),
+        };
+        Ok(self.inner.set_item_follow(item_id, &follow, transform))
+    }
+    /// Drop the follow of the clip or composite clip `item_id`, keeping its baked keyframes as a
+    /// plain Transform; True when it had one.
+    fn clear_item_follow(&mut self, item_id: &str) -> bool {
+        self.inner.clear_item_follow(item_id)
+    }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the track `track_id`,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
     fn get_track_tellers_effects(&self, py: Python<'_>, track_id: &str, ) -> PyResult<Option<Vec<PyObject>>> {
@@ -2681,6 +2715,7 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                         ParameterKind::Bool => "bool",
                         ParameterKind::Points => "points",
                         ParameterKind::Regions => "regions",
+                        ParameterKind::Follow => "follow",
                     };
                     p.set_item("kind", kind)?;
                     Ok(p.into_py(py))

@@ -138,6 +138,9 @@ pub enum ParameterKind {
     /// A filter's `regions`: a list of mask shapes, each an object of `Mask`
     /// parameters; the filter shows only inside them (none: nowhere).
     Regions,
+    /// A `Transform`'s `follow`: the auto-tracking zoom recipe its `x`, `y`
+    /// and `scale` were computed from; see [`crate::Follow`].
+    Follow,
 }
 
 /// A parameter of a tellers effect.
@@ -313,6 +316,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("scaleY"),
             anim("rotation"),
             anim("opacity"),
+            ParameterSpec { name: "follow", kind: ParameterKind::Follow },
         ],
     ),
     // A Transform measured to cancel camera shake (`VideoPlayer.stabilize`),
@@ -715,20 +719,23 @@ fn parameter_value_is_valid(kind: ParameterKind, value: &Value) -> bool {
                 _ => false,
             })
         }),
-        ParameterKind::Regions => {
-            let mask = effect_spec("Mask").expect("Mask is a tellers effect");
-            value.as_array().is_some_and(|regions| {
-                regions.iter().all(|region| {
-                    region.as_object().is_some_and(|shape| {
-                        shape.iter().all(|(key, v)| {
-                            mask.parameter(key)
-                                .is_some_and(|p| parameter_value_is_valid(p.kind, v))
-                        })
-                    })
-                })
-            })
-        }
+        ParameterKind::Regions => value
+            .as_array()
+            .is_some_and(|regions| regions.iter().all(mask_shape_is_valid)),
+        ParameterKind::Follow => crate::follow::follow_value_is_valid(value),
     }
+}
+
+/// Whether `shape` is an object of `Mask` parameters (a filter region, a
+/// followed region).
+pub(crate) fn mask_shape_is_valid(shape: &Value) -> bool {
+    let mask = effect_spec("Mask").expect("Mask is a tellers effect");
+    shape.as_object().is_some_and(|shape| {
+        shape.iter().all(|(key, v)| {
+            mask.parameter(key)
+                .is_some_and(|p| parameter_value_is_valid(p.kind, v))
+        })
+    })
 }
 
 /// The tellers effects of a stage's `effects`, in order.
