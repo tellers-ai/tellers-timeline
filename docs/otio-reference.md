@@ -675,7 +675,7 @@ A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, direct
 
 A `Transform` that follows a detected subject (the player's `VideoPlayer.followTransform`) keeps its recipe in its `follow` parameter, beside the `x`, `y` and `scale` keyframes computed from it. Playback reads only those keyframes; `follow` is what recomputes them after re-tuning. An item's follow is the one on its first enabled `Transform`.
 
-A follow can be declared before anything is detected, with only `target` and `pick` (and no `x`, `y`, `scale` yet): on load the player detects `target` in the clip, takes the subject at `pick`, computes `region` and the keyframes and reports them (`onFollowResolved`) for the host to save. A follow needs `region`, or both `target` and `pick`.
+A follow can be declared before anything is detected, with only `target` and `pick` (and no `x`, `y`, `scale` yet): on load the player detects `target` in the clip, takes the subject at `pick`, computes `region` and the keyframes and reports them (`onFollowResolved`) for the host to save; the host saves it only if the follow did not change during detection. A follow needs `region`, or both `target` and `pick`.
 
 | Key | Value |
 |---|---|

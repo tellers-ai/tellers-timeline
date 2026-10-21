@@ -252,6 +252,10 @@ def test_declared_follow_is_resolved_by_the_player_and_saved():
     region = {"shape": "rectangle", "width": 0.1, "height": 0.4, "x": 0.18}
     resolved = {"target": "people", "pick": pick, "region": region}
     parameters = {"x": -0.4, "y": 0.0, "scale": 2.5, "opacity": 0.3, "follow": resolved}
+    # Re-picked during detection: the stale result is dropped.
+    assert tl.set_item_follow("vc", {"target": "people", "pick": {**pick, "x": -0.3}})
+    assert not tl.apply_follow_resolution("vc", parameters)
+    assert tl.set_item_follow("vc", {"target": "people", "pick": pick})
     assert tl.apply_follow_resolution("vc", parameters)
     assert tl.unresolved_follows() == []
     assert tl.item_follows() == [("vc", resolved)]

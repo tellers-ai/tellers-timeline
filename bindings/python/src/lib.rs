@@ -2556,15 +2556,19 @@ impl PyTimeline {
     fn item_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
         follows_to_python(py, self.inner.item_follows())
     }
-    /// The follows declared with `target` and `pick` that the player has not resolved yet (no
-    /// `region`), as `(item_id, follow)` pairs.
+    /// The follows the player still has to resolve, as `(item_id, follow)` pairs: on a clip (not a
+    /// composite clip), with no `region` yet (declared with `target` and `pick`), or with a `region`
+    /// but not all of `x`, `y` and `scale` baked.
     fn unresolved_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
         follows_to_python(py, self.inner.unresolved_follows())
     }
     /// Save what the player resolved for `item_id`: the `parameters` of its `onFollowResolved`
     /// callback (`x`, `y`, `scale` and `follow`, now with its `region`). Other keys are ignored, so
-    /// the item's own Transform values stay. False, changing nothing, when `follow` is missing,
-    /// invalid or unresolved, or `set_item_follow` refuses.
+    /// the item's own Transform values stay. Saved only while every key the item's current follow
+    /// sets (`target`, `pick`, a `region`, any setting) has the same value in the resolved one, so a
+    /// result for a follow changed or removed during detection is dropped. False, changing nothing,
+    /// when `follow` is missing, invalid or unresolved, the item's follow changed, or
+    /// `set_item_follow` refuses.
     fn apply_follow_resolution(&mut self, item_id: &str, parameters: &Bound<PyAny>) -> PyResult<bool> {
         match json_from_python(parameters)? {
             serde_json::Value::Object(map) => Ok(self.inner.apply_follow_resolution(item_id, &map)),

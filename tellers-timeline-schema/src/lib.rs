@@ -633,7 +633,8 @@ fn effects_section(out: &mut String) {
          A follow can be declared before anything is detected, with only `target` and `pick` \
          (and no `x`, `y`, `scale` yet): on load the player detects `target` in the clip, takes \
          the subject at `pick`, computes `region` and the keyframes and reports them \
-         (`onFollowResolved`) for the host to save. A follow needs `region`, or both `target` \
+         (`onFollowResolved`) for the host to save; the host saves it only if the follow did not \
+         change during detection. A follow needs `region`, or both `target` \
          and `pick`.\n\n\
          | Key | Value |\n|---|---|\n\
          | `region` | the detected region followed, an object of [Mask](#effect-mask) parameters in clip space; required unless `target` and `pick` are given |\n\

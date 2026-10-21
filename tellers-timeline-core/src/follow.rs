@@ -177,6 +177,15 @@ impl Follow {
         self.region.is_some()
     }
 
+    /// Whether every key `other` sets has the same value here: this follow
+    /// is `other` with keys added (a resolved region, filled-in defaults).
+    pub fn extends(&self, other: &Follow) -> bool {
+        let (Value::Object(this), Value::Object(other)) = (self.to_value(), other.to_value()) else {
+            return false;
+        };
+        other.iter().all(|(key, value)| this.get(key) == Some(value))
+    }
+
     /// A `region` (`Mask`-shaped), or both `target` and `pick`; a known
     /// target.
     fn is_valid(&self) -> bool {
@@ -275,26 +284,57 @@ impl Timeline {
             .collect()
     }
 
-    /// The follows the player still has to resolve: declared with `target`
-    /// and `pick`, no `region` yet (see [`Follow::is_resolved`]).
+    /// The follows the player still has to resolve, as it decides on load:
+    /// on a clip (the player resolves no composite clip's), with no
+    /// `region` yet (declared with `target` and `pick`) or with a `region`
+    /// but not all of `x`, `y` and `scale` baked beside it.
     pub fn unresolved_follows(&self) -> Vec<(String, Follow)> {
         self.item_follows()
             .into_iter()
-            .filter(|(_, follow)| !follow.is_resolved())
+            .filter(|(id, follow)| {
+                matches!(self.tracks.get_nested_item(id), Some(Item::Clip(_)))
+                    && (!follow.is_resolved() || !self.item_follow_is_baked(id))
+            })
             .collect()
+    }
+
+    /// Whether the follow Transform of `item_id` has all of `x`, `y` and
+    /// `scale`.
+    fn item_follow_is_baked(&self, item_id: &str) -> bool {
+        let Some(effects) = self.get_item_tellers_effects(item_id) else {
+            return false;
+        };
+        first_transform(&effects).is_some_and(|i| {
+            FOLLOW_TRANSFORM_PARAMETERS
+                .iter()
+                .all(|key| effects[i].parameters.contains_key(*key))
+        })
     }
 
     /// Save what the player resolved for `item_id` (its `onFollowResolved`
     /// `parameters`: the Transform's `x`, `y`, `scale` and `follow`, now
     /// with its `region`): [`Self::set_item_follow`] with them. Other keys
     /// are the player's view of the Transform and are ignored, so the
-    /// item's own values stay. `false`, changing nothing, when `follow` is
-    /// missing, invalid or still unresolved, or `set_item_follow` refuses.
+    /// item's own values stay.
+    ///
+    /// Detection takes a while, so the item's follow may have changed since
+    /// the player read it: the resolution is saved only while every key the
+    /// item's current follow sets (`target`, `pick`, a `region`, any
+    /// setting) still has the same value in the resolved one. The player
+    /// fills in defaults and the region, which the current follow may
+    /// leave out.
+    ///
+    /// `false`, changing nothing, when `follow` is missing, invalid or
+    /// still unresolved, the item has no follow or a different one now, or
+    /// `set_item_follow` refuses.
     pub fn apply_follow_resolution(&mut self, item_id: &str, parameters: &Map<String, Value>) -> bool {
         let Some(follow) = parameters.get(FOLLOW_PARAMETER).and_then(Follow::from_value) else {
             return false;
         };
-        if !follow.is_resolved() {
+        let Some(current) = self.get_item_follow(item_id) else {
+            return false;
+        };
+        if !follow.is_resolved() || !follow.extends(&current) {
             return false;
         }
         let transform = FOLLOW_TRANSFORM_PARAMETERS
@@ -476,11 +516,64 @@ mod tests {
         assert_eq!(params["scale"], 4.1);
         assert_eq!(params["opacity"], 0.9, "the item's own opacity stays");
 
+        // A follow already applied: the same resolution again is fine, a stale one is not.
+        assert!(timeline.apply_follow_resolution("vc", &parameters));
         // An unresolved or missing follow is not a resolution.
         let mut unresolved = baked();
         unresolved.insert("follow".into(), Follow::declared("people", pick).to_value());
         assert!(!timeline.apply_follow_resolution("vc", &unresolved));
         assert!(!timeline.apply_follow_resolution("vc", &baked()));
+    }
+
+    #[test]
+    fn unresolved_matches_what_the_player_resolves() {
+        let mut timeline = timeline();
+        // A region without baked keyframes is still to resolve.
+        assert!(timeline.set_item_follow("vc", &walker(), Map::new()));
+        assert_eq!(timeline.unresolved_follows().len(), 1);
+        let partial = json!({ "x": 0.1, "scale": 2.0 }).as_object().unwrap().clone();
+        assert!(timeline.set_item_follow("vc", &walker(), partial));
+        assert_eq!(timeline.unresolved_follows().len(), 1, "y is missing");
+        assert!(timeline.set_item_follow("vc", &walker(), baked()));
+        assert!(timeline.unresolved_follows().is_empty());
+        assert_eq!(timeline.item_follows().len(), 1);
+    }
+
+    #[test]
+    fn a_stale_resolution_is_not_saved() {
+        let mut timeline = timeline();
+        let pick = FollowPick { t: 2.4, x: 0.18, y: -0.05 };
+        let declared = Follow::declared("people", pick);
+        assert!(timeline.set_item_follow("vc", &declared, Map::new()));
+
+        // The player resolves it, filling in defaults and the region.
+        let mut resolved = walker();
+        resolved.pick = Some(pick);
+        resolved.fill = Some(0.6);
+        let mut parameters = baked();
+        parameters.insert("follow".into(), resolved.to_value());
+
+        // Meanwhile the follow was re-picked: the old result is dropped.
+        let moved = Follow::declared("people", FollowPick { t: 2.4, x: -0.3, y: 0.0 });
+        assert!(timeline.set_item_follow("vc", &moved, Map::new()));
+        assert!(!timeline.apply_follow_resolution("vc", &parameters));
+        assert_eq!(timeline.get_item_follow("vc"), Some(moved));
+
+        // A different setting set by the host is a change too.
+        let mut tuned = declared.clone();
+        tuned.fill = Some(0.4);
+        assert!(timeline.set_item_follow("vc", &tuned, Map::new()));
+        assert!(!timeline.apply_follow_resolution("vc", &parameters));
+
+        // Removed meanwhile: nothing to save onto.
+        assert!(timeline.set_item_follow("vc", &declared, Map::new()));
+        assert!(timeline.clear_item_follow("vc"));
+        assert!(!timeline.apply_follow_resolution("vc", &parameters));
+
+        // Unchanged: saved.
+        assert!(timeline.set_item_follow("vc", &declared, Map::new()));
+        assert!(timeline.apply_follow_resolution("vc", &parameters));
+        assert_eq!(timeline.get_item_follow("vc"), Some(resolved));
     }
 
     #[test]
@@ -492,6 +585,11 @@ mod tests {
             Item::Composite(crate::CompositeStack::new(vec![inner], None, Some("comp".into())));
         assert!(timeline.set_item_follow("vc", &walker(), baked()));
         assert_eq!(timeline.item_follows().iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["vc"]);
+        // The player resolves clips, not composite clips.
+        let declared = Follow::declared("people", FollowPick { t: 0.0, x: 0.0, y: 0.0 });
+        assert!(timeline.set_item_follow("comp", &declared, Map::new()));
+        assert_eq!(timeline.item_follows().len(), 2);
+        assert!(timeline.unresolved_follows().is_empty());
     }
 
     #[test]
