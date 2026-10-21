@@ -675,9 +675,12 @@ A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, direct
 
 A `Transform` that follows a detected subject (the player's `VideoPlayer.followTransform`) keeps its recipe in its `follow` parameter, beside the `x`, `y` and `scale` keyframes computed from it. Playback reads only those keyframes; `follow` is what recomputes them after re-tuning. An item's follow is the one on its first enabled `Transform`.
 
+A follow can be declared before anything is detected, with only `target` and `pick` (and no `x`, `y`, `scale` yet): on load the player detects `target` in the clip, takes the subject at `pick`, computes `region` and the keyframes and reports them (`onFollowResolved`) for the host to save. A follow needs `region`, or both `target` and `pick`.
+
 | Key | Value |
 |---|---|
-| `region` | required: the detected region followed, an object of [Mask](#effect-mask) parameters in clip space |
+| `region` | the detected region followed, an object of [Mask](#effect-mask) parameters in clip space; required unless `target` and `pick` are given |
+| `pick` | `{ "t", "x", "y" }`, plain numbers, all required: where the subject was chosen, at `t` clip seconds and (`x`, `y`) in clip space before crop ((0, 0) the clip's center, ±0.5 its edges); with `target`, enough to detect it again |
 | `target` | the detection target it came from: `"faces"` \| `"people"` \| `"animals"` \| `"vehicles"`, or one COCO category: `person`, `bicycle`, `car`, `motorcycle`, `airplane`, `bus`, `train`, `truck`, `boat`, `traffic light`, `fire hydrant`, `stop sign`, `parking meter`, `bench`, `bird`, `cat`, `dog`, `horse`, `sheep`, `cow`, `elephant`, `bear`, `zebra`, `giraffe`, `backpack`, `umbrella`, `handbag`, `tie`, `suitcase`, `frisbee`, `skis`, `snowboard`, `sports ball`, `kite`, `baseball bat`, `baseball glove`, `skateboard`, `surfboard`, `tennis racket`, `bottle`, `wine glass`, `cup`, `fork`, `knife`, `spoon`, `bowl`, `banana`, `apple`, `sandwich`, `orange`, `broccoli`, `carrot`, `hot dog`, `pizza`, `donut`, `cake`, `chair`, `couch`, `potted plant`, `bed`, `dining table`, `toilet`, `tv`, `laptop`, `mouse`, `remote`, `keyboard`, `cell phone`, `microwave`, `oven`, `toaster`, `sink`, `refrigerator`, `book`, `clock`, `vase`, `scissors`, `teddy bear`, `hair drier`, `toothbrush` |
 | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |
 

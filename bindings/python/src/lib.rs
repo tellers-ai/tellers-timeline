@@ -2521,8 +2521,9 @@ impl PyTimeline {
         Ok(self.inner.set_item_tellers_effect_parameter(item_id, index, key, value))
     }
     /// The follow (auto-tracking zoom recipe) of the clip or composite clip `item_id`: the `follow`
-    /// parameter of its first enabled Transform, as a `{"region", "target"?, "fill"?, ...}` dict
-    /// with the player's option names; None when it has none.
+    /// parameter of its first enabled Transform, as a `{"region"?, "target"?, "pick"?, "fill"?, ...}`
+    /// dict with the player's option names; None when it has none. `region` is missing for a follow
+    /// declared with `target` and `pick` that the player has not resolved yet.
     fn get_item_follow(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<PyObject>> {
         self.inner
             .get_item_follow(item_id)
@@ -2535,6 +2536,8 @@ impl PyTimeline {
     /// Make the clip or composite clip `item_id` follow `follow["region"]`: write `follow` and the
     /// keyframes `followTransform` computed from it (`transform`: any of `x`, `y`, `scale`) on its
     /// first enabled Transform, keeping its other parameters, or on a new Transform named "Follow".
+    /// To declare a follow for the player to resolve, give `{"target", "pick": {"t", "x", "y"}}`
+    /// and no `transform`.
     /// False, changing nothing, when `follow` or `transform` is invalid, the item is on an audio
     /// track, or no clip or composite clip has this id.
     #[pyo3(signature = (item_id, follow, transform=None))]
@@ -2548,6 +2551,25 @@ impl PyTimeline {
             Some(_) => return Ok(false),
         };
         Ok(self.inner.set_item_follow(item_id, &follow, transform))
+    }
+    /// Every clip or composite clip with a follow (at any depth), as `(item_id, follow)` pairs.
+    fn item_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+        follows_to_python(py, self.inner.item_follows())
+    }
+    /// The follows declared with `target` and `pick` that the player has not resolved yet (no
+    /// `region`), as `(item_id, follow)` pairs.
+    fn unresolved_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+        follows_to_python(py, self.inner.unresolved_follows())
+    }
+    /// Save what the player resolved for `item_id`: the `parameters` of its `onFollowResolved`
+    /// callback (`x`, `y`, `scale` and `follow`, now with its `region`). Other keys are ignored, so
+    /// the item's own Transform values stay. False, changing nothing, when `follow` is missing,
+    /// invalid or unresolved, or `set_item_follow` refuses.
+    fn apply_follow_resolution(&mut self, item_id: &str, parameters: &Bound<PyAny>) -> PyResult<bool> {
+        match json_from_python(parameters)? {
+            serde_json::Value::Object(map) => Ok(self.inner.apply_follow_resolution(item_id, &map)),
+            _ => Ok(false),
+        }
     }
     /// Drop the follow of the clip or composite clip `item_id`, keeping its baked keyframes as a
     /// plain Transform; True when it had one.
@@ -2643,6 +2665,19 @@ fn json_to_python(py: Python<'_>, value: &serde_json::Map<String, serde_json::Va
     let text = serde_json::to_string(value)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
     Ok(json_module(py)?.call_method1("loads", (text,))?.unbind())
+}
+
+fn follows_to_python(
+    py: Python<'_>,
+    follows: Vec<(String, tellers_timeline_core::Follow)>,
+) -> PyResult<Vec<(String, PyObject)>> {
+    follows
+        .into_iter()
+        .map(|(id, follow)| match follow.to_value() {
+            serde_json::Value::Object(map) => Ok((id, json_to_python(py, &map)?)),
+            _ => unreachable!("a follow serializes to an object"),
+        })
+        .collect()
 }
 
 fn tellers_effect_to_python(py: Python<'_>, effect: &TellersEffect) -> PyResult<PyObject> {

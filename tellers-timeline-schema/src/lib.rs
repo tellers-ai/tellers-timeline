@@ -630,8 +630,14 @@ fn effects_section(out: &mut String) {
          beside the `x`, `y` and `scale` keyframes computed from it. Playback reads only those \
          keyframes; `{FOLLOW_PARAMETER}` is what recomputes them after re-tuning. An item's \
          follow is the one on its first enabled `Transform`.\n\n\
+         A follow can be declared before anything is detected, with only `target` and `pick` \
+         (and no `x`, `y`, `scale` yet): on load the player detects `target` in the clip, takes \
+         the subject at `pick`, computes `region` and the keyframes and reports them \
+         (`onFollowResolved`) for the host to save. A follow needs `region`, or both `target` \
+         and `pick`.\n\n\
          | Key | Value |\n|---|---|\n\
-         | `region` | required: the detected region followed, an object of [Mask](#effect-mask) parameters in clip space |\n\
+         | `region` | the detected region followed, an object of [Mask](#effect-mask) parameters in clip space; required unless `target` and `pick` are given |\n\
+         | `pick` | `{{ \"t\", \"x\", \"y\" }}`, plain numbers, all required: where the subject was chosen, at `t` clip seconds and (`x`, `y`) in clip space before crop ((0, 0) the clip's center, ±0.5 its edges); with `target`, enough to detect it again |\n\
          | `target` | the detection target it came from: {}, or one COCO category: {} |\n\
          | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |\n",
         FOLLOW_GROUP_TARGETS.iter().map(|t| format!("`\"{t}\"`")).collect::<Vec<_>>().join(" \\| "),

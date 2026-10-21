@@ -20,6 +20,14 @@
 //! Mirrors the `follow` of `schema/timeline.schema.json` in
 //! `video-player-js`.
 //!
+//! A follow can also be declared before anything is detected: a `target`
+//! and a `pick` (where the subject is, at one time), with no `region` and
+//! no keyframes yet. On load the player then detects `target` in the clip,
+//! takes the subject at `pick` (`VideoPlayer.trackAt`), computes the
+//! `region` and keyframes and reports them (`onFollowResolved`) for the
+//! host to save with [`Timeline::set_item_follow`]. A follow needs a
+//! `region`, or both `target` and `pick`.
+//!
 //! An item's follow is the `follow` of its first enabled `Transform`, the
 //! one the player applies.
 
@@ -27,7 +35,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::effects::mask_shape_is_valid;
-use crate::{TellersEffect, Timeline};
+use crate::metadata::IdMetadataExt;
+use crate::{Item, TellersEffect, Timeline, Track};
 
 const TRANSFORM: &str = "Transform";
 /// The `Transform` parameter holding the recipe.
@@ -57,14 +66,31 @@ pub fn is_follow_target(target: &str) -> bool {
     FOLLOW_GROUP_TARGETS.contains(&target) || COCO_CATEGORIES.contains(&target)
 }
 
-/// The recipe of an auto-tracking zoom: the region followed and the
-/// `followTransform` options (left out: the player's defaults, in brackets).
+/// Where a followed subject was chosen: at `t` clip seconds, at (`x`, `y`)
+/// in clip space before crop ((0, 0) the clip's center, ±0.5 its edges,
+/// like regions).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FollowPick {
+    pub t: f64,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// The recipe of an auto-tracking zoom: the region followed (or what to
+/// detect and where) and the `followTransform` options (left out: the
+/// player's defaults, in brackets).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Follow {
     /// The detected region followed, a `Mask` shape in clip space (a
-    /// `detectRegions` region).
-    pub region: Map<String, Value>,
+    /// `detectRegions` region); `None` until the player resolves a follow
+    /// declared with `target` and `pick`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<Map<String, Value>>,
+    /// Where the subject was chosen; with `target`, enough to find it again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pick: Option<FollowPick>,
     /// The `detectRegions` target the region came from; see [`is_follow_target`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
@@ -106,8 +132,19 @@ pub struct Follow {
 impl Follow {
     /// A follow of `region` with the player's default settings.
     pub fn new(region: Map<String, Value>) -> Self {
+        Follow { region: Some(region), ..Self::empty() }
+    }
+
+    /// A follow of the `target` subject at `pick`, for the player to detect
+    /// and resolve; see the [module docs](self).
+    pub fn declared(target: impl Into<String>, pick: FollowPick) -> Self {
+        Follow { target: Some(target.into()), pick: Some(pick), ..Self::empty() }
+    }
+
+    fn empty() -> Self {
         Follow {
-            region,
+            region: None,
+            pick: None,
             target: None,
             fill: None,
             aspect: None,
@@ -134,19 +171,38 @@ impl Follow {
         serde_json::to_value(self).expect("a follow serializes")
     }
 
-    /// A `Mask`-shaped region and a known target.
+    /// Whether the region followed is known; a follow declared with only
+    /// `target` and `pick` is not, until the player resolves it.
+    pub fn is_resolved(&self) -> bool {
+        self.region.is_some()
+    }
+
+    /// A `region` (`Mask`-shaped), or both `target` and `pick`; a known
+    /// target.
     fn is_valid(&self) -> bool {
-        mask_shape_is_valid(&Value::Object(self.region.clone()))
-            && self
-                .target
-                .as_deref()
-                .is_none_or(is_follow_target)
+        let region_ok = self
+            .region
+            .as_ref()
+            .is_none_or(|region| mask_shape_is_valid(&Value::Object(region.clone())));
+        region_ok
+            && (self.region.is_some() || (self.target.is_some() && self.pick.is_some()))
+            && self.target.as_deref().is_none_or(is_follow_target)
     }
 }
 
 /// Whether `value` is a valid `follow` parameter.
 pub(crate) fn follow_value_is_valid(value: &Value) -> bool {
     Follow::from_value(value).is_some()
+}
+
+/// The ids of every item of `tracks`, at any depth (inside composite clips too).
+fn collect_item_ids(tracks: &[Track], ids: &mut Vec<String>) {
+    for item in tracks.iter().flat_map(|track| &track.items) {
+        ids.extend(item.get_id());
+        if let Item::Composite(stack) = item {
+            collect_item_ids(&stack.children, ids);
+        }
+    }
 }
 
 /// The index (among tellers effects) of the first enabled Transform.
@@ -168,7 +224,8 @@ impl Timeline {
 
     /// Make the clip or composite clip `item_id` follow `follow.region`:
     /// write `follow` and the keyframes `followTransform` computed from it
-    /// (`transform`: any of `x`, `y`, `scale`) on its first enabled
+    /// (`transform`: any of `x`, `y`, `scale`; none for a follow declared
+    /// with `target` and `pick`, which the player resolves) on its first enabled
     /// Transform, keeping that Transform's other parameters, or on a new
     /// Transform named "Follow" when it has none. `false`, changing
     /// nothing, when `follow` or a `transform` value is invalid, `transform`
@@ -206,6 +263,45 @@ impl Timeline {
             Some(i) => self.replace_item_tellers_effect_at(item_id, i, effect).is_some(),
             None => self.push_item_tellers_effect(item_id, effect),
         }
+    }
+
+    /// Every clip or composite clip with a follow, at any depth, in track
+    /// order, with its follow.
+    pub fn item_follows(&self) -> Vec<(String, Follow)> {
+        let mut ids = Vec::new();
+        collect_item_ids(&self.tracks.children, &mut ids);
+        ids.into_iter()
+            .filter_map(|id| Some((id.clone(), self.get_item_follow(&id)?)))
+            .collect()
+    }
+
+    /// The follows the player still has to resolve: declared with `target`
+    /// and `pick`, no `region` yet (see [`Follow::is_resolved`]).
+    pub fn unresolved_follows(&self) -> Vec<(String, Follow)> {
+        self.item_follows()
+            .into_iter()
+            .filter(|(_, follow)| !follow.is_resolved())
+            .collect()
+    }
+
+    /// Save what the player resolved for `item_id` (its `onFollowResolved`
+    /// `parameters`: the Transform's `x`, `y`, `scale` and `follow`, now
+    /// with its `region`): [`Self::set_item_follow`] with them. Other keys
+    /// are the player's view of the Transform and are ignored, so the
+    /// item's own values stay. `false`, changing nothing, when `follow` is
+    /// missing, invalid or still unresolved, or `set_item_follow` refuses.
+    pub fn apply_follow_resolution(&mut self, item_id: &str, parameters: &Map<String, Value>) -> bool {
+        let Some(follow) = parameters.get(FOLLOW_PARAMETER).and_then(Follow::from_value) else {
+            return false;
+        };
+        if !follow.is_resolved() {
+            return false;
+        }
+        let transform = FOLLOW_TRANSFORM_PARAMETERS
+            .iter()
+            .filter_map(|key| Some((key.to_string(), parameters.get(*key)?.clone())))
+            .collect();
+        self.set_item_follow(item_id, &follow, transform)
     }
 
     /// Drop the follow of the clip or composite clip `item_id`; its baked
@@ -334,6 +430,68 @@ mod tests {
         bad.target = Some("cars".into());
         assert!(!timeline.set_item_follow("vc", &bad, baked()));
         assert!(timeline.get_item_tellers_effects("vc").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_follow_needs_a_region_or_a_target_and_pick() {
+        let pick = FollowPick { t: 2.4, x: 0.18, y: -0.05 };
+        let declared = Follow::declared("people", pick);
+        assert!(!declared.is_resolved());
+        let value = declared.to_value();
+        assert_eq!(value, json!({ "target": "people", "pick": { "t": 2.4, "x": 0.18, "y": -0.05 } }));
+        assert_eq!(Follow::from_value(&value), Some(declared));
+        assert!(Follow::from_value(&json!({ "target": "people" })).is_none());
+        assert!(Follow::from_value(&json!({ "pick": { "t": 0, "x": 0, "y": 0 } })).is_none());
+        assert!(Follow::from_value(&json!({ "target": "people", "pick": { "t": 0, "x": 0 } })).is_none());
+        assert!(Follow::from_value(&json!({ "target": "people", "pick": { "t": 0, "x": 0, "y": 0, "z": 1 } })).is_none());
+        assert!(Follow::from_value(&json!({ "target": "people", "pick": { "t": "now", "x": 0, "y": 0 } })).is_none());
+        let mut both = walker();
+        both.pick = Some(pick);
+        assert!(both.is_resolved());
+        assert_eq!(Follow::from_value(&both.to_value()), Some(both));
+    }
+
+    #[test]
+    fn declare_list_and_save_a_resolved_follow() {
+        let mut timeline = timeline();
+        let pick = FollowPick { t: 2.4, x: 0.18, y: -0.05 };
+        // Declared in the OTIO: no region, no keyframes.
+        assert!(timeline.set_item_follow("vc", &Follow::declared("people", pick), Map::new()));
+        let transform = &timeline.get_item_tellers_effects("vc").unwrap()[0];
+        assert!(transform.parameters.get("x").is_none());
+        assert_eq!(timeline.unresolved_follows().len(), 1);
+        assert_eq!(timeline.item_follows()[0].0, "vc");
+
+        // What onFollowResolved hands back, with the player's view of other parameters.
+        let mut resolved = walker();
+        resolved.pick = Some(pick);
+        let mut parameters = baked();
+        parameters.insert("opacity".into(), json!(0.2));
+        parameters.insert("follow".into(), resolved.to_value());
+        assert!(timeline.set_item_tellers_effect_parameter("vc", 0, "opacity", Some(json!(0.9))));
+        assert!(timeline.apply_follow_resolution("vc", &parameters));
+        assert!(timeline.unresolved_follows().is_empty());
+        assert_eq!(timeline.get_item_follow("vc"), Some(resolved));
+        let params = &timeline.get_item_tellers_effects("vc").unwrap()[0].parameters;
+        assert_eq!(params["scale"], 4.1);
+        assert_eq!(params["opacity"], 0.9, "the item's own opacity stays");
+
+        // An unresolved or missing follow is not a resolution.
+        let mut unresolved = baked();
+        unresolved.insert("follow".into(), Follow::declared("people", pick).to_value());
+        assert!(!timeline.apply_follow_resolution("vc", &unresolved));
+        assert!(!timeline.apply_follow_resolution("vc", &baked()));
+    }
+
+    #[test]
+    fn follows_inside_composite_clips_are_listed() {
+        let mut timeline = timeline();
+        let clip = timeline.tracks.children[0].items[0].clone();
+        let inner = Track { items: vec![clip], ..Track::default() };
+        timeline.tracks.children[0].items[0] =
+            Item::Composite(crate::CompositeStack::new(vec![inner], None, Some("comp".into())));
+        assert!(timeline.set_item_follow("vc", &walker(), baked()));
+        assert_eq!(timeline.item_follows().iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["vc"]);
     }
 
     #[test]

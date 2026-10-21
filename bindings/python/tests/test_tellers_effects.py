@@ -238,3 +238,23 @@ def test_item_follow_round_trips_through_the_transform():
     assert tl.get_item_tellers_effects("vc")[0]["parameters"]["scale"] == 4.1
     kinds = {p["name"]: p["kind"] for s in tellers_effect_specs() if s["effect_name"] == "Transform" for p in s["parameters"]}
     assert kinds["follow"] == "follow"
+
+
+def test_declared_follow_is_resolved_by_the_player_and_saved():
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    tl = Timeline([video])
+    pick = {"t": 2.4, "x": 0.18, "y": -0.05}
+    assert not tl.set_item_follow("vc", {"target": "people"})
+    assert not tl.set_item_follow("vc", {"pick": pick})
+    assert tl.set_item_follow("vc", {"target": "people", "pick": pick})
+    assert tl.unresolved_follows() == [("vc", {"target": "people", "pick": pick})]
+
+    region = {"shape": "rectangle", "width": 0.1, "height": 0.4, "x": 0.18}
+    resolved = {"target": "people", "pick": pick, "region": region}
+    parameters = {"x": -0.4, "y": 0.0, "scale": 2.5, "opacity": 0.3, "follow": resolved}
+    assert tl.apply_follow_resolution("vc", parameters)
+    assert tl.unresolved_follows() == []
+    assert tl.item_follows() == [("vc", resolved)]
+    (transform,) = tl.get_item_tellers_effects("vc")
+    assert transform["parameters"]["scale"] == 2.5
+    assert "opacity" not in transform["parameters"]
