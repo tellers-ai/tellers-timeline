@@ -75,7 +75,7 @@ class TellersEffectInput(TypedDict, total=False):
 
 class EffectParameterSpec(TypedDict, total=False):
     name: Required[str]
-    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions", "follow"]]
+    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions", "follow", "detect"]]
     options: list[str]
 
 # The `follow` parameter of a Transform (an auto-tracking zoom recipe), with
@@ -121,7 +121,24 @@ class Follow(TypedDict, total=False):
     hold: float
     tolerance: float
 
-# A clip's speed: `speed` is a number (0 for a freeze frame) or keyframes.
+# The `detect` parameter of a filter or a Mask: what the player detects on load
+# to fill a filter's `regions` or a Mask's shape. The FollowDetect options sit
+# beside `target`.
+class EffectDetect(FollowDetect, total=False):
+    target: Required[str]
+    pick: Union[FollowPick, list[FollowPick]]
+    """One point, or several (a filter covers each subject found; a Mask the first)."""
+    shape: Literal["rectangle", "ellipse", "outline"]
+
+class ItemDetect(TypedDict):
+    item_id: str
+    effect_index: int
+    effect_name: str
+    detect: EffectDetect
+    resolved: bool
+
+# A clip's speed: `speed` is a number (0 for a freeze frame, negative plays
+# backwards) or keyframes.
 class ClipSpeed(TypedDict):
     speed: Union[float, dict[str, Any]]
     preserve_pitch: bool
@@ -342,6 +359,8 @@ class Clip:
     def set_speed(self, speed: float, preserve_pitch: Optional[bool] = None) -> None: ...
     def clear_speed(self) -> bool: ...
     def get_source_duration(self) -> float: ...
+    def is_reversed(self) -> bool: ...
+    def get_source_time_at(self, t: float) -> float: ...
     @staticmethod
     def new_text(
         duration: float,
@@ -810,6 +829,12 @@ class Timeline:
     def unresolved_follows(self) -> list[tuple[str, Follow]]: ...
     def apply_follow_resolution(self, item_id: str, parameters: dict[str, Any]) -> bool: ...
     def clear_item_follow(self, item_id: str) -> bool: ...
+    # Filters and Masks declared with `detect` (what the player detects to fill
+    # their `regions` or shape); `effect_index` counts every effect of the clip.
+    def get_item_detects(self, item_id: str) -> list[ItemDetect]: ...
+    def item_detects(self) -> list[ItemDetect]: ...
+    def unresolved_detects(self) -> list[ItemDetect]: ...
+    def apply_detect_resolution(self, item_id: str, effect_index: int, effect_name: str, parameters: dict[str, Any]) -> bool: ...
     def get_track_tellers_effects(self, track_id: str) -> Optional[list[TellersEffect]]: ...
     def set_track_tellers_effects(self, track_id: str, effects: list[TellersEffectInput]) -> bool: ...
     def push_track_tellers_effect(self, track_id: str, effect: TellersEffectInput) -> bool: ...

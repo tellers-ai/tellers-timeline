@@ -15,8 +15,10 @@
 //!
 //! A clip keeps its `source_range.duration` on the timeline and plays the
 //! integral of its speed over that duration from `source_range.start_time`.
-//! The speed is clamped to [`MIN_CLIP_SPEED`]..=[`MAX_CLIP_SPEED`]; reverse is
-//! not supported (the player ignores a negative speed).
+//! The speed is clamped to [`MIN_CLIP_SPEED`]..=[`MAX_CLIP_SPEED`] in
+//! magnitude. A negative speed plays that same source range backwards,
+//! ending at `start_time` (video-player-js #679); a ramp may be negative
+//! throughout but must not cross zero, else the player ignores it.
 
 use serde_json::{Map, Value};
 
@@ -33,7 +35,8 @@ const PRESERVE_PITCH: &str = "preserve_pitch";
 /// The speed of a clip, as the player plays it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClipSpeed {
-    /// A constant or keyframed speed; 0 is a freeze frame.
+    /// A constant or keyframed speed; 0 is a freeze frame, negative plays
+    /// backwards.
     pub speed: Animatable,
     /// Audio keeps its pitch (time-stretch) instead of being resampled.
     pub preserve_pitch: bool,
@@ -44,7 +47,16 @@ impl ClipSpeed {
         self.speed == Animatable::Value(0.0)
     }
 
-    /// Source seconds played by the first `t` timeline seconds of the clip.
+    /// Whether the clip plays its source range backwards.
+    pub fn is_reversed(&self) -> bool {
+        match &self.speed {
+            Animatable::Value(v) => *v < 0.0,
+            Animatable::Keyframes { keyframes } => keyframes.iter().any(|k| k.v < 0.0),
+        }
+    }
+
+    /// Source seconds played by the first `t` timeline seconds of the clip,
+    /// in either direction.
     pub fn source_offset(&self, t: Seconds) -> Seconds {
         if t <= 0.0 || self.is_freeze() {
             return 0.0;
@@ -82,11 +94,12 @@ impl ClipSpeed {
     }
 }
 
+/// The magnitude of a speed, clamped like the player does.
 fn clamp_speed(v: f64) -> f64 {
-    v.clamp(MIN_CLIP_SPEED, MAX_CLIP_SPEED)
+    v.abs().clamp(MIN_CLIP_SPEED, MAX_CLIP_SPEED)
 }
 
-/// ∫₀ᵗ speed, the speed clamped like the player does. Each keyframe segment
+/// ∫₀ᵗ |speed|, the speed clamped like the player does. Each keyframe segment
 /// is a cubic (or piecewise cubic) curve, which Simpson's rule integrates
 /// exactly; clamping makes it an approximation where the curve crosses a
 /// limit. The first and last values hold outside the keyframes.
@@ -159,14 +172,14 @@ fn read_time_warp(effect: &Effect) -> Option<ClipSpeed> {
             .filter(|e| e.effect_name == TIME_WARP)?
             .animatable("speed")?
     };
-    let speed = match speed {
-        Animatable::Value(v) if v == 0.0 => speed,
-        Animatable::Value(v) if v < 0.0 => return None,
-        Animatable::Keyframes { ref keyframes } if keyframes.iter().any(|k| k.v < 0.0) => {
-            return None
+    // A ramp must not cross zero (its zero keyframes aside).
+    if let Animatable::Keyframes { ref keyframes } = speed {
+        let forward = keyframes.iter().any(|k| k.v > 0.0);
+        let backward = keyframes.iter().any(|k| k.v < 0.0);
+        if forward && backward {
+            return None;
         }
-        speed => speed,
-    };
+    }
     Some(ClipSpeed { speed, preserve_pitch: preserve_pitch(effect) })
 }
 
@@ -179,7 +192,8 @@ pub fn clip_speed(effects: &[Effect]) -> Option<ClipSpeed> {
 /// Why a speed could not be set.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SpeedError {
-    /// Not 0 (a freeze) and outside `MIN_CLIP_SPEED..=MAX_CLIP_SPEED`.
+    /// Not 0 (a freeze) and outside `MIN_CLIP_SPEED..=MAX_CLIP_SPEED` in
+    /// magnitude.
     OutOfRange(f64),
 }
 
@@ -188,7 +202,7 @@ impl std::fmt::Display for SpeedError {
         match self {
             SpeedError::OutOfRange(speed) => write!(
                 f,
-                "speed must be 0 (freeze) or between {MIN_CLIP_SPEED} and {MAX_CLIP_SPEED}, got {speed}"
+                "speed must be 0 (freeze) or between {MIN_CLIP_SPEED} and {MAX_CLIP_SPEED} in magnitude (negative plays backwards), got {speed}"
             ),
         }
     }
@@ -197,8 +211,8 @@ impl std::fmt::Display for SpeedError {
 impl std::error::Error for SpeedError {}
 
 /// Set a constant speed on `effects`, replacing every time effect:
-/// `FreezeFrame.1` for 0, else `LinearTimeWarp.1` with `time_scalar`. A speed
-/// of 1 writes nothing. `preserve_pitch: false` is
+/// `FreezeFrame.1` for 0, else `LinearTimeWarp.1` with `time_scalar`
+/// (negative plays backwards). A speed of 1 writes nothing. `preserve_pitch: false` is
 /// written in `metadata["tellers.ai"].parameters`; `None` keeps the current
 /// setting.
 pub fn set_clip_speed(
@@ -206,7 +220,7 @@ pub fn set_clip_speed(
     speed: f64,
     preserve_pitch: Option<bool>,
 ) -> Result<(), SpeedError> {
-    if !(speed == 0.0 || (MIN_CLIP_SPEED..=MAX_CLIP_SPEED).contains(&speed)) {
+    if !(speed == 0.0 || (MIN_CLIP_SPEED..=MAX_CLIP_SPEED).contains(&speed.abs())) {
         return Err(SpeedError::OutOfRange(speed));
     }
     let preserve_pitch = preserve_pitch
@@ -254,7 +268,8 @@ impl Clip {
         clip_speed(&self.effects)
     }
 
-    /// Play this clip at a constant `speed` (0 freezes its first frame); see
+    /// Play this clip at a constant `speed` (0 freezes its first frame,
+    /// negative plays it backwards); see
     /// [`set_clip_speed`]. The clip keeps its duration on the timeline, so it
     /// plays more or less of its media.
     pub fn set_speed(&mut self, speed: f64, preserve_pitch: Option<bool>) -> Result<(), SpeedError> {
@@ -278,6 +293,24 @@ impl Clip {
     /// Source seconds this clip plays over its whole duration.
     pub fn source_duration(&self) -> Seconds {
         self.source_offset(self.source_range.duration.to_seconds())
+    }
+
+    /// Whether this clip plays its source range backwards.
+    pub fn is_reversed(&self) -> bool {
+        self.get_speed().is_some_and(|speed| speed.is_reversed())
+    }
+
+    /// The source time this clip shows `t` seconds into it on the timeline:
+    /// from `source_range.start_time` forwards, or, reversed, from
+    /// `start_time + source_duration()` down to `start_time`.
+    pub fn source_time_at(&self, t: Seconds) -> Seconds {
+        let start = self.source_range.start_time.to_seconds();
+        let t = t.clamp(0.0, self.source_range.duration.to_seconds().max(0.0));
+        if self.is_reversed() {
+            start + self.source_duration() - self.source_offset(t)
+        } else {
+            start + self.source_offset(t)
+        }
     }
 
     /// The timeline duration over which this clip plays `source` seconds of

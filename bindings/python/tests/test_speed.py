@@ -27,6 +27,17 @@ def test_clip_speed_round_trip():
         clip.set_speed(10.0)
 
 
+def test_negative_speed_plays_backwards():
+    clip = make_clip()
+    assert not clip.is_reversed()
+    clip.set_speed(-2.0)
+    assert clip.get_speed() == {"speed": -2.0, "preserve_pitch": True}
+    assert clip.is_reversed()
+    assert clip.get_source_duration() == 8.0
+    assert clip.get_source_time_at(0.0) == 8.0
+    assert clip.get_source_time_at(4.0) == 0.0
+
+
 def test_keyframed_time_warp_is_returned_as_keyframes():
     clip = make_clip()
     clip.push_tellers_effect(
@@ -42,5 +53,6 @@ def test_stack_set_item_speed():
     stack.insert_item_at_time(0, 0.0, make_clip("v"), "override", "split_and_insert")
     assert stack.set_item_speed("v", 0.5) == 1
     assert stack.set_item_speed("missing", 0.5, with_sync_clips=False) == 0
+    assert stack.set_item_speed("v", -1.0) == 1
     with pytest.raises(ValueError):
-        stack.set_item_speed("v", -1.0)
+        stack.set_item_speed("v", -10.0)

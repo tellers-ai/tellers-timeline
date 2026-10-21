@@ -177,18 +177,23 @@ on top.
 
 `LinearTimeWarp.1` with `time_scalar` changes playback speed (2 is twice as
 fast). `FreezeFrame.1` holds a single frame. They work like
-`tellers.ai.TimeWarp`. The player applies the first enabled one of the three,
-clamps the speed to 0.25–4 and ignores a negative one (reverse is not
-supported). A clip keeps its duration on the timeline and plays the integral
-of its speed from `source_range.start_time`. A freeze plays no media and is
+`tellers.ai.TimeWarp`. The player applies the first enabled one of the three
+and clamps the speed to 0.25–4 in magnitude. A clip keeps its duration on the
+timeline and plays the integral of its speed from `source_range.start_time`.
+A negative speed plays that same source range backwards, from
+`start_time + |∫ speed|` down to `start_time`; a keyframed speed may be
+negative throughout but must not cross zero, else the player ignores it. A freeze plays no media and is
 silent. `preserve_pitch: false` (in `metadata["tellers.ai"].parameters`)
 resamples the audio instead of time-stretching it.
 
-`Clip.get_speed` reads the speed. `Clip.set_speed` writes a constant one
-(0 for a freeze) as `LinearTimeWarp.1` / `FreezeFrame.1`, replacing any other
+`Clip.get_speed` reads the speed; `Clip.is_reversed` and
+`Clip.source_time_at` (Python `get_source_time_at`) say which way it plays and
+which source time shows at a timeline offset. `Clip.set_speed` writes a
+constant one (0 for a freeze, negative for reverse) as `LinearTimeWarp.1` / `FreezeFrame.1`, replacing any other
 time effect. `Stack.set_item_speed` does the same on a clip's sync partners.
 Splitting a clip and clamping it to its media count the media it plays at
-that speed.
+that speed; split in two, a reversed clip's left half keeps the top of its
+source range.
 
 ### Colour grading (`tellers.ai.ColorLut`)
 

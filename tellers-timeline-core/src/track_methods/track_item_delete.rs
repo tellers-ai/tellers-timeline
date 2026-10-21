@@ -156,7 +156,13 @@ impl Track {
         {
             return;
         }
-        let head_media_end = head.source_range.start_time.to_seconds() + head.source_duration();
+        // The source time right after the head's last frame: below its range
+        // when it plays backwards.
+        let head_media_end = if head.is_reversed() {
+            head.source_range.start_time.to_seconds()
+        } else {
+            head.source_range.start_time.to_seconds() + head.source_duration()
+        };
         let Some(tail_index) = self.get_item_at_time(end) else {
             return;
         };
@@ -166,8 +172,14 @@ impl Track {
         let Some(Item::Clip(tail)) = self.items.get_mut(tail_index) else {
             return;
         };
+        let tail_media_start = if tail.is_reversed() {
+            tail.source_range.start_time.to_seconds() + tail.source_duration()
+        } else {
+            tail.source_range.start_time.to_seconds()
+        };
         let continues = tail.sync_clips_id() == head.sync_clips_id()
-            && (tail.source_range.start_time.to_seconds() - head_media_end).abs() <= EPS
+            && tail.is_reversed() == head.is_reversed()
+            && (tail_media_start - head_media_end).abs() <= EPS
             && tail.active_media_reference_key == head.active_media_reference_key;
         if continues {
             crate::IdMetadataExt::set_id(tail, Some(head_id));
@@ -280,5 +292,20 @@ mod tests {
         track.sanitize();
         assert!((track.items[0].duration() - 2.0).abs() < 1e-9);
         assert!((track.items[1].duration() - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn deleting_the_head_of_a_split_reversed_clip_gives_its_id_to_the_tail() {
+        let mut track = Track::default();
+        let Item::Clip(mut reversed) = clip(4.0) else { unreachable!() };
+        crate::IdMetadataExt::set_id(&mut reversed, Some("rev".to_string()));
+        reversed.set_speed(-1.0, None).unwrap();
+        track.items.push(Item::Clip(reversed));
+        assert!(track.split_at_time(1.0).is_some());
+        assert_ne!(track.items[1].get_id().as_deref(), Some("rev"));
+
+        track.delete_range(0.0, 1.0, true);
+        assert_eq!(track.items.len(), 2);
+        assert_eq!(track.items[1].get_id().as_deref(), Some("rev"));
     }
 }

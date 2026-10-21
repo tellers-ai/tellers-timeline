@@ -324,23 +324,23 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 
 | Effect | `effect_name` | Applies to | Parameters |
 |---|---|---|---|
-| [Blur](#effect-blur) | `tellers.ai.Blur` | video (picture) | `strength`, `quality`, `regions` |
-| [Pixelate](#effect-pixelate) | `tellers.ai.Pixelate` | video (picture) | `size`, `regions` |
-| [Adjustment](#effect-adjustment) | `tellers.ai.Adjustment` | video (picture) | `gamma`, `saturation`, `contrast`, `brightness`, `red`, `green`, `blue`, `alpha`, `regions` |
-| [ColorMatrix](#effect-colormatrix) | `tellers.ai.ColorMatrix` | video (picture) | `preset`, `hue`, `amount`, `regions` |
-| [HslAdjustment](#effect-hsladjustment) | `tellers.ai.HslAdjustment` | video (picture) | `hue`, `saturation`, `lightness`, `colorize`, `amount`, `regions` |
+| [Blur](#effect-blur) | `tellers.ai.Blur` | video (picture) | `strength`, `quality`, `regions`, `detect` |
+| [Pixelate](#effect-pixelate) | `tellers.ai.Pixelate` | video (picture) | `size`, `regions`, `detect` |
+| [Adjustment](#effect-adjustment) | `tellers.ai.Adjustment` | video (picture) | `gamma`, `saturation`, `contrast`, `brightness`, `red`, `green`, `blue`, `alpha`, `regions`, `detect` |
+| [ColorMatrix](#effect-colormatrix) | `tellers.ai.ColorMatrix` | video (picture) | `preset`, `hue`, `amount`, `regions`, `detect` |
+| [HslAdjustment](#effect-hsladjustment) | `tellers.ai.HslAdjustment` | video (picture) | `hue`, `saturation`, `lightness`, `colorize`, `amount`, `regions`, `detect` |
 | [ColorLut](#effect-colorlut) | `tellers.ai.ColorLut` | video (picture) | `asset_id`, `target_url` |
-| [Noise](#effect-noise) | `tellers.ai.Noise` | video (picture) | `amount`, `speed`, `seed`, `regions` |
-| [RGBSplit](#effect-rgbsplit) | `tellers.ai.RGBSplit` | video (picture) | `amount`, `angle`, `regions` |
-| [ZoomBlur](#effect-zoomblur) | `tellers.ai.ZoomBlur` | video (picture) | `strength`, `centerX`, `centerY`, `innerRadius`, `regions` |
-| [DropShadow](#effect-dropshadow) | `tellers.ai.DropShadow` | video (picture) | `offsetX`, `offsetY`, `blur`, `alpha`, `color`, `regions` |
-| [ChromaKey](#effect-chromakey) | `tellers.ai.ChromaKey` | video (picture) | `color`, `similarity`, `smoothness`, `spill`, `choke`, `regions` |
+| [Noise](#effect-noise) | `tellers.ai.Noise` | video (picture) | `amount`, `speed`, `seed`, `regions`, `detect` |
+| [RGBSplit](#effect-rgbsplit) | `tellers.ai.RGBSplit` | video (picture) | `amount`, `angle`, `regions`, `detect` |
+| [ZoomBlur](#effect-zoomblur) | `tellers.ai.ZoomBlur` | video (picture) | `strength`, `centerX`, `centerY`, `innerRadius`, `regions`, `detect` |
+| [DropShadow](#effect-dropshadow) | `tellers.ai.DropShadow` | video (picture) | `offsetX`, `offsetY`, `blur`, `alpha`, `color`, `regions`, `detect` |
+| [ChromaKey](#effect-chromakey) | `tellers.ai.ChromaKey` | video (picture) | `color`, `similarity`, `smoothness`, `spill`, `choke`, `regions`, `detect` |
 | [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
 | [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `follow` |
 | [Stabilize](#effect-stabilize) | `tellers.ai.Stabilize` | video (picture) | `x`, `y`, `scale`, `rotation` |
 | [Blend](#effect-blend) | `tellers.ai.Blend` | video (picture) | `mode` |
-| [Mask](#effect-mask) | `tellers.ai.Mask` | video (picture) | `shape`, `x`, `y`, `width`, `height`, `rotation`, `corner_radius`, `feather`, `opacity`, `invert`, `mode`, `closed`, `points` |
+| [Mask](#effect-mask) | `tellers.ai.Mask` | video (picture) | `shape`, `x`, `y`, `width`, `height`, `rotation`, `corner_radius`, `feather`, `opacity`, `invert`, `mode`, `closed`, `points`, `detect` |
 | [TrackMatte](#effect-trackmatte) | `tellers.ai.TrackMatte` | video (picture) | `mode`, `track` |
 | [Volume](#effect-volume) | `tellers.ai.Volume` | audio (sound) | `volume`, `fadeIn`, `fadeOut` |
 | [Pan](#effect-pan) | `tellers.ai.Pan` | audio (sound) | `pan` |
@@ -361,6 +361,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `strength` | [animatable](#animatable-parameters) number |
 | `quality` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-pixelate"></a>
 ### Pixelate
@@ -371,6 +372,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 |---|---|
 | `size` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-adjustment"></a>
 ### Adjustment
@@ -388,6 +390,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `blue` | [animatable](#animatable-parameters) number |
 | `alpha` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-colormatrix"></a>
 ### ColorMatrix
@@ -400,6 +403,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `hue` | [animatable](#animatable-parameters) number |
 | `amount` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-hsladjustment"></a>
 ### HslAdjustment
@@ -414,6 +418,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `colorize` | [animatable](#animatable-parameters) number |
 | `amount` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-colorlut"></a>
 ### ColorLut
@@ -436,6 +441,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `speed` | [animatable](#animatable-parameters) number |
 | `seed` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-rgbsplit"></a>
 ### RGBSplit
@@ -447,6 +453,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `amount` | [animatable](#animatable-parameters) number |
 | `angle` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-zoomblur"></a>
 ### ZoomBlur
@@ -460,6 +467,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `centerY` | [animatable](#animatable-parameters) number |
 | `innerRadius` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-dropshadow"></a>
 ### DropShadow
@@ -474,6 +482,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `alpha` | [animatable](#animatable-parameters) number |
 | `color` | CSS color string |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-chromakey"></a>
 ### ChromaKey
@@ -488,6 +497,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `spill` | [animatable](#animatable-parameters) number |
 | `choke` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-border"></a>
 ### Border
@@ -572,6 +582,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `mode` | `"add"` \| `"subtract"` \| `"intersect"` |
 | `closed` | boolean |
 | `points` | array of `[x, y]` or `{x, y, in_x?, in_y?, out_x?, out_y?}` (animatable coordinates) |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-trackmatte"></a>
 ### TrackMatte
@@ -684,6 +695,17 @@ A follow can be declared before anything is detected, with only `target` and `pi
 | `target` | the detection target it came from: `"faces"` \| `"people"` \| `"animals"` \| `"vehicles"`, or one COCO category: `person`, `bicycle`, `car`, `motorcycle`, `airplane`, `bus`, `train`, `truck`, `boat`, `traffic light`, `fire hydrant`, `stop sign`, `parking meter`, `bench`, `bird`, `cat`, `dog`, `horse`, `sheep`, `cow`, `elephant`, `bear`, `zebra`, `giraffe`, `backpack`, `umbrella`, `handbag`, `tie`, `suitcase`, `frisbee`, `skis`, `snowboard`, `sports ball`, `kite`, `baseball bat`, `baseball glove`, `skateboard`, `surfboard`, `tennis racket`, `bottle`, `wine glass`, `cup`, `fork`, `knife`, `spoon`, `bowl`, `banana`, `apple`, `sandwich`, `orange`, `broccoli`, `carrot`, `hot dog`, `pizza`, `donut`, `cake`, `chair`, `couch`, `potted plant`, `bed`, `dining table`, `toilet`, `tv`, `laptop`, `mouse`, `remote`, `keyboard`, `cell phone`, `microwave`, `oven`, `toaster`, `sink`, `refrigerator`, `book`, `clock`, `vase`, `scissors`, `teddy bear`, `hair drier`, `toothbrush` |
 | `detect` | the detection settings, kept as given (left out: the player's defaults): `objectModel` (`"fast"` \| `"accurate"`, every target but faces), `faceModel` (`"short"` \| `"full"`), and the plain numbers `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY`, the `detectRegions` options of the same names; no other key |
 | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |
+
+### Detect
+
+Any filter (an effect taking `regions`) and a `Mask` can declare a subject to detect in their `detect` parameter instead of drawn shapes, e.g. `{ "strength": 40, "detect": { "target": "faces" } }` on a `Blur`. On load the player detects `target` over the clip's source range and resolves the effect: a filter gets `regions` (every subject, or the ones at `pick`), a `Mask` the keyframed shape of one subject (the first one `pick` finds, else the one seen longest) as its `shape`, `x`, `y`, `width`, `height`, `opacity`, `points`, keeping its other parameters (`feather`, `invert`, ...). It reports the result (`onDetectResolved`, with the effect's index among all the clip's effects) for the host to save; the host saves it only while the effect and its `detect` did not change during detection. A filter without `regions` or a `Mask` without `x` is unresolved; `detect` stays once resolved, so dropping `regions` (or `x`) detects again. Only clips' effects are resolved, not tracks' or composite clips'.
+
+| Key | Value |
+|---|---|
+| `target` | required: what to detect, as a follow's `target` (see [Follow](#follow)) |
+| `pick` | `{ "t", "x", "y" }`, as a follow's: only the subject there; or a non-empty list of them, e.g. to blur several chosen faces with one filter (points finding nobody are skipped, two on one subject give it one region; a `Mask` takes the first subject found) |
+| `shape` | `"rectangle"` \| `"ellipse"` (the subject's box; faces default to ellipses, others to rounded rectangles) \| `"outline"` (its exact shape, keyframed as a `path`) |
+| `objectModel`, `faceModel`, `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY` | the detection settings, as in a follow's `detect`, here beside `target`; no other key |
 
 ### Animatable parameters
 

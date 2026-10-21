@@ -14,7 +14,8 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 use tellers_timeline_core::{
-    Ease, EffectTarget, ParameterKind, EFFECT_SPECS, FOLLOW_PARAMETER, FOLLOW_GROUP_TARGETS,
+    Ease, EffectTarget, ParameterKind, DETECT_MASK_PARAMETERS, DETECT_PARAMETER, EFFECT_SPECS,
+    FOLLOW_PARAMETER, FOLLOW_GROUP_TARGETS,
     COCO_CATEGORIES,
     TELLERS_EFFECT_PREFIX,
 };
@@ -549,6 +550,11 @@ fn kind_string(kind: ParameterKind) -> String {
              see [Follow](#follow)"
                 .to_string()
         }
+        ParameterKind::Detect => {
+            "object: the subject the player detects to fill `regions` (a filter) or the shape \
+             (a Mask); see [Detect](#detect)"
+                .to_string()
+        }
     }
 }
 
@@ -644,6 +650,28 @@ fn effects_section(out: &mut String) {
          | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |\n",
         FOLLOW_GROUP_TARGETS.iter().map(|t| format!("`\"{t}\"`")).collect::<Vec<_>>().join(" \\| "),
         COCO_CATEGORIES.iter().map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", "),
+    );
+    let _ = writeln!(
+        out,
+        "### Detect\n\n\
+         Any filter (an effect taking `regions`) and a `Mask` can declare a subject to detect \
+         in their `{DETECT_PARAMETER}` parameter instead of drawn shapes, e.g. \
+         `{{ \"strength\": 40, \"detect\": {{ \"target\": \"faces\" }} }}` on a `Blur`. On \
+         load the player detects `target` over the clip's source range and resolves the \
+         effect: a filter gets `regions` (every subject, or the ones at `pick`), a `Mask` the \
+         keyframed shape of one subject (the first one `pick` finds, else the one seen longest) as its \
+         {}, keeping its other parameters (`feather`, `invert`, ...). It reports the result \
+         (`onDetectResolved`, with the effect's index among all the clip's effects) for the \
+         host to save; the host saves it only while the effect and its `detect` did not change \
+         during detection. A filter without `regions` or a `Mask` without `x` is unresolved; \
+         `detect` stays once resolved, so dropping `regions` (or `x`) detects again. Only \
+         clips' effects are resolved, not tracks' or composite clips'.\n\n\
+         | Key | Value |\n|---|---|\n\
+         | `target` | required: what to detect, as a follow's `target` (see [Follow](#follow)) |\n\
+         | `pick` | `{{ \"t\", \"x\", \"y\" }}`, as a follow's: only the subject there; or a non-empty list of them, e.g. to blur several chosen faces with one filter (points finding nobody are skipped, two on one subject give it one region; a `Mask` takes the first subject found) |\n\
+         | `shape` | `\"rectangle\"` \\| `\"ellipse\"` (the subject's box; faces default to ellipses, others to rounded rectangles) \\| `\"outline\"` (its exact shape, keyframed as a `path`) |\n\
+         | `objectModel`, `faceModel`, `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY` | the detection settings, as in a follow's `detect`, here beside `target`; no other key |\n",
+        DETECT_MASK_PARAMETERS.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
     );
     out.push_str(
         "### Animatable parameters\n\n\

@@ -273,3 +273,42 @@ def test_follow_detect_settings_round_trip():
     assert tl.get_item_follow("vc") == follow
     assert not tl.set_item_follow("vc", {**follow, "detect": {"objectModel": "best"}})
     assert not tl.set_item_follow("vc", {**follow, "detect": {"delegate": "GPU"}})
+
+
+def test_detect_on_filters_and_masks_is_resolved_by_the_player_and_saved():
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    tl = Timeline([video])
+    faces = {"target": "faces"}
+    walker = {"target": "people", "pick": {"t": 1.0, "x": 0.31, "y": -0.16}, "shape": "outline"}
+    assert validate_tellers_effect({"effect_name": "Blur", "parameters": {"detect": {"target": "ghost"}}}) is not None
+    assert tl.set_item_tellers_effects("vc", [
+        {"effect_name": "Blur", "parameters": {"strength": 40, "detect": faces}},
+        {"effect_name": "Mask", "parameters": {"feather": 4, "detect": walker}},
+    ])
+    assert [(d["effect_index"], d["effect_name"], d["detect"]) for d in tl.unresolved_detects()] == [
+        (0, "Blur", faces),
+        (1, "Mask", walker),
+    ]
+
+    regions = [{"shape": "ellipse", "x": 0.1, "y": 0.0, "width": 0.2, "height": 0.3}]
+    assert not tl.apply_detect_resolution("vc", 0, "Blur", {"detect": {"target": "people"}, "regions": regions})
+    assert tl.apply_detect_resolution("vc", 0, "Blur", {"strength": 1, "detect": faces, "regions": regions})
+    assert tl.apply_detect_resolution("vc", 1, "Mask", {"detect": walker, "shape": "rectangle", "x": 0.3})
+    assert tl.unresolved_detects() == []
+    assert [d["resolved"] for d in tl.item_detects()] == [True, True]
+    blur, mask = tl.get_item_tellers_effects("vc")
+    assert blur["parameters"]["strength"] == 40
+    assert blur["parameters"]["regions"] == regions
+    assert mask["parameters"]["feather"] == 4
+    assert mask["parameters"]["x"] == 0.3
+
+
+def test_a_filter_detect_can_pick_several_subjects():
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    tl = Timeline([video])
+    picks = [{"t": 1.0, "x": -0.2, "y": -0.1}, {"t": 3.2, "x": 0.25, "y": -0.15}]
+    detect = {"target": "faces", "pick": picks}
+    assert tl.set_item_tellers_effects("vc", [{"effect_name": "Blur", "parameters": {"detect": detect}}])
+    (unresolved,) = tl.unresolved_detects()
+    assert unresolved["detect"] == detect
+    assert validate_tellers_effect({"effect_name": "Blur", "parameters": {"detect": {"target": "faces", "pick": []}}}) is not None

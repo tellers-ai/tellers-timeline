@@ -501,8 +501,8 @@ impl PyClip {
         self.inner.set_position(position.inner.clone());
     }
     /// The speed the player plays this clip at, as `{"speed", "preserve_pitch"}`
-    /// (`speed` a number, 0 for a freeze frame, or `{"keyframes": [...]}`), or
-    /// None at normal speed.
+    /// (`speed` a number, 0 for a freeze frame and negative backwards, or
+    /// `{"keyframes": [...]}`), or None at normal speed.
     fn get_speed(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
         self.inner
             .get_speed()
@@ -516,7 +516,8 @@ impl PyClip {
             .transpose()
     }
     /// Play this clip at a constant `speed` (0 freezes its first frame, else
-    /// 0.25 to 4); `preserve_pitch=None` keeps the current setting. Raises
+    /// 0.25 to 4 in magnitude, negative playing it backwards);
+    /// `preserve_pitch=None` keeps the current setting. Raises
     /// ValueError for a speed out of range.
     #[pyo3(signature = (speed, preserve_pitch=None))]
     fn set_speed(&mut self, speed: f64, preserve_pitch: Option<bool>) -> PyResult<()> {
@@ -531,6 +532,14 @@ impl PyClip {
     /// Source seconds this clip plays over its duration on the timeline.
     fn get_source_duration(&self) -> f64 {
         self.inner.source_duration()
+    }
+    /// Whether this clip plays its source range backwards (a negative speed).
+    fn is_reversed(&self) -> bool {
+        self.inner.is_reversed()
+    }
+    /// The source time this clip shows `t` seconds into it on the timeline.
+    fn get_source_time_at(&self, t: f64) -> f64 {
+        self.inner.source_time_at(t)
     }
     fn get_crop(&self, py: Python<'_>) -> Py<PyMediaReferenceCrop> {
         let crop = self.inner.get_crop();
@@ -2603,6 +2612,32 @@ impl PyTimeline {
     fn clear_item_follow(&mut self, item_id: &str) -> bool {
         self.inner.clear_item_follow(item_id)
     }
+    /// The `detect`s of the clip `item_id`'s enabled filters and Masks, as `{"item_id",
+    /// "effect_index", "effect_name", "detect", "resolved"}` dicts; `effect_index` counts every
+    /// effect of the clip, like the player's `effectIndex`.
+    fn get_item_detects(&self, py: Python<'_>, item_id: &str) -> PyResult<Vec<PyObject>> {
+        detects_to_python(py, self.inner.get_item_detects(item_id))
+    }
+    /// Every clip effect with a `detect` (at any depth), as `get_item_detects` dicts.
+    fn item_detects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        detects_to_python(py, self.inner.item_detects())
+    }
+    /// The `detect`s the player still has to resolve on load: a filter without `regions`, a Mask
+    /// without `x`.
+    fn unresolved_detects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        detects_to_python(py, self.inner.unresolved_detects())
+    }
+    /// Save what the player detected: the `effectIndex`, `effectName` and `parameters` of its
+    /// `onDetectResolved` callback. A filter gets `regions`, a Mask its `shape`, `x`, `y`,
+    /// `width`, `height`, `opacity` and `points`; other keys are ignored, so the effect's own
+    /// values stay. False, changing nothing, when the effect is no longer an enabled
+    /// `effect_name` with the same `detect`, nothing was detected, or no clip has this id.
+    fn apply_detect_resolution(&mut self, item_id: &str, effect_index: usize, effect_name: &str, parameters: &Bound<PyAny>) -> PyResult<bool> {
+        match json_from_python(parameters)? {
+            serde_json::Value::Object(map) => Ok(self.inner.apply_detect_resolution(item_id, effect_index, effect_name, &map)),
+            _ => Ok(false),
+        }
+    }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the track `track_id`,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
     fn get_track_tellers_effects(&self, py: Python<'_>, track_id: &str, ) -> PyResult<Option<Vec<PyObject>>> {
@@ -2707,6 +2742,28 @@ fn follows_to_python(
         .collect()
 }
 
+fn detects_to_python(
+    py: Python<'_>,
+    detects: Vec<tellers_timeline_core::ItemDetect>,
+) -> PyResult<Vec<PyObject>> {
+    detects
+        .into_iter()
+        .map(|d| {
+            let value = serde_json::json!({
+                "item_id": d.item_id,
+                "effect_index": d.effect_index,
+                "effect_name": d.effect_name,
+                "detect": d.detect.to_value(),
+                "resolved": d.resolved,
+            });
+            match value {
+                serde_json::Value::Object(map) => json_to_python(py, &map),
+                _ => unreachable!("a detect serializes to an object"),
+            }
+        })
+        .collect()
+}
+
 fn tellers_effect_to_python(py: Python<'_>, effect: &TellersEffect) -> PyResult<PyObject> {
     let dict = PyDict::new_bound(py);
     dict.set_item("effect_name", &effect.effect_name)?;
@@ -2778,6 +2835,7 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                         ParameterKind::Points => "points",
                         ParameterKind::Regions => "regions",
                         ParameterKind::Follow => "follow",
+                        ParameterKind::Detect => "detect",
                     };
                     p.set_item("kind", kind)?;
                     Ok(p.into_py(py))

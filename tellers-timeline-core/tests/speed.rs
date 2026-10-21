@@ -64,7 +64,14 @@ fn first_enabled_time_effect_wins_and_speed_is_clamped() {
         2.0,
         vec![
             effect(json!({"OTIO_SCHEMA": "FreezeFrame.1", "enabled": false})),
-            effect(json!({"OTIO_SCHEMA": "LinearTimeWarp.1", "time_scalar": -1.0})),
+            // A ramp crossing zero is ignored.
+            TellersEffect::new("TimeWarp")
+                .with_parameter(
+                    "speed",
+                    Animatable::from(vec![Keyframe::new(0.0, -1.0), Keyframe::new(1.0, 2.0)])
+                        .to_value(),
+                )
+                .to_effect(),
             effect(json!({
                 "OTIO_SCHEMA": "LinearTimeWarp.1",
                 "time_scalar": 10.0,
@@ -74,7 +81,7 @@ fn first_enabled_time_effect_wins_and_speed_is_clamped() {
         ],
     );
     let speed = clip.get_speed().unwrap();
-    // Reverse is skipped; preserve_pitch beside `parameters` is read too.
+    // The crossing ramp is skipped; preserve_pitch beside `parameters` is read too.
     assert_eq!(speed.speed, Animatable::Value(10.0));
     assert!(!speed.preserve_pitch);
     assert_eq!(clip.source_duration(), 2.0 * MAX_CLIP_SPEED);
@@ -111,6 +118,10 @@ fn set_speed_writes_otio_time_effects_and_replaces_the_others() {
 
     assert_eq!(clip.set_speed(5.0, None), Err(SpeedError::OutOfRange(5.0)));
     assert_eq!(clip.set_speed(0.1, None), Err(SpeedError::OutOfRange(0.1)));
+    assert_eq!(clip.set_speed(-5.0, None), Err(SpeedError::OutOfRange(-5.0)));
+    clip.set_speed(-2.0, None).unwrap();
+    assert_eq!(clip.effects[1].other["time_scalar"], json!(-2.0));
+    assert!(clip.is_reversed());
     clip.set_speed(0.5, None).unwrap();
     assert!(clip.clear_speed());
     assert!(!clip.clear_speed());
@@ -177,4 +188,78 @@ fn set_item_speed_reaches_the_sync_partners() {
     assert_eq!(stack.set_item_speed("missing", 2.0, None, true), Ok(0));
     assert!(stack.set_item_speed("vA", 8.0, None, true).is_err());
     assert_eq!(speed_of(&stack, "aA").unwrap().speed, Animatable::Value(2.0));
+}
+
+#[test]
+fn a_negative_speed_plays_the_same_source_range_backwards() {
+    // -2x over 3 s plays source 16 s down to 10 s (video-player-js #679).
+    let mut reversed = clip_with_effects(
+        3.0,
+        vec![effect(json!({"OTIO_SCHEMA": "LinearTimeWarp.1", "time_scalar": -2.0}))],
+    );
+    reversed.source_range.start_time.value = 10.0;
+    let speed = reversed.get_speed().unwrap();
+    assert_eq!(speed.speed, Animatable::Value(-2.0));
+    assert!(speed.is_reversed() && reversed.is_reversed());
+    assert_eq!(reversed.source_duration(), 6.0);
+    assert_eq!(reversed.timeline_duration_for_source(4.0), Some(2.0));
+    assert_eq!(reversed.source_time_at(0.0), 16.0);
+    assert_eq!(reversed.source_time_at(1.0), 14.0);
+    assert_eq!(reversed.source_time_at(3.0), 10.0);
+
+    // Clamped in magnitude like forward speeds.
+    let fast = clip_with_effects(
+        1.0,
+        vec![effect(json!({"OTIO_SCHEMA": "LinearTimeWarp.1", "time_scalar": -10.0}))],
+    );
+    assert_eq!(fast.source_duration(), MAX_CLIP_SPEED);
+
+    // A ramp negative throughout plays backwards too: -1x to -3x over 2 s
+    // plays 4 s of source, then 3 s per second.
+    let ramp = clip_with_effects(
+        4.0,
+        vec![TellersEffect::new("TimeWarp")
+            .with_parameter(
+                "speed",
+                Animatable::from(vec![Keyframe::new(0.0, -1.0), Keyframe::new(2.0, -3.0)])
+                    .to_value(),
+            )
+            .to_effect()],
+    );
+    assert!(ramp.is_reversed());
+    assert!((ramp.source_duration() - 10.0).abs() < 1e-9);
+    assert!((ramp.source_time_at(2.0) - 6.0).abs() < 1e-9);
+
+    assert!(!clip(4.0, None).is_reversed());
+    assert_eq!(clip(4.0, None).source_time_at(1.5), 1.5);
+}
+
+#[test]
+fn splitting_a_reversed_clip_gives_the_left_half_the_top_of_its_source() {
+    // -2x over 4 s from 10 s plays source 18 s down to 10 s.
+    let mut reversed = clip(4.0, Some("rev"));
+    reversed.source_range.start_time.value = 10.0;
+    reversed.set_speed(-2.0, None).unwrap();
+    reversed.markers.push(Marker::new(11.0, 0.0, "", "", None, None, None));
+    reversed.markers.push(Marker::new(17.0, 0.0, "", "", None, None, None));
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    track.items.push(Item::Clip(reversed));
+    let mut stack = Stack::default();
+    stack.children.push(track);
+
+    assert!(stack.split_item_at_time("rev", 1.0));
+    let items = &stack.children[0].items;
+    let (Item::Clip(left), Item::Clip(right)) = (&items[0], &items[1]) else {
+        panic!("two clips");
+    };
+    // Left plays 18 s down to 16 s, right 16 s down to 10 s.
+    assert_eq!(left.source_range.start_time.to_seconds(), 16.0);
+    assert_eq!(left.source_range.duration.to_seconds(), 1.0);
+    assert_eq!(left.source_time_at(0.0), 18.0);
+    assert_eq!(right.source_range.start_time.to_seconds(), 10.0);
+    assert_eq!(right.source_range.duration.to_seconds(), 3.0);
+    assert_eq!(right.source_time_at(0.0), 16.0);
+    let starts = |clip: &Clip| clip.markers.iter().map(|m| m.start()).collect::<Vec<_>>();
+    assert_eq!(starts(left), vec![17.0]);
+    assert_eq!(starts(right), vec![11.0]);
 }

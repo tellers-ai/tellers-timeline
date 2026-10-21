@@ -45,20 +45,31 @@ impl Track {
 
                 // Right clip keeps the rest, media_start advances by the
                 // source the left half plays (left_duration at normal speed).
+                // A reversed clip plays its source from the far end, so the
+                // left half takes the top of the range and the right half
+                // keeps media_start.
                 let left_source = clip.source_offset(left_duration);
+                let split_source_time = if clip.is_reversed() {
+                    let split = clip.source_range.start_time.to_seconds() + clip.source_duration()
+                        - left_source;
+                    left_clip.source_range.start_time.set_from_seconds(split);
+                    split
+                } else {
+                    let split = clip.source_range.start_time.to_seconds() + left_source;
+                    clip.source_range.start_time.set_from_seconds(split);
+                    split
+                };
                 clip.source_range.duration.set_from_seconds(right_duration);
-                let right_source_start = clip.source_range.start_time.to_seconds() + left_source;
-                clip.source_range
-                    .start_time
-                    .set_from_seconds(right_source_start);
 
                 // Each marker stays on the half whose source range holds its
                 // start (source time is shared, so no time shift is needed).
-                let split_source_time = right_source_start;
-                left_clip
-                    .markers
-                    .retain(|m| m.start() < split_source_time - EPS);
-                clip.markers.retain(|m| m.start() >= split_source_time - EPS);
+                let (low, high) = if clip.is_reversed() {
+                    (&mut clip, &mut left_clip)
+                } else {
+                    (&mut left_clip, &mut clip)
+                };
+                low.markers.retain(|m| m.start() < split_source_time - EPS);
+                high.markers.retain(|m| m.start() >= split_source_time - EPS);
 
                 // Ensure the right-hand piece receives a fresh unique id
                 crate::metadata::IdMetadataExt::set_id(

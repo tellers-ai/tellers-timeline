@@ -31,7 +31,8 @@
 //! - A filter (`Blur`, `Pixelate`, `Adjustment`, ... `ChromaKey`) can take
 //!   `regions`, a list of `Mask` shapes: it then shows only inside them
 //!   (one keyframed shape per tracked face or plate), and nowhere when the
-//!   list is empty.
+//!   list is empty. A filter or a `Mask` can instead declare `detect`, what
+//!   the player detects to fill them (see [`crate::detect`]).
 //!
 //! The player applies a clip's effects first, then its track's. Tellers
 //! effects can be written on the root stack, but the player applies only a
@@ -141,6 +142,9 @@ pub enum ParameterKind {
     /// A `Transform`'s `follow`: the auto-tracking zoom recipe its `x`, `y`
     /// and `scale` were computed from; see [`crate::Follow`].
     Follow,
+    /// A filter's or a `Mask`'s `detect`: the subject the player detects to
+    /// fill its `regions` or shape; see [`crate::EffectDetect`].
+    Detect,
 }
 
 /// A parameter of a tellers effect.
@@ -182,6 +186,8 @@ const fn boolean(name: &'static str) -> ParameterSpec {
 }
 /// `regions` of a filter effect; see [`ParameterKind::Regions`].
 const REGIONS: ParameterSpec = ParameterSpec { name: "regions", kind: ParameterKind::Regions };
+/// `detect` of a filter effect or a `Mask`; see [`ParameterKind::Detect`].
+const DETECT: ParameterSpec = ParameterSpec { name: "detect", kind: ParameterKind::Detect };
 const fn effect(
     name: &'static str,
     target: EffectTarget,
@@ -195,8 +201,8 @@ use EffectTarget::{Audio, Text, Time, Video};
 /// Every tellers effect the player renders, with its parameters (mirrors
 /// `schema/timeline.schema.json` in `video-player-js`).
 pub const EFFECT_SPECS: &[EffectSpec] = &[
-    effect("Blur", Video, &[anim("strength"), anim("quality"), REGIONS]),
-    effect("Pixelate", Video, &[anim("size"), REGIONS]),
+    effect("Blur", Video, &[anim("strength"), anim("quality"), REGIONS, DETECT]),
+    effect("Pixelate", Video, &[anim("size"), REGIONS, DETECT]),
     effect(
         "Adjustment",
         Video,
@@ -210,6 +216,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("blue"),
             anim("alpha"),
             REGIONS,
+            DETECT,
         ],
     ),
     effect(
@@ -234,6 +241,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("hue"),
             anim("amount"),
             REGIONS,
+            DETECT,
         ],
     ),
     effect(
@@ -246,12 +254,13 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("colorize"),
             anim("amount"),
             REGIONS,
+            DETECT,
         ],
     ),
     // `target_url` is resolved from `asset_id`; see `crate::effect_assets`.
     effect("ColorLut", Video, &[string("asset_id"), string("target_url")]),
-    effect("Noise", Video, &[anim("amount"), anim("speed"), anim("seed"), REGIONS]),
-    effect("RGBSplit", Video, &[anim("amount"), anim("angle"), REGIONS]),
+    effect("Noise", Video, &[anim("amount"), anim("speed"), anim("seed"), REGIONS, DETECT]),
+    effect("RGBSplit", Video, &[anim("amount"), anim("angle"), REGIONS, DETECT]),
     effect(
         "ZoomBlur",
         Video,
@@ -261,6 +270,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("centerY"),
             anim("innerRadius"),
             REGIONS,
+            DETECT,
         ],
     ),
     effect(
@@ -273,6 +283,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("alpha"),
             color("color"),
             REGIONS,
+            DETECT,
         ],
     ),
     effect(
@@ -285,6 +296,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("spill"),
             anim("choke"),
             REGIONS,
+            DETECT,
         ],
     ),
     effect(
@@ -362,6 +374,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             choice("mode", &["add", "subtract", "intersect"]),
             boolean("closed"),
             ParameterSpec { name: "points", kind: ParameterKind::Points },
+            DETECT,
         ],
     ),
     effect(
@@ -670,7 +683,7 @@ impl TellersEffect {
 
     /// Write this effect into `effect`, keeping its other keys (other
     /// `tellers.ai` keys, Resolve data, extra OTIO fields).
-    fn write_into(&self, effect: &mut Effect) {
+    pub(crate) fn write_into(&self, effect: &mut Effect) {
         effect.effect_name = format!(
             "{TELLERS_EFFECT_PREFIX}{}",
             bare_effect_name(&self.effect_name)
@@ -723,16 +736,17 @@ fn parameter_value_is_valid(kind: ParameterKind, value: &Value) -> bool {
             .as_array()
             .is_some_and(|regions| regions.iter().all(mask_shape_is_valid)),
         ParameterKind::Follow => crate::follow::follow_value_is_valid(value),
+        ParameterKind::Detect => crate::detect::detect_value_is_valid(value),
     }
 }
 
 /// Whether `shape` is an object of `Mask` parameters (a filter region, a
-/// followed region).
+/// followed region), without `detect`: a region is what was detected.
 pub(crate) fn mask_shape_is_valid(shape: &Value) -> bool {
     let mask = effect_spec("Mask").expect("Mask is a tellers effect");
     shape.as_object().is_some_and(|shape| {
         shape.iter().all(|(key, v)| {
-            mask.parameter(key)
+            key != crate::detect::DETECT_PARAMETER && mask.parameter(key)
                 .is_some_and(|p| parameter_value_is_valid(p.kind, v))
         })
     })
