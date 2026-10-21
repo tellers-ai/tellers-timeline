@@ -262,3 +262,14 @@ def test_declared_follow_is_resolved_by_the_player_and_saved():
     (transform,) = tl.get_item_tellers_effects("vc")
     assert transform["parameters"]["scale"] == 2.5
     assert "opacity" not in transform["parameters"]
+
+
+def test_follow_detect_settings_round_trip():
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    tl = Timeline([video])
+    follow = {"target": "car", "pick": {"t": 1.0, "x": 0.0, "y": 0.0},
+              "detect": {"objectModel": "accurate", "fps": 12.0}}
+    assert tl.set_item_follow("vc", follow)
+    assert tl.get_item_follow("vc") == follow
+    assert not tl.set_item_follow("vc", {**follow, "detect": {"objectModel": "best"}})
+    assert not tl.set_item_follow("vc", {**follow, "detect": {"delegate": "GPU"}})

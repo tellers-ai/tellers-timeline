@@ -77,6 +77,56 @@ pub struct FollowPick {
     pub y: f64,
 }
 
+/// `detectRegions`' object detector: EfficientDet-Lite0 (`fast`, the
+/// default) or Lite2 (`accurate`), for every target but faces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ObjectModel {
+    Fast,
+    Accurate,
+}
+
+/// `detectRegions`' face detector: `short` finds faces filling a good part
+/// of the frame; `full` (the default) also small, distant ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FaceModel {
+    Short,
+    Full,
+}
+
+/// The `detectRegions` options a follow's region is detected with (left
+/// out: the player's defaults, in brackets). The player passes them on
+/// when it resolves a `target` + `pick` follow and keeps them as given.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FollowDetect {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object_model: Option<ObjectModel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face_model: Option<FaceModel>,
+    /// Frames sampled per second (8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fps: Option<f64>,
+    /// Width frames are decoded at before detection, pixels (640).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    /// Detections scoring below this are ignored (0.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_confidence: Option<f64>,
+    /// A subject missing longer than this ends its track, seconds (1.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_gap: Option<f64>,
+    /// Tracks shorter than this are dropped, seconds (0.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_duration: Option<f64>,
+    /// Region size relative to the detected box (faces 1.5 x 1.7, others 1.15 x 1.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad_x: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad_y: Option<f64>,
+}
+
 /// The recipe of an auto-tracking zoom: the region followed (or what to
 /// detect and where) and the `followTransform` options (left out: the
 /// player's defaults, in brackets).
@@ -91,6 +141,9 @@ pub struct Follow {
     /// Where the subject was chosen; with `target`, enough to find it again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pick: Option<FollowPick>,
+    /// How the region is (or was) detected; the player's defaults when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detect: Option<FollowDetect>,
     /// The `detectRegions` target the region came from; see [`is_follow_target`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
@@ -145,6 +198,7 @@ impl Follow {
         Follow {
             region: None,
             pick: None,
+            detect: None,
             target: None,
             fill: None,
             aspect: None,
@@ -489,6 +543,44 @@ mod tests {
         both.pick = Some(pick);
         assert!(both.is_resolved());
         assert_eq!(Follow::from_value(&both.to_value()), Some(both));
+    }
+
+    #[test]
+    fn detect_holds_the_detection_settings() {
+        let pick = FollowPick { t: 1.0, x: 0.0, y: 0.0 };
+        let mut follow = Follow::declared("car", pick);
+        follow.detect = Some(FollowDetect {
+            object_model: Some(ObjectModel::Accurate),
+            fps: Some(12.0),
+            min_confidence: Some(0.35),
+            ..FollowDetect::default()
+        });
+        let value = follow.to_value();
+        assert_eq!(value["detect"], json!({ "objectModel": "accurate", "fps": 12.0, "minConfidence": 0.35 }));
+        assert_eq!(Follow::from_value(&value), Some(follow.clone()));
+        let with = |detect: Value| Follow::from_value(&json!({ "target": "car", "pick": { "t": 1, "x": 0, "y": 0 }, "detect": detect }));
+        assert!(with(json!({})).is_some());
+        assert!(with(json!({ "faceModel": "full", "maxGap": 2, "minDuration": 0.5, "width": 960, "padX": 1.2, "padY": 1.3 })).is_some());
+        assert!(with(json!({ "objectModel": "best" })).is_none());
+        assert!(with(json!({ "faceModel": "Full" })).is_none());
+        assert!(with(json!({ "delegate": "GPU" })).is_none());
+        assert!(with(json!({ "fps": "8" })).is_none());
+
+        // The player keeps detect as given, so a resolution of this follow is saved,
+        // and one detected with other settings is not.
+        let mut timeline = timeline();
+        assert!(timeline.set_item_follow("vc", &follow, Map::new()));
+        let mut resolved = follow.clone();
+        resolved.region = walker().region;
+        let mut parameters = baked();
+        parameters.insert("follow".into(), resolved.to_value());
+        let mut other = resolved.clone();
+        other.detect = Some(FollowDetect { object_model: Some(ObjectModel::Fast), ..FollowDetect::default() });
+        let mut stale = baked();
+        stale.insert("follow".into(), other.to_value());
+        assert!(!timeline.apply_follow_resolution("vc", &stale));
+        assert!(timeline.apply_follow_resolution("vc", &parameters));
+        assert_eq!(timeline.get_item_follow("vc"), Some(resolved));
     }
 
     #[test]

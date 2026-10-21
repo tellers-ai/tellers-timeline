@@ -87,11 +87,25 @@ class FollowPick(TypedDict):
     x: float
     y: float
 
+# The `detectRegions` options a follow is detected with; left out, the
+# player's defaults.
+class FollowDetect(TypedDict, total=False):
+    objectModel: Literal["fast", "accurate"]
+    faceModel: Literal["short", "full"]
+    fps: float
+    width: float
+    minConfidence: float
+    maxGap: float
+    minDuration: float
+    padX: float
+    padY: float
+
 # A follow needs `region`, or both `target` and `pick` (then the player
 # detects and resolves it, see `unresolved_follows`).
 class Follow(TypedDict, total=False):
     region: dict[str, Any]
     pick: FollowPick
+    detect: FollowDetect
     target: str
     """"faces", a group ("people", "animals", "vehicles") or one COCO category name, e.g. "dog"."""
     fill: float

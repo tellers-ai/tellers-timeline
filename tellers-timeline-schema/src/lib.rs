@@ -640,6 +640,7 @@ fn effects_section(out: &mut String) {
          | `region` | the detected region followed, an object of [Mask](#effect-mask) parameters in clip space; required unless `target` and `pick` are given |\n\
          | `pick` | `{{ \"t\", \"x\", \"y\" }}`, plain numbers, all required: where the subject was chosen, at `t` clip seconds and (`x`, `y`) in clip space before crop ((0, 0) the clip's center, ±0.5 its edges); with `target`, enough to detect it again |\n\
          | `target` | the detection target it came from: {}, or one COCO category: {} |\n\
+         | `detect` | the detection settings, kept as given (left out: the player's defaults): `objectModel` (`\"fast\"` \\| `\"accurate\"`, every target but faces), `faceModel` (`\"short\"` \\| `\"full\"`), and the plain numbers `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY`, the `detectRegions` options of the same names; no other key |\n\
          | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |\n",
         FOLLOW_GROUP_TARGETS.iter().map(|t| format!("`\"{t}\"`")).collect::<Vec<_>>().join(" \\| "),
         COCO_CATEGORIES.iter().map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", "),
