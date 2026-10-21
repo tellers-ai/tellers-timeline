@@ -28,6 +28,10 @@
 //! - A numeric parameter is an [`Animatable`]: a number, or keyframes with
 //!   `t` in seconds from the start of the clip on the timeline. Strings
 //!   (colors, presets, modes) and booleans are fixed.
+//! - A filter (`Blur`, `Pixelate`, `Adjustment`, ... `ChromaKey`) can take
+//!   `regions`, a list of `Mask` shapes: it then shows only inside them
+//!   (one keyframed shape per tracked face or plate), and nowhere when the
+//!   list is empty.
 //!
 //! The player applies a clip's effects first, then its track's. Tellers
 //! effects can be written on the root stack, but the player applies only a
@@ -131,6 +135,9 @@ pub enum ParameterKind {
     /// A `Mask` path: `[x, y]` pairs or `{x, y, in_x, in_y, out_x, out_y}`
     /// bezier points, each coordinate an [`Animatable`].
     Points,
+    /// A filter's `regions`: a list of mask shapes, each an object of `Mask`
+    /// parameters; the filter shows only inside them (none: nowhere).
+    Regions,
 }
 
 /// A parameter of a tellers effect.
@@ -170,6 +177,8 @@ const fn choice(name: &'static str, options: &'static [&'static str]) -> Paramet
 const fn boolean(name: &'static str) -> ParameterSpec {
     ParameterSpec { name, kind: ParameterKind::Bool }
 }
+/// `regions` of a filter effect; see [`ParameterKind::Regions`].
+const REGIONS: ParameterSpec = ParameterSpec { name: "regions", kind: ParameterKind::Regions };
 const fn effect(
     name: &'static str,
     target: EffectTarget,
@@ -183,8 +192,8 @@ use EffectTarget::{Audio, Text, Time, Video};
 /// Every tellers effect the player renders, with its parameters (mirrors
 /// `schema/timeline.schema.json` in `video-player-js`).
 pub const EFFECT_SPECS: &[EffectSpec] = &[
-    effect("Blur", Video, &[anim("strength"), anim("quality")]),
-    effect("Pixelate", Video, &[anim("size")]),
+    effect("Blur", Video, &[anim("strength"), anim("quality"), REGIONS]),
+    effect("Pixelate", Video, &[anim("size"), REGIONS]),
     effect(
         "Adjustment",
         Video,
@@ -197,6 +206,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("green"),
             anim("blue"),
             anim("alpha"),
+            REGIONS,
         ],
     ),
     effect(
@@ -220,6 +230,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             ),
             anim("hue"),
             anim("amount"),
+            REGIONS,
         ],
     ),
     effect(
@@ -231,12 +242,13 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("lightness"),
             anim("colorize"),
             anim("amount"),
+            REGIONS,
         ],
     ),
     // `target_url` is resolved from `asset_id`; see `crate::effect_assets`.
     effect("ColorLut", Video, &[string("asset_id"), string("target_url")]),
-    effect("Noise", Video, &[anim("amount"), anim("speed"), anim("seed")]),
-    effect("RGBSplit", Video, &[anim("amount"), anim("angle")]),
+    effect("Noise", Video, &[anim("amount"), anim("speed"), anim("seed"), REGIONS]),
+    effect("RGBSplit", Video, &[anim("amount"), anim("angle"), REGIONS]),
     effect(
         "ZoomBlur",
         Video,
@@ -245,6 +257,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("centerX"),
             anim("centerY"),
             anim("innerRadius"),
+            REGIONS,
         ],
     ),
     effect(
@@ -256,6 +269,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("blur"),
             anim("alpha"),
             color("color"),
+            REGIONS,
         ],
     ),
     effect(
@@ -267,6 +281,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("smoothness"),
             anim("spill"),
             anim("choke"),
+            REGIONS,
         ],
     ),
     effect(
@@ -700,6 +715,19 @@ fn parameter_value_is_valid(kind: ParameterKind, value: &Value) -> bool {
                 _ => false,
             })
         }),
+        ParameterKind::Regions => {
+            let mask = effect_spec("Mask").expect("Mask is a tellers effect");
+            value.as_array().is_some_and(|regions| {
+                regions.iter().all(|region| {
+                    region.as_object().is_some_and(|shape| {
+                        shape.iter().all(|(key, v)| {
+                            mask.parameter(key)
+                                .is_some_and(|p| parameter_value_is_valid(p.kind, v))
+                        })
+                    })
+                })
+            })
+        }
     }
 }
 
@@ -1326,6 +1354,33 @@ mod tests {
             .is_ok());
         assert!(TellersEffect::new("Stabilize").with_parameter("opacity", 1.0).validate().is_err());
         assert!(!TellersEffect::new("Stabilize").allowed_on(&TrackKind::Audio));
+    }
+
+    #[test]
+    fn filters_take_mask_shaped_regions() {
+        // The player's face-blur example: one keyframed ellipse.
+        let face = json!({
+            "shape": "ellipse", "width": 0.12, "height": 0.3, "feather": 20,
+            "x": { "keyframes": [ { "t": 0, "v": -0.1 }, { "t": 2, "v": 0.05 } ] }, "y": -0.15
+        });
+        let blur = |regions: Value| {
+            TellersEffect::new("Blur")
+                .with_parameter("strength", 40.0)
+                .with_parameter("regions", regions)
+                .validate()
+        };
+        assert!(blur(json!([face])).is_ok());
+        assert!(blur(json!([])).is_ok());
+        assert!(blur(json!([{ "shape": "path", "points": [[0.1, 0.2], [0.3, 0.4]] }])).is_ok());
+        assert!(blur(json!([{ "shape": "star" }])).is_err());
+        assert!(blur(json!([{ "track": "v1" }])).is_err());
+        assert!(blur(json!([{ "x": "left" }])).is_err());
+        assert!(blur(json!(face)).is_err());
+        assert!(TellersEffect::new("ChromaKey").with_parameter("regions", json!([])).validate().is_ok());
+        // Only the filters: not Transform, Border, ColorLut or Stabilize.
+        for name in ["Transform", "Border", "ColorLut", "Stabilize", "Mask"] {
+            assert!(effect_spec(name).unwrap().parameter("regions").is_none(), "{name}");
+        }
     }
 
     #[test]

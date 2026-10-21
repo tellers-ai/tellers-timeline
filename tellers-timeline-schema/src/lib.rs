@@ -538,6 +538,11 @@ fn kind_string(kind: ParameterKind) -> String {
             "array of `[x, y]` or `{x, y, in_x?, in_y?, out_x?, out_y?}` (animatable coordinates)"
                 .to_string()
         }
+        ParameterKind::Regions => {
+            "array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, \
+             nowhere when empty"
+                .to_string()
+        }
     }
 }
 

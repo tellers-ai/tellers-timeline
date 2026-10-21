@@ -75,7 +75,7 @@ class TellersEffectInput(TypedDict, total=False):
 
 class EffectParameterSpec(TypedDict, total=False):
     name: Required[str]
-    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points"]]
+    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions"]]
     options: list[str]
 
 # A clip's speed: `speed` is a number (0 for a freeze frame) or keyframes.

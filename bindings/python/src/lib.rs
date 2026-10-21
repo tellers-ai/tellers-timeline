@@ -2680,6 +2680,7 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                         }
                         ParameterKind::Bool => "bool",
                         ParameterKind::Points => "points",
+                        ParameterKind::Regions => "regions",
                     };
                     p.set_item("kind", kind)?;
                     Ok(p.into_py(py))
