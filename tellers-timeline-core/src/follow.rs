@@ -34,8 +34,28 @@ const TRANSFORM: &str = "Transform";
 pub const FOLLOW_PARAMETER: &str = "follow";
 /// The `Transform` parameters a follow computes.
 pub const FOLLOW_TRANSFORM_PARAMETERS: [&str; 3] = ["x", "y", "scale"];
-/// `detectRegions` targets a followed region can come from.
-pub const FOLLOW_TARGETS: [&str; 4] = ["faces", "people", "animals", "vehicles"];
+/// `detectRegions` targets a followed region can come from: faces or a
+/// group of COCO categories.
+pub const FOLLOW_GROUP_TARGETS: [&str; 4] = ["faces", "people", "animals", "vehicles"];
+/// The 80 COCO categories, each also a `detectRegions` target on its own.
+pub const COCO_CATEGORIES: [&str; 80] = [
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+    "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
+    "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
+    "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
+    "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
+    "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
+    "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote",
+    "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book",
+    "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
+];
+
+/// Whether `target` is a `detectRegions` target: one of
+/// [`FOLLOW_GROUP_TARGETS`] or [`COCO_CATEGORIES`].
+pub fn is_follow_target(target: &str) -> bool {
+    FOLLOW_GROUP_TARGETS.contains(&target) || COCO_CATEGORIES.contains(&target)
+}
 
 /// The recipe of an auto-tracking zoom: the region followed and the
 /// `followTransform` options (left out: the player's defaults, in brackets).
@@ -45,7 +65,7 @@ pub struct Follow {
     /// The detected region followed, a `Mask` shape in clip space (a
     /// `detectRegions` region).
     pub region: Map<String, Value>,
-    /// The `detectRegions` target the region came from; see [`FOLLOW_TARGETS`].
+    /// The `detectRegions` target the region came from; see [`is_follow_target`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
     /// Share of the frame the region fills, its larger side (0.6).
@@ -120,7 +140,7 @@ impl Follow {
             && self
                 .target
                 .as_deref()
-                .is_none_or(|target| FOLLOW_TARGETS.contains(&target))
+                .is_none_or(is_follow_target)
     }
 }
 
@@ -261,6 +281,9 @@ mod tests {
         assert!(Follow::from_value(&json!({ "fill": 0.6 })).is_none(), "region is required");
         assert!(Follow::from_value(&json!({ "region": {}, "speed": 2 })).is_none());
         assert!(Follow::from_value(&json!({ "region": {}, "target": "cars" })).is_none());
+        for target in ["faces", "vehicles", "dog", "sports ball", "toothbrush"] {
+            assert!(Follow::from_value(&json!({ "region": {}, "target": target })).is_some(), "{target}");
+        }
         assert!(Follow::from_value(&json!({ "region": { "shape": "star" } })).is_none());
         assert!(Follow::from_value(&json!({ "region": {}, "fill": { "keyframes": [] } })).is_none());
         assert!(TellersEffect::new("Transform")

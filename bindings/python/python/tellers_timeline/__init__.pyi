@@ -82,7 +82,8 @@ class EffectParameterSpec(TypedDict, total=False):
 # the player's `followTransform` option names; left-out settings take its defaults.
 class Follow(TypedDict, total=False):
     region: Required[dict[str, Any]]
-    target: Literal["faces", "people", "animals", "vehicles"]
+    target: str
+    """"faces", a group ("people", "animals", "vehicles") or one COCO category name, e.g. "dog"."""
     fill: float
     aspect: float
     minZoom: float

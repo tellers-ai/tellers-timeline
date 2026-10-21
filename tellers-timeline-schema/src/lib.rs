@@ -14,7 +14,8 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 use tellers_timeline_core::{
-    Ease, EffectTarget, ParameterKind, EFFECT_SPECS, FOLLOW_PARAMETER, FOLLOW_TARGETS,
+    Ease, EffectTarget, ParameterKind, EFFECT_SPECS, FOLLOW_PARAMETER, FOLLOW_GROUP_TARGETS,
+    COCO_CATEGORIES,
     TELLERS_EFFECT_PREFIX,
 };
 
@@ -631,9 +632,10 @@ fn effects_section(out: &mut String) {
          follow is the one on its first enabled `Transform`.\n\n\
          | Key | Value |\n|---|---|\n\
          | `region` | required: the detected region followed, an object of [Mask](#effect-mask) parameters in clip space |\n\
-         | `target` | the detection target it came from: {} |\n\
+         | `target` | the detection target it came from: {}, or one COCO category: {} |\n\
          | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |\n",
-        FOLLOW_TARGETS.iter().map(|t| format!("`\"{t}\"`")).collect::<Vec<_>>().join(" \\| "),
+        FOLLOW_GROUP_TARGETS.iter().map(|t| format!("`\"{t}\"`")).collect::<Vec<_>>().join(" \\| "),
+        COCO_CATEGORIES.iter().map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", "),
     );
     out.push_str(
         "### Animatable parameters\n\n\
