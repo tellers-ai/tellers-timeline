@@ -298,3 +298,23 @@ def test_timeline_delegates_to_stack():
     # Timeline exposes the same translated surface and delegates to its Stack.
     assert isinstance(timeline.get_stack(), Stack)
     assert isinstance(timeline.sync_track_info(), list)
+
+
+def test_move_items_at_time_shifts_the_selection_together():
+    def clip(id):
+        return Item.from_clip(Clip(2.0, {"DEFAULT_MEDIA": MediaReference(f"file:///{id}.mov")}, id=id))
+
+    stack = Stack(
+        [
+            Track(kind="video", id="v1", children=[clip("A")]),
+            Track(kind="video", id="v2", children=[Item.from_gap(Gap(4.0)), clip("B")]),
+        ]
+    )
+
+    assert stack.move_items_at_time("A", ["B"], "v1", 3.0, True, "override", "split_and_insert")
+
+    def start(id):
+        track_index, item_index, _ = stack.get_item(id)
+        return stack.tracks()[track_index].start_time_of_item(item_index)
+
+    assert (start("A"), start("B")) == (3.0, 7.0)

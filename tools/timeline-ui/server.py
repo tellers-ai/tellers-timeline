@@ -587,6 +587,12 @@ def op_move_item(state: State, p: dict):
         ok = timeline.move_item(p["id"], p["track_id"], time)
         state.stack = timeline.get_stack()
         call = f"timeline.move_item({_fmt(p['id'])}, {_fmt(p['track_id'])}, {time:g})"
+    elif p.get("others"):
+        # A multi-selection drag: the others shift by the dragged clip's delta.
+        time = float(p["time"])
+        others = [str(i) for i in p["others"]]
+        ok = state.stack.move_items_at_time(p["id"], others, p["track_id"], time, replace_with_gap, overlap, insert_policy)
+        call = f"stack.move_items_at_time({_fmt(p['id'])}, {_fmt(others)}, {_fmt(p['track_id'])}, {time:g}, {replace_with_gap}, {_fmt(overlap)}, {_fmt(insert_policy)})"
     else:
         time = float(p["time"])
         ok = state.stack.move_item_at_time(p["id"], p["track_id"], time, replace_with_gap, overlap, insert_policy)
