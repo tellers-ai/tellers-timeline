@@ -80,8 +80,32 @@ class EffectParameterSpec(TypedDict, total=False):
 
 # The `follow` parameter of a Transform (an auto-tracking zoom recipe), with
 # the player's `followTransform` option names; left-out settings take its defaults.
+# Where a followed subject was chosen: `t` clip seconds, (`x`, `y`) in clip
+# space before crop ((0, 0) the clip's center, ±0.5 its edges).
+class FollowPick(TypedDict):
+    t: float
+    x: float
+    y: float
+
+# The `detectRegions` options a follow is detected with; left out, the
+# player's defaults.
+class FollowDetect(TypedDict, total=False):
+    objectModel: Literal["fast", "accurate"]
+    faceModel: Literal["short", "full"]
+    fps: float
+    width: float
+    minConfidence: float
+    maxGap: float
+    minDuration: float
+    padX: float
+    padY: float
+
+# A follow needs `region`, or both `target` and `pick` (then the player
+# detects and resolves it, see `unresolved_follows`).
 class Follow(TypedDict, total=False):
-    region: Required[dict[str, Any]]
+    region: dict[str, Any]
+    pick: FollowPick
+    detect: FollowDetect
     target: str
     """"faces", a group ("people", "animals", "vehicles") or one COCO category name, e.g. "dog"."""
     fill: float
@@ -767,6 +791,9 @@ class Timeline:
     def set_item_tellers_effect_parameter(self, item_id: str, index: int, key: str, value: Optional[EffectParameter] = None) -> bool: ...
     def get_item_follow(self, item_id: str) -> Optional[Follow]: ...
     def set_item_follow(self, item_id: str, follow: Follow, transform: Optional[dict[str, Animatable]] = None) -> bool: ...
+    def item_follows(self) -> list[tuple[str, Follow]]: ...
+    def unresolved_follows(self) -> list[tuple[str, Follow]]: ...
+    def apply_follow_resolution(self, item_id: str, parameters: dict[str, Any]) -> bool: ...
     def clear_item_follow(self, item_id: str) -> bool: ...
     def get_track_tellers_effects(self, track_id: str) -> Optional[list[TellersEffect]]: ...
     def set_track_tellers_effects(self, track_id: str, effects: list[TellersEffectInput]) -> bool: ...
