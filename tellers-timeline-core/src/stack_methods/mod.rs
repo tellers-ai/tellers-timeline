@@ -744,8 +744,23 @@ impl Stack {
         dest_track_id: &str,
         dest_time: Seconds,
     ) -> Option<Vec<(String, String, Seconds)>> {
-        let (selected_track_index, selected_item_index, selected_item) = self.get_item(item_id)?;
+        let (_, _, selected_item) = self.get_item(item_id)?;
         item_tellers_group_id(selected_item)?;
+        self.offset_move_plan(item_id, &[], dest_track_id, dest_time)
+    }
+
+    /// Like [`Stack::tellers_group_move_plan`], for the selected clip plus
+    /// `other_ids`: every sub-unit of each of them (and of their Tellers
+    /// groups) shifts by the selected clip's delta. Returns `None` when the
+    /// selected item is missing or is a gap.
+    fn offset_move_plan(
+        &self,
+        item_id: &str,
+        other_ids: &[String],
+        dest_track_id: &str,
+        dest_time: Seconds,
+    ) -> Option<Vec<(String, String, Seconds)>> {
+        let (selected_track_index, selected_item_index, _) = self.get_item(item_id)?;
         let selected_start =
             self.children[selected_track_index].start_time_of_item(selected_item_index);
         let delta = dest_time - selected_start;
@@ -764,7 +779,13 @@ impl Stack {
             dest_time,
         )];
         let mut seen_ids: HashSet<String> = column_ids(item_id).into_iter().collect();
-        for (track_index, item_index) in self.delete_item_group_targets(item_id, true)? {
+        let mut targets = self.delete_item_group_targets(item_id, true)?;
+        for id in other_ids {
+            if matches!(self.get_item(id), Some((_, _, Item::Clip(_)))) {
+                targets.extend(self.delete_item_group_targets(id, true).unwrap_or_default());
+            }
+        }
+        for (track_index, item_index) in targets {
             let Some(Item::Clip(clip)) = self
                 .children
                 .get(track_index)

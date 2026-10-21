@@ -37,6 +37,74 @@ impl Stack {
         moved
     }
 
+    /// Move several items together: `item_id` goes to `dest_time` on the
+    /// track with `dest_track_id`, and every item in `other_ids` shifts by the
+    /// same time delta on its own track (a multi-selection drag).
+    ///
+    /// Each moved clip brings its sync partners and its Tellers group, as in
+    /// [`Stack::move_item_at_time`]. `other_ids` entries that are missing, not
+    /// clips, or `item_id` itself are ignored; with none left this is a plain
+    /// [`Stack::move_item_at_time`]. When the delta would put a clip before 0,
+    /// it is clamped so the earliest clip lands at 0. Insert-policy snapping
+    /// is resolved on `item_id` once and applied to every clip.
+    ///
+    /// All or nothing: returns false, leaving the stack unchanged, when any
+    /// clip cannot be placed.
+    #[allow(clippy::too_many_arguments)]
+    pub fn move_items_at_time(
+        &mut self,
+        item_id: &str,
+        other_ids: &[String],
+        dest_track_id: &str,
+        dest_time: Seconds,
+        replace_with_gap: bool,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        let others: Vec<String> = other_ids
+            .iter()
+            .filter(|id| id.as_str() != item_id)
+            .filter(|id| matches!(self.get_item(id), Some((_, _, Item::Clip(_)))))
+            .cloned()
+            .collect();
+        if others.is_empty() {
+            return self.move_item_at_time(
+                item_id,
+                dest_track_id,
+                dest_time,
+                replace_with_gap,
+                insert_policy,
+                overlap_policy,
+            );
+        }
+        let Some(mut plan) = self.offset_move_plan(item_id, &others, dest_track_id, dest_time)
+        else {
+            return false;
+        };
+        let earliest = plan.iter().map(|(_, _, t)| *t).fold(f64::INFINITY, f64::min);
+        if earliest < 0.0 {
+            for (_, _, time) in &mut plan {
+                *time -= earliest;
+            }
+        }
+        let carried =
+            self.attached_transitions_of(plan.iter().map(|(id, _, _)| id.clone()).collect());
+        let backup = self.clone();
+        if !self.move_group_plan(
+            &backup,
+            item_id,
+            plan,
+            replace_with_gap,
+            insert_policy,
+            overlap_policy,
+        ) {
+            *self = backup;
+            return false;
+        }
+        self.reattach_transitions(carried);
+        true
+    }
+
     fn move_item_at_time_inner(
         &mut self,
         item_id: &str,
@@ -479,11 +547,17 @@ impl Stack {
         dest_track_id: &str,
         dest_time: Seconds,
     ) -> Vec<CarriedTransition> {
-        let mut ids: Vec<String> =
+        let ids: Vec<String> =
             match self.tellers_group_move_plan(item_id, dest_track_id, dest_time) {
                 Some(plan) => plan.into_iter().map(|(id, _, _)| id).collect(),
                 None => vec![item_id.to_string()],
             };
+        self.attached_transitions_of(ids)
+    }
+
+    /// [`Stack::attached_transitions`] for the clips `ids` and their sync
+    /// partners.
+    fn attached_transitions_of(&self, mut ids: Vec<String>) -> Vec<CarriedTransition> {
         for id in ids.clone() {
             for member in self.synced_move_items(&id).unwrap_or_default() {
                 if let Some(member_id) = member.item.get_id() {

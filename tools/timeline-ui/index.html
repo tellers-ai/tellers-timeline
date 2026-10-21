@@ -88,6 +88,7 @@
   .item.disabled .nm { text-decoration: line-through; }
   .item.selected { outline: 2px solid #fff; outline-offset: -2px; }
   .item.dragging { opacity: .35; }
+  .item.riding { opacity: .7; outline: 2px dashed #fff; outline-offset: -2px; z-index: 2; }
   .item .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .item .sub { font-size: 10px; opacity: .85; white-space: nowrap; overflow: hidden; display: flex; gap: 5px; }
   .badge { background: rgba(0,0,0,.35); border-radius: 3px; padding: 0 4px; }
@@ -228,7 +229,7 @@
     <button data-tab="sync">Groups</button>
     <button data-tab="json">JSON</button>
     <span class="spacer"></span>
-    <span id="hint">drag = move · ⇧drag = ripple (prod) · edges = resize · dbl-click lane = insert · right-click = menu (ruler/lane/clip: add marker; clip: effects, speed, transitions) · F = clip effects · dbl-click compound = open it · click ⧓ = edit transition · click flag = edit marker · drag flag = move marker · ⌘Z undo</span>
+    <span id="hint">drag = move · ⇧/⌘-click = multi-select, then drag one to move them all · ⇧drag = ripple (prod, single clip) · edges = resize · dbl-click lane = insert · right-click = menu (ruler/lane/clip: add marker; clip: effects, speed, transitions) · F = clip effects · dbl-click compound = open it · click ⧓ = edit transition · click flag = edit marker · drag flag = move marker · ⌘Z undo</span>
     <button id="btnPanel" title="collapse">▾</button>
   </div>
   <div class="body">
@@ -777,11 +778,29 @@
     e.stopPropagation();
     const rect = d.getBoundingClientRect();
     const handle = e.target.classList.contains('h') ? (e.target.classList.contains('l') ? 'l' : 'r') : null;
-    dragState = { it, t, d, handle, startX: e.clientX, startY: e.clientY, grabX: e.clientX - rect.left, rect, moved: false, lane: null, time: null, index: null };
+    dragState = { it, t, d, handle, startX: e.clientX, startY: e.clientY, grabX: e.clientX - rect.left, rect, moved: false, lane: null, time: null, index: null, others: dragOthers(it, handle) };
     d.setPointerCapture(e.pointerId);
     d.addEventListener('pointermove', onPointerMove);
     d.addEventListener('pointerup', onPointerUp, { once: true });
     d.addEventListener('lostpointercapture', cancelDrag, { once: true });
+  }
+  // Dragging a clip that is part of a multi-selection moves the whole
+  // selection (stack.move_items_at_time): the other clips keep their tracks
+  // and shift by the dragged clip's delta. Only clips take part.
+  function dragOthers(it, handle) {
+    if (handle || it.kind !== 'clip' || !selected.has(it.id) || selected.size < 2) return [];
+    return [...selected].filter(id => id !== it.id && (findItem(id) || {}).kind === 'clip');
+  }
+  // Slide the other selected clips by the drop delta, stopping where the
+  // earliest one reaches 0 (the library clamps the same way).
+  function previewOthers(s) {
+    if (!s.others.length) return;
+    const starts = [s.it.start, ...s.others.map(id => findItem(id).start)];
+    const delta = s.time === null ? 0 : Math.max(s.time - s.it.start, -Math.min(...starts));
+    for (const id of s.others) {
+      const d = $(`.item[data-id="${CSS.escape(id)}"]`);
+      if (d) { d.classList.add('dragging', 'riding'); d.style.transform = `translateX(${delta * pps}px)`; }
+    }
   }
   function onPointerMove(e) {
     const s = dragState; if (!s) return;
@@ -803,7 +822,7 @@
     // comes back as `false`: the target track pulses red (see the Result panel).
     lane.classList.add('drop');
     const lrect = lane.getBoundingClientRect();
-    const mode = isProd() ? prodMovePolicy(shiftDown(e)).mode : opts().mode;
+    const mode = s.others.length ? 'time' : isProd() ? prodMovePolicy(shiftDown(e)).mode : opts().mode;
     const x = e.clientX - lrect.left - s.grabX;
     // Both are kept: in prod mode ⇧ can still change between here and the drop.
     s.index = indexAt(track, e.clientX - lrect.left);
@@ -818,7 +837,9 @@
       el.dropline.style.left = `calc(var(--hdr-w) + ${s.time * pps}px)`;
       el.droptip.textContent = `→ track #${track.index} @ ${fmt(s.time)}s`;
       if (isProd()) el.droptip.textContent += ` · ${policyTag(prodMovePolicy(false))}`;
+      if (s.others.length) el.droptip.textContent += ` · +${s.others.length} selected`;
     }
+    previewOthers(s);
     el.dropline.style.display = 'block';
     el.droptip.style.display = 'block'; el.droptip.style.left = (e.clientX + 14) + 'px'; el.droptip.style.top = (e.clientY + 14) + 'px';
   }
@@ -838,7 +859,7 @@
     const s = dragState; if (!s) return;
     s.d.removeEventListener('pointermove', onPointerMove);
     const moved = s.moved;
-    const { it, t, handle, lane, time, index, dur } = s;
+    const { it, t, handle, lane, time, index, dur, others } = s;
     cleanupDrag();
     if (!moved) return;
     setTimeout(() => { dragState = null; }, 0); // let click handler see "moved"
@@ -857,8 +878,11 @@
     if (!lane) return render();
     const dest = trackById(lane.dataset.trackId);
     const o = opts();
-    if (isProd()) Object.assign(o, prodMovePolicy(shiftDown(e)));
-    if (o.mode === 'index') {
+    if (isProd()) Object.assign(o, prodMovePolicy(shiftDown(e) && !others.length));
+    if (others.length) {
+      if (dest.id === t.id && time === it.start) return render();
+      flashIfRefused(lane, await api('move_item', { mode: 'time', id: it.id, others, track_id: dest.id, time, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy, insert_policy: o.insert_policy }));
+    } else if (o.mode === 'index') {
       if (isProd() && isOwnSlot(it, t, dest, index)) return render();
       flashIfRefused(lane, await api('move_item', { mode: 'index', id: it.id, track_id: dest.id, index, replace_with_gap: o.replace_with_gap, overlap_policy: o.overlap_policy }));
     } else {
@@ -877,7 +901,7 @@
   function cancelDrag() { if (dragState && dragState.moved) { cleanupDrag(); render(); } dragState = null; }
   function cleanupDrag() {
     el.ghost.innerHTML = ''; el.dropline.style.display = 'none'; el.droptip.style.display = 'none';
-    $$('.lane').forEach(l => l.classList.remove('drop', 'reject')); $$('.item.dragging').forEach(d => d.classList.remove('dragging'));
+    $$('.lane').forEach(l => l.classList.remove('drop', 'reject')); $$('.item.dragging').forEach(d => { d.classList.remove('dragging', 'riding'); d.style.transform = ''; });
   }
   // ⇧ state is tracked from the key events (like the app's HardwareKeyboard),
   // not only the pointer event's shiftKey, which some embedded browsers drop.

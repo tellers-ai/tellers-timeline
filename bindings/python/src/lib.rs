@@ -1778,6 +1778,29 @@ impl PyStack {
             op,
         ))
     }
+    #[allow(clippy::too_many_arguments)]
+    fn move_items_at_time(
+        &mut self,
+        item_id: &str,
+        other_ids: Vec<String>,
+        dest_track_id: &str,
+        dest_time: f64,
+        replace_with_gap: bool,
+        overlap_policy: &str,
+        insert_policy: &str,
+    ) -> PyResult<bool> {
+        let op = overlap_policy_from_str(overlap_policy);
+        let ip = insert_policy_from_str(insert_policy);
+        Ok(self.inner.move_items_at_time(
+            item_id,
+            &other_ids,
+            dest_track_id,
+            dest_time,
+            replace_with_gap,
+            ip,
+            op,
+        ))
+    }
     fn move_item_at_index(
         &mut self,
         item_id: &str,

@@ -652,6 +652,21 @@ class Stack:
         overlap_policy: OverlapPolicy,
         insert_policy: InsertPolicy,
     ) -> bool: ...
+    def move_items_at_time(
+        self,
+        item_id: str,
+        other_ids: list[str],
+        dest_track_id: str,
+        dest_time: float,
+        replace_with_gap: bool,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+    ) -> bool:
+        """Move `item_id` to `dest_time` on `dest_track_id`; every clip in
+        `other_ids` shifts by the same delta on its own track. Each clip brings
+        its sync partners and Tellers group; a delta past 0 is clamped. All or
+        nothing: False leaves the stack unchanged."""
+        ...
     def move_item_at_index(
         self,
         item_id: str,

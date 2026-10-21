@@ -94,6 +94,19 @@ class MoveRegressionTests(unittest.TestCase):
                                 self.assertEqual(clip["start"], start + (4 if "2" in track["id"] else 0))
                                 self.assertIsNotNone(clip["group_id"])
 
+    def test_multi_selection_drag_moves_every_selected_clip(self):
+        # Ungrouped: v1c and v2c (and their linked audio) are a plain selection.
+        state = fixture(grouped=False)
+        ok, call = ui.op_move_item(state, {
+            "id": "v1c", "others": ["v2c"], "track_id": "v1", "time": 3,
+            "mode": "time", "insert_policy": "split_and_insert", "overlap_policy": "override",
+        })
+        self.assertTrue(ok)
+        self.assertIn("move_items_at_time", call)
+        starts = {item["id"]: item["start"] for track in state.view()["tracks"]
+                  for item in track["items"] if item["kind"] == "clip"}
+        self.assertEqual(starts, {"a1c": 3, "v1c": 3, "a2c": 7, "v2c": 7})
+
     def test_negative_group_move_rolls_back(self):
         state = fixture()
         before = state.snapshot()
