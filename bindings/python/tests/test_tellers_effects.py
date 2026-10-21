@@ -228,6 +228,9 @@ def test_item_follow_round_trips_through_the_transform():
     assert not tl.set_item_follow("ac", follow, baked)
     assert not tl.set_item_follow("vc", {"fill": 0.6})
     assert not tl.set_item_follow("vc", {**follow, "target": "cars"})
+    assert tl.set_item_follow("vc", {**follow, "target": "dog"})
+    assert tl.get_item_follow("vc")["target"] == "dog"
+    assert tl.set_item_follow("vc", follow)
     assert not tl.set_item_follow("vc", follow, {"rotation": 3})
 
     assert tl.clear_item_follow("vc")
