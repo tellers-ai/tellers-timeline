@@ -300,6 +300,13 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("opacity"),
         ],
     ),
+    // A Transform measured to cancel camera shake (`VideoPlayer.stabilize`),
+    // applied under the clip's own Transform.
+    effect(
+        "Stabilize",
+        Video,
+        &[anim("x"), anim("y"), anim("scale"), anim("rotation")],
+    ),
     effect(
         "Blend",
         Video,
@@ -1305,6 +1312,20 @@ mod tests {
             .with_parameter("points", json!([[0.1]]))
             .validate()
             .is_err());
+        // What `VideoPlayer.stabilize` writes: one held keyframe per frame.
+        let held = json!({ "keyframes": [
+            { "t": 0, "v": 0.01, "ease": "hold" },
+            { "t": 0.04, "v": -0.02, "ease": "hold" }
+        ] });
+        assert!(TellersEffect::new("Stabilize")
+            .with_parameter("x", held.clone())
+            .with_parameter("y", held.clone())
+            .with_parameter("rotation", held)
+            .with_parameter("scale", 1.06)
+            .validate()
+            .is_ok());
+        assert!(TellersEffect::new("Stabilize").with_parameter("opacity", 1.0).validate().is_err());
+        assert!(!TellersEffect::new("Stabilize").allowed_on(&TrackKind::Audio));
     }
 
     #[test]

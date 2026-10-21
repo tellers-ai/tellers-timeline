@@ -338,6 +338,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
 | [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity` |
+| [Stabilize](#effect-stabilize) | `tellers.ai.Stabilize` | video (picture) | `x`, `y`, `scale`, `rotation` |
 | [Blend](#effect-blend) | `tellers.ai.Blend` | video (picture) | `mode` |
 | [Mask](#effect-mask) | `tellers.ai.Mask` | video (picture) | `shape`, `x`, `y`, `width`, `height`, `rotation`, `corner_radius`, `feather`, `opacity`, `invert`, `mode`, `closed`, `points` |
 | [TrackMatte](#effect-trackmatte) | `tellers.ai.TrackMatte` | video (picture) | `mode`, `track` |
@@ -518,6 +519,18 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `scaleY` | [animatable](#animatable-parameters) number |
 | `rotation` | [animatable](#animatable-parameters) number |
 | `opacity` | [animatable](#animatable-parameters) number |
+
+<a id="effect-stabilize"></a>
+### Stabilize
+
+`tellers.ai.Stabilize`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `x` | [animatable](#animatable-parameters) number |
+| `y` | [animatable](#animatable-parameters) number |
+| `scale` | [animatable](#animatable-parameters) number |
+| `rotation` | [animatable](#animatable-parameters) number |
 
 <a id="effect-blend"></a>
 ### Blend
