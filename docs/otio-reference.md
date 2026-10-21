@@ -324,20 +324,21 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 
 | Effect | `effect_name` | Applies to | Parameters |
 |---|---|---|---|
-| [Blur](#effect-blur) | `tellers.ai.Blur` | video (picture) | `strength`, `quality` |
-| [Pixelate](#effect-pixelate) | `tellers.ai.Pixelate` | video (picture) | `size` |
-| [Adjustment](#effect-adjustment) | `tellers.ai.Adjustment` | video (picture) | `gamma`, `saturation`, `contrast`, `brightness`, `red`, `green`, `blue`, `alpha` |
-| [ColorMatrix](#effect-colormatrix) | `tellers.ai.ColorMatrix` | video (picture) | `preset`, `hue`, `amount` |
-| [HslAdjustment](#effect-hsladjustment) | `tellers.ai.HslAdjustment` | video (picture) | `hue`, `saturation`, `lightness`, `colorize`, `amount` |
+| [Blur](#effect-blur) | `tellers.ai.Blur` | video (picture) | `strength`, `quality`, `regions` |
+| [Pixelate](#effect-pixelate) | `tellers.ai.Pixelate` | video (picture) | `size`, `regions` |
+| [Adjustment](#effect-adjustment) | `tellers.ai.Adjustment` | video (picture) | `gamma`, `saturation`, `contrast`, `brightness`, `red`, `green`, `blue`, `alpha`, `regions` |
+| [ColorMatrix](#effect-colormatrix) | `tellers.ai.ColorMatrix` | video (picture) | `preset`, `hue`, `amount`, `regions` |
+| [HslAdjustment](#effect-hsladjustment) | `tellers.ai.HslAdjustment` | video (picture) | `hue`, `saturation`, `lightness`, `colorize`, `amount`, `regions` |
 | [ColorLut](#effect-colorlut) | `tellers.ai.ColorLut` | video (picture) | `asset_id`, `target_url` |
-| [Noise](#effect-noise) | `tellers.ai.Noise` | video (picture) | `amount`, `speed`, `seed` |
-| [RGBSplit](#effect-rgbsplit) | `tellers.ai.RGBSplit` | video (picture) | `amount`, `angle` |
-| [ZoomBlur](#effect-zoomblur) | `tellers.ai.ZoomBlur` | video (picture) | `strength`, `centerX`, `centerY`, `innerRadius` |
-| [DropShadow](#effect-dropshadow) | `tellers.ai.DropShadow` | video (picture) | `offsetX`, `offsetY`, `blur`, `alpha`, `color` |
-| [ChromaKey](#effect-chromakey) | `tellers.ai.ChromaKey` | video (picture) | `color`, `similarity`, `smoothness`, `spill`, `choke` |
+| [Noise](#effect-noise) | `tellers.ai.Noise` | video (picture) | `amount`, `speed`, `seed`, `regions` |
+| [RGBSplit](#effect-rgbsplit) | `tellers.ai.RGBSplit` | video (picture) | `amount`, `angle`, `regions` |
+| [ZoomBlur](#effect-zoomblur) | `tellers.ai.ZoomBlur` | video (picture) | `strength`, `centerX`, `centerY`, `innerRadius`, `regions` |
+| [DropShadow](#effect-dropshadow) | `tellers.ai.DropShadow` | video (picture) | `offsetX`, `offsetY`, `blur`, `alpha`, `color`, `regions` |
+| [ChromaKey](#effect-chromakey) | `tellers.ai.ChromaKey` | video (picture) | `color`, `similarity`, `smoothness`, `spill`, `choke`, `regions` |
 | [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
-| [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity` |
+| [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `follow` |
+| [Stabilize](#effect-stabilize) | `tellers.ai.Stabilize` | video (picture) | `x`, `y`, `scale`, `rotation` |
 | [Blend](#effect-blend) | `tellers.ai.Blend` | video (picture) | `mode` |
 | [Mask](#effect-mask) | `tellers.ai.Mask` | video (picture) | `shape`, `x`, `y`, `width`, `height`, `rotation`, `corner_radius`, `feather`, `opacity`, `invert`, `mode`, `closed`, `points` |
 | [TrackMatte](#effect-trackmatte) | `tellers.ai.TrackMatte` | video (picture) | `mode`, `track` |
@@ -359,6 +360,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 |---|---|
 | `strength` | [animatable](#animatable-parameters) number |
 | `quality` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-pixelate"></a>
 ### Pixelate
@@ -368,6 +370,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | Parameter | Value |
 |---|---|
 | `size` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-adjustment"></a>
 ### Adjustment
@@ -384,6 +387,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `green` | [animatable](#animatable-parameters) number |
 | `blue` | [animatable](#animatable-parameters) number |
 | `alpha` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-colormatrix"></a>
 ### ColorMatrix
@@ -395,6 +399,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `preset` | `"sepia"` \| `"vintage"` \| `"polaroid"` \| `"kodachrome"` \| `"technicolor"` \| `"browni"` \| `"lsd"` \| `"blackAndWhite"` \| `"negative"` \| `"desaturate"` |
 | `hue` | [animatable](#animatable-parameters) number |
 | `amount` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-hsladjustment"></a>
 ### HslAdjustment
@@ -408,6 +413,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `lightness` | [animatable](#animatable-parameters) number |
 | `colorize` | [animatable](#animatable-parameters) number |
 | `amount` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-colorlut"></a>
 ### ColorLut
@@ -429,6 +435,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `amount` | [animatable](#animatable-parameters) number |
 | `speed` | [animatable](#animatable-parameters) number |
 | `seed` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-rgbsplit"></a>
 ### RGBSplit
@@ -439,6 +446,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 |---|---|
 | `amount` | [animatable](#animatable-parameters) number |
 | `angle` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-zoomblur"></a>
 ### ZoomBlur
@@ -451,6 +459,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `centerX` | [animatable](#animatable-parameters) number |
 | `centerY` | [animatable](#animatable-parameters) number |
 | `innerRadius` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-dropshadow"></a>
 ### DropShadow
@@ -464,6 +473,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `blur` | [animatable](#animatable-parameters) number |
 | `alpha` | [animatable](#animatable-parameters) number |
 | `color` | CSS color string |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-chromakey"></a>
 ### ChromaKey
@@ -477,6 +487,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `smoothness` | [animatable](#animatable-parameters) number |
 | `spill` | [animatable](#animatable-parameters) number |
 | `choke` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 
 <a id="effect-border"></a>
 ### Border
@@ -518,6 +529,19 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `scaleY` | [animatable](#animatable-parameters) number |
 | `rotation` | [animatable](#animatable-parameters) number |
 | `opacity` | [animatable](#animatable-parameters) number |
+| `follow` | object: the auto-tracking zoom recipe `x`, `y` and `scale` were computed from; see [Follow](#follow) |
+
+<a id="effect-stabilize"></a>
+### Stabilize
+
+`tellers.ai.Stabilize`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `x` | [animatable](#animatable-parameters) number |
+| `y` | [animatable](#animatable-parameters) number |
+| `scale` | [animatable](#animatable-parameters) number |
+| `rotation` | [animatable](#animatable-parameters) number |
 
 <a id="effect-blend"></a>
 ### Blend
@@ -646,6 +670,16 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 An effect that loads an asset (a `ColorLut`'s `.cube` file) names it in its `asset_id` parameter, which is what the timeline stores, and the player loads it from its `target_url` parameter. `target_url` is resolved from `asset_id` before playback and stripped before saving, like a media reference's `target_url`; this holds for every effect with an `asset_id`, whatever its name.
 
 A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, directly in `tellers.ai`, and the URL used to be named `cube_url`; `sanitize` upgrades those forms.
+
+### Follow
+
+A `Transform` that follows a detected subject (the player's `VideoPlayer.followTransform`) keeps its recipe in its `follow` parameter, beside the `x`, `y` and `scale` keyframes computed from it. Playback reads only those keyframes; `follow` is what recomputes them after re-tuning. An item's follow is the one on its first enabled `Transform`.
+
+| Key | Value |
+|---|---|
+| `region` | required: the detected region followed, an object of [Mask](#effect-mask) parameters in clip space |
+| `target` | the detection target it came from: `"faces"` \| `"people"` \| `"animals"` \| `"vehicles"` |
+| `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |
 
 ### Animatable parameters
 

@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 use tellers_timeline_core::{
-    Ease, EffectTarget, ParameterKind, EFFECT_SPECS,
+    Ease, EffectTarget, ParameterKind, EFFECT_SPECS, FOLLOW_PARAMETER, FOLLOW_TARGETS,
     TELLERS_EFFECT_PREFIX,
 };
 
@@ -538,6 +538,16 @@ fn kind_string(kind: ParameterKind) -> String {
             "array of `[x, y]` or `{x, y, in_x?, in_y?, out_x?, out_y?}` (animatable coordinates)"
                 .to_string()
         }
+        ParameterKind::Regions => {
+            "array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, \
+             nowhere when empty"
+                .to_string()
+        }
+        ParameterKind::Follow => {
+            "object: the auto-tracking zoom recipe `x`, `y` and `scale` were computed from; \
+             see [Follow](#follow)"
+                .to_string()
+        }
     }
 }
 
@@ -610,6 +620,20 @@ fn effects_section(out: &mut String) {
          A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, directly \
          in `tellers.ai`, and the URL used to be named `cube_url`; `sanitize` upgrades \
          those forms.\n"
+    );
+    let _ = writeln!(
+        out,
+        "### Follow\n\n\
+         A `Transform` that follows a detected subject (the player's \
+         `VideoPlayer.followTransform`) keeps its recipe in its `{FOLLOW_PARAMETER}` parameter, \
+         beside the `x`, `y` and `scale` keyframes computed from it. Playback reads only those \
+         keyframes; `{FOLLOW_PARAMETER}` is what recomputes them after re-tuning. An item's \
+         follow is the one on its first enabled `Transform`.\n\n\
+         | Key | Value |\n|---|---|\n\
+         | `region` | required: the detected region followed, an object of [Mask](#effect-mask) parameters in clip space |\n\
+         | `target` | the detection target it came from: {} |\n\
+         | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |\n",
+        FOLLOW_TARGETS.iter().map(|t| format!("`\"{t}\"`")).collect::<Vec<_>>().join(" \\| "),
     );
     out.push_str(
         "### Animatable parameters\n\n\
