@@ -14,8 +14,8 @@ use std::fmt::Write as _;
 
 use serde_json::Value;
 use tellers_timeline_core::{
-    Ease, EffectTarget, ParameterKind, DETECT_MASK_PARAMETERS, DETECT_PARAMETER, EFFECT_SPECS,
-    FOLLOW_PARAMETER, FOLLOW_GROUP_TARGETS,
+    Ease, EffectTarget, ParameterKind, ATTACH_PARAMETER, DETECT_MASK_PARAMETERS, DETECT_PARAMETER,
+    EFFECT_SPECS, FOLLOW_PARAMETER, FOLLOW_GROUP_TARGETS, MOVED_DETECTION_SETTINGS,
     COCO_CATEGORIES,
     TELLERS_EFFECT_PREFIX,
 };
@@ -550,6 +550,11 @@ fn kind_string(kind: ParameterKind) -> String {
              see [Follow](#follow)"
                 .to_string()
         }
+        ParameterKind::Attach => {
+            "object: the subject of another track `x` and `y` (and `opacity`) keep the clip \
+             on; see [Attach](#attach)"
+                .to_string()
+        }
         ParameterKind::Detect => {
             "object: the subject the player detects to fill `regions` (a filter) or the shape \
              (a Mask); see [Detect](#detect)"
@@ -646,10 +651,38 @@ fn effects_section(out: &mut String) {
          | `region` | the detected region followed, an object of [Mask](#effect-mask) parameters in clip space; required unless `target` and `pick` are given |\n\
          | `pick` | `{{ \"t\", \"x\", \"y\" }}`, plain numbers, all required: where the subject was chosen, at `t` clip seconds and (`x`, `y`) in clip space before crop ((0, 0) the clip's center, ±0.5 its edges); with `target`, enough to detect it again |\n\
          | `target` | the detection target it came from: {}, or one COCO category: {} |\n\
-         | `detect` | the detection settings, kept as given (left out: the player's defaults): `objectModel` (`\"fast\"` \\| `\"accurate\"`, every target but faces), `faceModel` (`\"short\"` \\| `\"full\"`), and the plain numbers `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY`, the `detectRegions` options of the same names; no other key |\n\
-         | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |\n",
+         | `detect` | how the detected region looks, kept as given (left out: the player's defaults): the plain numbers `padX`, `padY`, the region's size relative to the detected box; no other key. How well subjects are found ({}) is the player's `detection` option, not the timeline's; `sanitize` drops those keys and `tolerance` from timelines written earlier |\n\
+         | `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |\n",
         FOLLOW_GROUP_TARGETS.iter().map(|t| format!("`\"{t}\"`")).collect::<Vec<_>>().join(" \\| "),
         COCO_CATEGORIES.iter().map(|t| format!("`{t}`")).collect::<Vec<_>>().join(", "),
+        MOVED_DETECTION_SETTINGS.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
+    );
+    let _ = writeln!(
+        out,
+        "### Attach\n\n\
+         A `Transform`'s `{ATTACH_PARAMETER}` keeps its clip (a label, a sticker) on a subject \
+         detected in the clip of another video track playing alongside. On load the player \
+         detects `target` in the clip of `track` that plays longest alongside this one, takes \
+         the subject at `pick` (else the one seen longest) and writes `x` and `y` keyframes (and \
+         `opacity`, with `hide`) on the Transform and `region` (and, with `hide`, the clip's own \
+         `opacity`) in `{ATTACH_PARAMETER}`, then reports them (`onFollowResolved`, like a \
+         follow) for the host to save; the host saves it only if the attach did not change \
+         during detection. Playback reads only `x`, `y` and `opacity`; dropping them beside a \
+         `region` recomputes them without detection. An item's attach is the one on its first \
+         enabled `Transform`. It is meant for a clip centered in the frame (text, full-frame \
+         images): Placement, rotation and groups of either clip are not taken into account. \
+         Clips with an attach are resolved after the others, so a follow-zoomed source is read \
+         with its zoom.\n\n\
+         | Key | Value |\n|---|---|\n\
+         | `track` | required: the video track (its `name`, `id` or `tellers.ai.timeline_id`) whose clip the subject is detected in |\n\
+         | `target` | what to detect, as a follow's `target` (see [Follow](#follow)); required unless `region` is given |\n\
+         | `pick` | `{{ \"t\", \"x\", \"y\" }}`, plain numbers, all required: the subject there, in this clip's seconds and frame coordinates ((0, 0) the frame's center, ±0.5 its edges) |\n\
+         | `detect` | as a follow's `detect`: `padX`, `padY` |\n\
+         | `anchorX`, `anchorY` | plain numbers: where this clip's center sits on the subject, as an offset from the subject's center in its widths and heights (`anchorY` -0.5 is its top edge); left out, 0 |\n\
+         | `smoothing` | plain number: smoothing of the subject's motion, seconds; left out, 0.2 |\n\
+         | `hide` | boolean: the clip disappears while the subject is unseen, instead of staying where it was last seen; left out, false |\n\
+         | `opacity` | [animatable](#animatable-parameters): with `hide`, the clip's own opacity, multiplied into the resolved one; written on resolution |\n\
+         | `region` | the subject's region, an object of [Mask](#effect-mask) parameters in frame coordinates and this clip's seconds; written on resolution |\n"
     );
     let _ = writeln!(
         out,
@@ -668,9 +701,10 @@ fn effects_section(out: &mut String) {
          clips' effects are resolved, not tracks' or composite clips'.\n\n\
          | Key | Value |\n|---|---|\n\
          | `target` | required: what to detect, as a follow's `target` (see [Follow](#follow)) |\n\
+         | `track` | detect in the clip of this video track (its `name`, `id` or `tellers.ai.timeline_id`) playing longest alongside this clip, instead of in this clip's media: the regions are moved into this clip's time and box, so an overlay's `Mask` with `invert: true` cuts out a subject crossing it; `pick` is then in this clip's seconds and frame coordinates. Those clips are resolved after the others |\n\
          | `pick` | `{{ \"t\", \"x\", \"y\" }}`, as a follow's: only the subject there; or a non-empty list of them, e.g. to blur several chosen faces with one filter (points finding nobody are skipped, two on one subject give it one region; a `Mask` takes the first subject found) |\n\
          | `shape` | `\"rectangle\"` \\| `\"ellipse\"` (the subject's box; faces default to ellipses, others to rounded rectangles) \\| `\"outline\"` (its exact shape, keyframed as a `path`) |\n\
-         | `objectModel`, `faceModel`, `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY` | the detection settings, as in a follow's `detect`, here beside `target`; no other key |\n",
+         | `padX`, `padY` | the look of the regions, as in a follow's `detect`, here beside `target`; no other key (the detection settings are the player's, see [Follow](#follow)) |\n",
         DETECT_MASK_PARAMETERS.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
     );
     out.push_str(

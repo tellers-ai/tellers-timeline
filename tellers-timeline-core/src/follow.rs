@@ -77,55 +77,67 @@ pub struct FollowPick {
     pub y: f64,
 }
 
-/// `detectRegions`' object detector: EfficientDet-Lite0 (`fast`, the
-/// default) or Lite2 (`accurate`), for every target but faces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ObjectModel {
-    Fast,
-    Accurate,
-}
-
-/// `detectRegions`' face detector: `short` finds faces filling a good part
-/// of the frame; `full` (the default) also small, distant ones.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FaceModel {
-    Short,
-    Full,
-}
-
-/// The `detectRegions` options a follow's region is detected with (left
-/// out: the player's defaults, in brackets). The player passes them on
-/// when it resolves a `target` + `pick` follow and keeps them as given.
+/// How a subject's detected region looks (left out: the player's
+/// defaults, in brackets). How well subjects are found (sample rate,
+/// decode width, models, thresholds) is the player's `detection` option,
+/// not the timeline's (video-player-js #690): see
+/// [`MOVED_DETECTION_SETTINGS`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FollowDetect {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub object_model: Option<ObjectModel>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub face_model: Option<FaceModel>,
-    /// Frames sampled per second (8).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fps: Option<f64>,
-    /// Width frames are decoded at before detection, pixels (640).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub width: Option<f64>,
-    /// Detections scoring below this are ignored (0.5).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_confidence: Option<f64>,
-    /// A subject missing longer than this ends its track, seconds (1.5).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_gap: Option<f64>,
-    /// Tracks shorter than this are dropped, seconds (0.3).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_duration: Option<f64>,
     /// Region size relative to the detected box (faces 1.5 x 1.7, others 1.15 x 1.1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pad_x: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pad_y: Option<f64>,
 }
+
+/// The detection settings a timeline's `detect` (of a follow, an attach,
+/// a filter or a Mask) used to hold, now the player's `detection` option
+/// (video-player-js #690); the player rejects them, and
+/// [`crate::Stack::sanitize`] drops them.
+pub const MOVED_DETECTION_SETTINGS: [&str; 7] =
+    ["objectModel", "faceModel", "fps", "width", "minConfidence", "maxGap", "minDuration"];
+
+/// Drop the settings that are now the player's from every tellers effect
+/// of `effects`: [`MOVED_DETECTION_SETTINGS`] from a `detect` (a filter's
+/// or Mask's, a follow's or an attach's), and `tolerance` from a follow or
+/// an attach (video-player-js #690). Returns how many effects changed.
+pub fn strip_moved_detection_settings(effects: &mut [crate::Effect]) -> usize {
+    fn strip(object: &mut Map<String, Value>, keys: &[&str]) -> bool {
+        keys.iter().fold(false, |changed, key| object.remove(*key).is_some() || changed)
+    }
+    fn strip_recipe(recipe: Option<&mut Value>) -> bool {
+        let Some(recipe) = recipe.and_then(Value::as_object_mut) else {
+            return false;
+        };
+        let detect = recipe.get_mut(DETECT_KEY).and_then(Value::as_object_mut);
+        let detect_changed = detect.is_some_and(|d| strip(d, &MOVED_DETECTION_SETTINGS));
+        strip(recipe, &["tolerance"]) | detect_changed
+    }
+    effects
+        .iter_mut()
+        .filter(|effect| effect.effect_name.starts_with(crate::TELLERS_EFFECT_PREFIX))
+        .filter_map(|effect| {
+            effect
+                .metadata
+                .other
+                .get_mut("tellers.ai")?
+                .get_mut("parameters")?
+                .as_object_mut()
+        })
+        .map(|parameters| {
+            let detect = parameters.get_mut(DETECT_KEY).and_then(Value::as_object_mut);
+            let detect_changed = detect.is_some_and(|d| strip(d, &MOVED_DETECTION_SETTINGS));
+            strip_recipe(parameters.get_mut(FOLLOW_PARAMETER))
+                | strip_recipe(parameters.get_mut(crate::ATTACH_PARAMETER))
+                | detect_changed
+        })
+        .filter(|changed| *changed)
+        .count()
+}
+
+const DETECT_KEY: &str = "detect";
 
 /// The recipe of an auto-tracking zoom: the region followed (or what to
 /// detect and where) and the `followTransform` options (left out: the
@@ -177,9 +189,6 @@ pub struct Follow {
     /// Misses up to this long keep the framing, seconds (0.5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold: Option<f64>,
-    /// Keyframes whose removal moves the camera less than this are dropped (0.002).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tolerance: Option<f64>,
 }
 
 impl Follow {
@@ -211,7 +220,6 @@ impl Follow {
             anchor_x: None,
             anchor_y: None,
             hold: None,
-            tolerance: None,
         }
     }
 
@@ -259,7 +267,7 @@ pub(crate) fn follow_value_is_valid(value: &Value) -> bool {
 }
 
 /// The ids of every item of `tracks`, at any depth (inside composite clips too).
-fn collect_item_ids(tracks: &[Track], ids: &mut Vec<String>) {
+pub(crate) fn collect_item_ids(tracks: &[Track], ids: &mut Vec<String>) {
     for item in tracks.iter().flat_map(|track| &track.items) {
         ids.extend(item.get_id());
         if let Item::Composite(stack) = item {
@@ -269,7 +277,7 @@ fn collect_item_ids(tracks: &[Track], ids: &mut Vec<String>) {
 }
 
 /// The index (among tellers effects) of the first enabled Transform.
-fn first_transform(effects: &[TellersEffect]) -> Option<usize> {
+pub(crate) fn first_transform(effects: &[TellersEffect]) -> Option<usize> {
     effects
         .iter()
         .position(|effect| effect.enabled && effect.effect_name == TRANSFORM)
@@ -546,25 +554,24 @@ mod tests {
     }
 
     #[test]
-    fn detect_holds_the_detection_settings() {
+    fn detect_holds_the_look_of_the_region() {
         let pick = FollowPick { t: 1.0, x: 0.0, y: 0.0 };
         let mut follow = Follow::declared("car", pick);
-        follow.detect = Some(FollowDetect {
-            object_model: Some(ObjectModel::Accurate),
-            fps: Some(12.0),
-            min_confidence: Some(0.35),
-            ..FollowDetect::default()
-        });
+        follow.detect = Some(FollowDetect { pad_x: Some(1.2), ..FollowDetect::default() });
         let value = follow.to_value();
-        assert_eq!(value["detect"], json!({ "objectModel": "accurate", "fps": 12.0, "minConfidence": 0.35 }));
+        assert_eq!(value["detect"], json!({ "padX": 1.2 }));
         assert_eq!(Follow::from_value(&value), Some(follow.clone()));
         let with = |detect: Value| Follow::from_value(&json!({ "target": "car", "pick": { "t": 1, "x": 0, "y": 0 }, "detect": detect }));
         assert!(with(json!({})).is_some());
-        assert!(with(json!({ "faceModel": "full", "maxGap": 2, "minDuration": 0.5, "width": 960, "padX": 1.2, "padY": 1.3 })).is_some());
-        assert!(with(json!({ "objectModel": "best" })).is_none());
-        assert!(with(json!({ "faceModel": "Full" })).is_none());
+        assert!(with(json!({ "padX": 1.2, "padY": 1.3 })).is_some());
+        assert!(with(json!({ "padX": "1" })).is_none());
         assert!(with(json!({ "delegate": "GPU" })).is_none());
-        assert!(with(json!({ "fps": "8" })).is_none());
+        // How well subjects are found is the player's setting now (video-player-js #690).
+        for key in MOVED_DETECTION_SETTINGS {
+            assert!(with(json!({ key: 1 })).is_none(), "{key}");
+        }
+        let with_tolerance = json!({ "target": "car", "pick": { "t": 1, "x": 0, "y": 0 }, "tolerance": 0.002 });
+        assert!(Follow::from_value(&with_tolerance).is_none());
 
         // The player keeps detect as given, so a resolution of this follow is saved,
         // and one detected with other settings is not.
@@ -575,7 +582,7 @@ mod tests {
         let mut parameters = baked();
         parameters.insert("follow".into(), resolved.to_value());
         let mut other = resolved.clone();
-        other.detect = Some(FollowDetect { object_model: Some(ObjectModel::Fast), ..FollowDetect::default() });
+        other.detect = Some(FollowDetect { pad_x: Some(1.5), ..FollowDetect::default() });
         let mut stale = baked();
         stale.insert("follow".into(), other.to_value());
         assert!(!timeline.apply_follow_resolution("vc", &stale));
@@ -682,6 +689,33 @@ mod tests {
         assert!(timeline.set_item_follow("comp", &declared, Map::new()));
         assert_eq!(timeline.item_follows().len(), 2);
         assert!(timeline.unresolved_follows().is_empty());
+    }
+
+    #[test]
+    fn sanitize_drops_the_settings_now_the_players() {
+        let mut timeline = timeline();
+        let raw = |name: &str, parameters: Value| -> crate::Effect {
+            serde_json::from_value(json!({ "OTIO_SCHEMA": "Effect.1", "effect_name": format!("tellers.ai.{name}"),
+                                           "metadata": { "tellers.ai": { "parameters": parameters } } }))
+            .unwrap()
+        };
+        let Item::Clip(clip) = &mut timeline.tracks.children[0].items[0] else { unreachable!() };
+        clip.effects = vec![
+            raw("Transform", json!({
+                "follow": { "target": "people", "pick": { "t": 1, "x": 0, "y": 0 }, "tolerance": 0.002,
+                            "detect": { "objectModel": "accurate", "fps": 12, "padX": 1.2 } },
+                "attach": { "track": "Base", "target": "dog", "tolerance": 0.002, "detect": { "maxGap": 2 } } })),
+            raw("Blur", json!({ "detect": { "target": "faces", "faceModel": "full", "minConfidence": 0.4,
+                                            "width": 960, "minDuration": 0.3, "padY": 1.3 } })),
+        ];
+        assert!(timeline.get_item_follow("vc").is_none(), "the player rejects them");
+        timeline.sanitize();
+        let follow = timeline.get_item_follow("vc").unwrap();
+        assert_eq!(follow.detect, Some(FollowDetect { pad_x: Some(1.2), pad_y: None }));
+        assert_eq!(timeline.get_item_attach("vc").unwrap().to_value(), json!({ "track": "Base", "target": "dog", "detect": {} }));
+        assert_eq!(timeline.get_item_detects("vc")[0].detect.to_value(), json!({ "target": "faces", "padY": 1.3 }));
+        let Item::Clip(clip) = &mut timeline.tracks.children[0].items[0] else { unreachable!() };
+        assert_eq!(strip_moved_detection_settings(&mut clip.effects), 0);
     }
 
     #[test]

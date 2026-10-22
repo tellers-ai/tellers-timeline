@@ -2612,6 +2612,63 @@ impl PyTimeline {
     fn clear_item_follow(&mut self, item_id: &str) -> bool {
         self.inner.clear_item_follow(item_id)
     }
+    /// The attach of the clip or composite clip `item_id` (kept on a subject of another track): the
+    /// `attach` parameter of its first enabled Transform, as a `{"track", "target"?, "pick"?,
+    /// "anchorX"?, "hide"?, "region"?, ...}` dict with the player's names; None when it has none.
+    /// `region` is missing until the player resolves it.
+    fn get_item_attach(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<PyObject>> {
+        self.inner
+            .get_item_attach(item_id)
+            .map(|attach| match attach.to_value() {
+                serde_json::Value::Object(map) => json_to_python(py, &map),
+                _ => unreachable!("an attach serializes to an object"),
+            })
+            .transpose()
+    }
+    /// Keep the clip or composite clip `item_id` on a subject of another track: write `attach` (and
+    /// `transform`: any of `x`, `y`, `opacity` the player computed) on its first enabled Transform,
+    /// keeping its other parameters, or on a new Transform named "Attach". To declare one for the
+    /// player to resolve, give `{"track", "target", "pick"?: {"t", "x", "y"}}` and no `transform`.
+    /// False, changing nothing, when `attach` or `transform` is invalid, the item is on an audio
+    /// track, or no clip or composite clip has this id.
+    #[pyo3(signature = (item_id, attach, transform=None))]
+    fn set_item_attach(&mut self, item_id: &str, attach: &Bound<PyAny>, transform: Option<&Bound<PyAny>>) -> PyResult<bool> {
+        let Some(attach) = tellers_timeline_core::Attach::from_value(&json_from_python(attach)?) else {
+            return Ok(false);
+        };
+        let transform = match transform.filter(|t| !t.is_none()).map(json_from_python).transpose()? {
+            None => serde_json::Map::new(),
+            Some(serde_json::Value::Object(map)) => map,
+            Some(_) => return Ok(false),
+        };
+        Ok(self.inner.set_item_attach(item_id, &attach, transform))
+    }
+    /// Every clip or composite clip with an attach (at any depth), as `(item_id, attach)` pairs.
+    fn item_attaches(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+        attaches_to_python(py, self.inner.item_attaches())
+    }
+    /// The attaches the player still has to resolve, as `(item_id, attach)` pairs: on a clip (not a
+    /// composite clip), with no `region` yet, or with a `region` but not both `x` and `y` baked.
+    fn unresolved_attaches(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+        attaches_to_python(py, self.inner.unresolved_attaches())
+    }
+    /// Save what the player resolved for `item_id`: the `parameters` of its `onFollowResolved`
+    /// callback (`x`, `y`, with `hide` `opacity`, and `attach`, now with its `region`). Other keys
+    /// are ignored, so the item's own Transform values stay. Saved only while every key the item's
+    /// current attach sets has the same value in the resolved one. False, changing nothing, when
+    /// `attach` is missing, invalid or unresolved, the item's attach changed, or `set_item_attach`
+    /// refuses.
+    fn apply_attach_resolution(&mut self, item_id: &str, parameters: &Bound<PyAny>) -> PyResult<bool> {
+        match json_from_python(parameters)? {
+            serde_json::Value::Object(map) => Ok(self.inner.apply_attach_resolution(item_id, &map)),
+            _ => Ok(false),
+        }
+    }
+    /// Drop the attach of the clip or composite clip `item_id`, keeping its baked keyframes as a
+    /// plain Transform; True when it had one.
+    fn clear_item_attach(&mut self, item_id: &str) -> bool {
+        self.inner.clear_item_attach(item_id)
+    }
     /// The `detect`s of the clip `item_id`'s enabled filters and Masks, as `{"item_id",
     /// "effect_index", "effect_name", "detect", "resolved"}` dicts; `effect_index` counts every
     /// effect of the clip, like the player's `effectIndex`.
@@ -2742,6 +2799,19 @@ fn follows_to_python(
         .collect()
 }
 
+fn attaches_to_python(
+    py: Python<'_>,
+    attaches: Vec<(String, tellers_timeline_core::Attach)>,
+) -> PyResult<Vec<(String, PyObject)>> {
+    attaches
+        .into_iter()
+        .map(|(id, attach)| match attach.to_value() {
+            serde_json::Value::Object(map) => Ok((id, json_to_python(py, &map)?)),
+            _ => unreachable!("an attach serializes to an object"),
+        })
+        .collect()
+}
+
 fn detects_to_python(
     py: Python<'_>,
     detects: Vec<tellers_timeline_core::ItemDetect>,
@@ -2835,6 +2905,7 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                         ParameterKind::Points => "points",
                         ParameterKind::Regions => "regions",
                         ParameterKind::Follow => "follow",
+                        ParameterKind::Attach => "attach",
                         ParameterKind::Detect => "detect",
                     };
                     p.set_item("kind", kind)?;

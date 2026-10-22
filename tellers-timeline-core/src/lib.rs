@@ -1,4 +1,5 @@
 pub mod associated_tracks;
+pub mod attach;
 pub mod color_grading;
 pub mod detect;
 pub mod effect_assets;
@@ -21,6 +22,7 @@ pub mod validate;
 pub mod volume;
 
 pub use associated_tracks::*;
+pub use attach::*;
 pub use color_grading::*;
 pub use detect::*;
 pub use effect_assets::*;
