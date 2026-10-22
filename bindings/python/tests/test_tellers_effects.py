@@ -352,3 +352,32 @@ def test_a_filter_detect_can_pick_several_subjects():
     (unresolved,) = tl.unresolved_detects()
     assert unresolved["detect"] == detect
     assert validate_tellers_effect({"effect_name": "Blur", "parameters": {"detect": {"target": "faces", "pick": []}}}) is not None
+
+
+def test_track_references_follow_a_rename_and_a_delete():
+    base = Track(kind="video", id="v1", children=[Item.from_clip(make_clip("vc"))])
+    base.set_name("Base")
+    overlay = Track(kind="video", id="v2", children=[Item.from_clip(make_clip("label"))])
+    tl = Timeline([base, overlay])
+    assert tl.set_track_tellers_effects("v2", [{"effect_name": "TrackMatte", "parameters": {"mode": "alpha", "track": "Base"}}])
+    assert tl.set_item_attach("label", {"track": "Base", "target": "people"}, {"x": 0.1, "y": 0.2})
+    refs = tl.track_references()
+    assert [(r["owner_id"], r["kind"], r["track"], r["matches"]) for r in refs] == [
+        ("v2", "track_matte", "Base", ["v1"]),
+        ("label", "attach", "Base", ["v1"]),
+    ]
+    assert tl.dangling_track_references() == [] and tl.validate() == []
+
+    assert tl.rename_track("v1", "Interview")
+    assert [r["track"] for r in tl.track_references()] == ["Interview", "Interview"]
+
+    assert tl.set_item_tellers_effects("vc", [{"effect_name": "TrackMatte", "parameters": {"track": "nowhere"}}])
+    (dangling,) = tl.dangling_track_references()
+    assert dangling["owner_id"] == "vc" and dangling["matches"] == []
+    assert len(tl.validate()) == 1 and "nowhere" in tl.validate()[0]
+
+    assert tl.delete_track("v1") is not None
+    assert tl.track_references() == []
+    assert tl.get_track_tellers_effects("v2") == []
+    assert tl.get_item_attach("label") is None
+    assert tl.get_item_tellers_effects("label")[0]["parameters"] == {"x": 0.1, "y": 0.2}

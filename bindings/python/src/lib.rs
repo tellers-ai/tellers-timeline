@@ -1416,6 +1416,19 @@ impl PyStack {
             .delete_track(id)
             .map(|t| Py::new(py, PyTrack { inner: t }).unwrap())
     }
+    /// See `Timeline.rename_track`.
+    #[pyo3(signature = (id, name=None))]
+    fn rename_track(&mut self, id: &str, name: Option<String>) -> bool {
+        self.inner.rename_track(id, name)
+    }
+    /// See `Timeline.track_references`.
+    fn track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_references_to_python(py, &self.inner, self.inner.track_references())
+    }
+    /// See `Timeline.dangling_track_references`.
+    fn dangling_track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_references_to_python(py, &self.inner, self.inner.dangling_track_references())
+    }
     fn set_tracks(&mut self, tracks: Vec<PyTrack>) {
         self.inner.children = tracks.into_iter().map(|t| t.inner).collect();
     }
@@ -2236,6 +2249,25 @@ impl PyTimeline {
             .delete_track(id)
             .map(|t| Py::new(py, PyTrack { inner: t }).unwrap())
     }
+    /// Name the track `id` `name` (None or blank: no name), pointing the effects that named it by
+    /// its old name (a TrackMatte's `track`, an attach's or a detect's `track`) at it again: by
+    /// `name`, or by its timeline id when the name is taken by another video track or removed.
+    /// False when no track has this id.
+    #[pyo3(signature = (id, name=None))]
+    fn rename_track(&mut self, id: &str, name: Option<String>) -> bool {
+        self.inner.rename_track(id, name)
+    }
+    /// Every effect naming another track (a TrackMatte's `track`, a Transform's `attach.track`, a
+    /// filter's or Mask's `detect.track`) on the top-level tracks and their items, as `{"owner_id",
+    /// "track_index", "item_index", "effect_index", "effect_name", "enabled", "kind", "track",
+    /// "matches"}` dicts; `matches` are the ids of the video tracks it names.
+    fn track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_references_to_python(py, &self.inner.tracks, self.inner.tracks.track_references())
+    }
+    /// The enabled `track_references` no other video track matches: they do nothing in the player.
+    fn dangling_track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        track_references_to_python(py, &self.inner.tracks, self.inner.tracks.dangling_track_references())
+    }
     fn move_item(&mut self, item_id: &str, dest_track_id: &str, dest_time: f64) -> PyResult<bool> {
         Ok(self.inner.tracks.move_item_at_time(
             item_id,
@@ -2795,6 +2827,43 @@ fn follows_to_python(
         .map(|(id, follow)| match follow.to_value() {
             serde_json::Value::Object(map) => Ok((id, json_to_python(py, &map)?)),
             _ => unreachable!("a follow serializes to an object"),
+        })
+        .collect()
+}
+
+fn track_references_to_python(
+    py: Python<'_>,
+    stack: &Stack,
+    references: Vec<tellers_timeline_core::TrackReference>,
+) -> PyResult<Vec<PyObject>> {
+    references
+        .into_iter()
+        .map(|r| {
+            let matches: Vec<Option<String>> = stack
+                .referenced_tracks(&r)
+                .into_iter()
+                .map(|index| stack.children[index].get_id())
+                .collect();
+            let kind = match r.kind {
+                tellers_timeline_core::TrackReferenceKind::TrackMatte => "track_matte",
+                tellers_timeline_core::TrackReferenceKind::Attach => "attach",
+                tellers_timeline_core::TrackReferenceKind::Detect => "detect",
+            };
+            let value = serde_json::json!({
+                "owner_id": r.owner_id,
+                "track_index": r.track_index,
+                "item_index": r.item_index,
+                "effect_index": r.effect_index,
+                "effect_name": r.effect_name,
+                "enabled": r.enabled,
+                "kind": kind,
+                "track": r.track,
+                "matches": matches,
+            });
+            match value {
+                serde_json::Value::Object(map) => json_to_python(py, &map),
+                _ => unreachable!("a track reference serializes to an object"),
+            }
         })
         .collect()
 }

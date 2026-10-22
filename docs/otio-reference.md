@@ -725,6 +725,12 @@ Any filter (an effect taking `regions`) and a `Mask` can declare a subject to de
 | `shape` | `"rectangle"` \| `"ellipse"` (the subject's box; faces default to ellipses, others to rounded rectangles) \| `"outline"` (its exact shape, keyframed as a `path`) |
 | `padX`, `padY` | the look of the regions, as in a follow's `detect`, here beside `target`; no other key (the detection settings are the player's, see [Follow](#follow)) |
 
+### Track references
+
+A `TrackMatte`'s `track`, a `Transform`'s `attach.track` and a `detect`'s `track` name another track: the video track whose `name` or `tellers.ai.timeline_id` it is, never the effect's own track (the track it is on, or its item is on). A name another video track also carries is ambiguous, so a `tellers.ai.timeline_id` is the safer reference. One that matches no video track does nothing (a `TrackMatte` without `track` reads the track directly above instead), and `validate_timeline` reports it.
+
+`rename_track` points the effects that named a track by its old name at it again: by its new name, or by its `tellers.ai.timeline_id` when it gets no name or one another video track carries. `delete_track` unlinks the effects that named only the deleted track, keeping what they produced: a `TrackMatte` is removed, an `attach` is dropped (its baked `x` and `y` stay), and a `detect` is dropped (its `regions` or shape stay; an unresolved one's effect is removed).
+
 ### Animatable parameters
 
 A numeric parameter is either a plain number or keyframes:

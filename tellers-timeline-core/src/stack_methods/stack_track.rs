@@ -64,8 +64,11 @@ impl Stack {
     /// Delete a track by id. Returns the removed track on success. Only that
     /// track's channel leaves the sync columns it took part in: the clips on
     /// the other tracks stay, and a column left with a single clip is unsynced.
+    /// Effects that named it (a `TrackMatte`, an attach, a `detect`) are
+    /// unlinked; see [`Stack::unlink_track_references`].
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         let (i, _) = self.get_track_by_id(id)?;
+        self.unlink_track_references(i);
         let removed = self.children.remove(i);
         self.sanitize_preserving_all_gap_tracks();
         Some(removed)

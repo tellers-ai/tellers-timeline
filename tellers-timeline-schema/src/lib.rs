@@ -708,6 +708,21 @@ fn effects_section(out: &mut String) {
         DETECT_MASK_PARAMETERS.iter().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", "),
     );
     out.push_str(
+        "### Track references\n\n\
+         A `TrackMatte`'s `track`, a `Transform`'s `attach.track` and a `detect`'s `track` name \
+         another track: the video track whose `name` or `tellers.ai.timeline_id` it is, never the \
+         effect's own track (the track it is on, or its item is on). A name another video track \
+         also carries is ambiguous, so a `tellers.ai.timeline_id` is the safer reference. One \
+         that matches no video track does nothing (a `TrackMatte` without `track` reads the \
+         track directly above instead), and `validate_timeline` reports it.\n\n\
+         `rename_track` points the effects that named a track by its old name at it again: by \
+         its new name, or by its `tellers.ai.timeline_id` when it gets no name or one another \
+         video track carries. `delete_track` unlinks the effects that named only the deleted \
+         track, keeping what they produced: a `TrackMatte` is removed, an `attach` is dropped \
+         (its baked `x` and `y` stay), and a `detect` is dropped (its `regions` or shape stay; \
+         an unresolved one's effect is removed).\n\n",
+    );
+    out.push_str(
         "### Animatable parameters\n\n\
          A numeric parameter is either a plain number or keyframes:\n\n\
          ```json\n\
