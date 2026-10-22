@@ -337,7 +337,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [ChromaKey](#effect-chromakey) | `tellers.ai.ChromaKey` | video (picture) | `color`, `similarity`, `smoothness`, `spill`, `choke`, `regions`, `detect` |
 | [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
-| [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `follow` |
+| [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `follow`, `attach` |
 | [Stabilize](#effect-stabilize) | `tellers.ai.Stabilize` | video (picture) | `x`, `y`, `scale`, `rotation` |
 | [Blend](#effect-blend) | `tellers.ai.Blend` | video (picture) | `mode` |
 | [Mask](#effect-mask) | `tellers.ai.Mask` | video (picture) | `shape`, `x`, `y`, `width`, `height`, `rotation`, `corner_radius`, `feather`, `opacity`, `invert`, `mode`, `closed`, `points`, `detect` |
@@ -540,6 +540,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `rotation` | [animatable](#animatable-parameters) number |
 | `opacity` | [animatable](#animatable-parameters) number |
 | `follow` | object: the auto-tracking zoom recipe `x`, `y` and `scale` were computed from; see [Follow](#follow) |
+| `attach` | object: the subject of another track `x` and `y` (and `opacity`) keep the clip on; see [Attach](#attach) |
 
 <a id="effect-stabilize"></a>
 ### Stabilize
@@ -693,8 +694,24 @@ A follow can be declared before anything is detected, with only `target` and `pi
 | `region` | the detected region followed, an object of [Mask](#effect-mask) parameters in clip space; required unless `target` and `pick` are given |
 | `pick` | `{ "t", "x", "y" }`, plain numbers, all required: where the subject was chosen, at `t` clip seconds and (`x`, `y`) in clip space before crop ((0, 0) the clip's center, ±0.5 its edges); with `target`, enough to detect it again |
 | `target` | the detection target it came from: `"faces"` \| `"people"` \| `"animals"` \| `"vehicles"`, or one COCO category: `person`, `bicycle`, `car`, `motorcycle`, `airplane`, `bus`, `train`, `truck`, `boat`, `traffic light`, `fire hydrant`, `stop sign`, `parking meter`, `bench`, `bird`, `cat`, `dog`, `horse`, `sheep`, `cow`, `elephant`, `bear`, `zebra`, `giraffe`, `backpack`, `umbrella`, `handbag`, `tie`, `suitcase`, `frisbee`, `skis`, `snowboard`, `sports ball`, `kite`, `baseball bat`, `baseball glove`, `skateboard`, `surfboard`, `tennis racket`, `bottle`, `wine glass`, `cup`, `fork`, `knife`, `spoon`, `bowl`, `banana`, `apple`, `sandwich`, `orange`, `broccoli`, `carrot`, `hot dog`, `pizza`, `donut`, `cake`, `chair`, `couch`, `potted plant`, `bed`, `dining table`, `toilet`, `tv`, `laptop`, `mouse`, `remote`, `keyboard`, `cell phone`, `microwave`, `oven`, `toaster`, `sink`, `refrigerator`, `book`, `clock`, `vase`, `scissors`, `teddy bear`, `hair drier`, `toothbrush` |
-| `detect` | the detection settings, kept as given (left out: the player's defaults): `objectModel` (`"fast"` \| `"accurate"`, every target but faces), `faceModel` (`"short"` \| `"full"`), and the plain numbers `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY`, the `detectRegions` options of the same names; no other key |
-| `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold`, `tolerance` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |
+| `detect` | how the detected region looks, kept as given (left out: the player's defaults): the plain numbers `padX`, `padY`, the region's size relative to the detected box; no other key. How well subjects are found (`objectModel`, `faceModel`, `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`) is the player's `detection` option, not the timeline's; `sanitize` drops those keys and `tolerance` from timelines written earlier |
+| `fill`, `aspect`, `minZoom`, `maxZoom`, `deadZone`, `zoomDeadZone`, `panSmoothing`, `zoomSmoothing`, `anchorX`, `anchorY`, `hold` | plain numbers: the `followTransform` options of the same names; left out, the player's defaults |
+
+### Attach
+
+A `Transform`'s `attach` keeps its clip (a label, a sticker) on a subject detected in the clip of another video track playing alongside. On load the player detects `target` in the clip of `track` that plays longest alongside this one, takes the subject at `pick` (else the one seen longest) and writes `x` and `y` keyframes (and `opacity`, with `hide`) on the Transform and `region` (and, with `hide`, the clip's own `opacity`) in `attach`, then reports them (`onFollowResolved`, like a follow) for the host to save; the host saves it only if the attach did not change during detection. Playback reads only `x`, `y` and `opacity`; dropping them beside a `region` recomputes them without detection. An item's attach is the one on its first enabled `Transform`. It is meant for a clip centered in the frame (text, full-frame images): Placement, rotation and groups of either clip are not taken into account. Clips with an attach are resolved after the others, so a follow-zoomed source is read with its zoom.
+
+| Key | Value |
+|---|---|
+| `track` | required: the video track (its `name`, `id` or `tellers.ai.timeline_id`) whose clip the subject is detected in |
+| `target` | what to detect, as a follow's `target` (see [Follow](#follow)); required unless `region` is given |
+| `pick` | `{ "t", "x", "y" }`, plain numbers, all required: the subject there, in this clip's seconds and frame coordinates ((0, 0) the frame's center, ±0.5 its edges) |
+| `detect` | as a follow's `detect`: `padX`, `padY` |
+| `anchorX`, `anchorY` | plain numbers: where this clip's center sits on the subject, as an offset from the subject's center in its widths and heights (`anchorY` -0.5 is its top edge); left out, 0 |
+| `smoothing` | plain number: smoothing of the subject's motion, seconds; left out, 0.2 |
+| `hide` | boolean: the clip disappears while the subject is unseen, instead of staying where it was last seen; left out, false |
+| `opacity` | [animatable](#animatable-parameters): with `hide`, the clip's own opacity, multiplied into the resolved one; written on resolution |
+| `region` | the subject's region, an object of [Mask](#effect-mask) parameters in frame coordinates and this clip's seconds; written on resolution |
 
 ### Detect
 
@@ -703,9 +720,16 @@ Any filter (an effect taking `regions`) and a `Mask` can declare a subject to de
 | Key | Value |
 |---|---|
 | `target` | required: what to detect, as a follow's `target` (see [Follow](#follow)) |
+| `track` | detect in the clip of this video track (its `name`, `id` or `tellers.ai.timeline_id`) playing longest alongside this clip, instead of in this clip's media: the regions are moved into this clip's time and box, so an overlay's `Mask` with `invert: true` cuts out a subject crossing it; `pick` is then in this clip's seconds and frame coordinates. Those clips are resolved after the others |
 | `pick` | `{ "t", "x", "y" }`, as a follow's: only the subject there; or a non-empty list of them, e.g. to blur several chosen faces with one filter (points finding nobody are skipped, two on one subject give it one region; a `Mask` takes the first subject found) |
 | `shape` | `"rectangle"` \| `"ellipse"` (the subject's box; faces default to ellipses, others to rounded rectangles) \| `"outline"` (its exact shape, keyframed as a `path`) |
-| `objectModel`, `faceModel`, `fps`, `width`, `minConfidence`, `maxGap`, `minDuration`, `padX`, `padY` | the detection settings, as in a follow's `detect`, here beside `target`; no other key |
+| `padX`, `padY` | the look of the regions, as in a follow's `detect`, here beside `target`; no other key (the detection settings are the player's, see [Follow](#follow)) |
+
+### Track references
+
+A `TrackMatte`'s `track`, a `Transform`'s `attach.track` and a `detect`'s `track` name another track: the video track whose `name` or `tellers.ai.timeline_id` it is, never the effect's own track (the track it is on, or its item is on). A name another video track also carries is ambiguous, so a `tellers.ai.timeline_id` is the safer reference. One that matches no video track does nothing (a `TrackMatte` without `track` reads the track directly above instead), and `validate_timeline` reports it.
+
+`rename_track` points the effects that named a track by its old name at it again: by its new name, or by its `tellers.ai.timeline_id` when it gets no name or one another video track carries. `delete_track` unlinks the effects that named only the deleted track, keeping what they produced: a `TrackMatte` is removed, an `attach` is dropped (its baked `x` and `y` stay), and a `detect` is dropped (its `regions` or shape stay; an unresolved one's effect is removed).
 
 ### Animatable parameters
 

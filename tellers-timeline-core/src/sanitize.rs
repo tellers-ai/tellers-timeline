@@ -1,4 +1,7 @@
-use crate::{upgrade_legacy_color_lut_effects, IdMetadataExt, Item, Stack, Timeline, Track};
+use crate::{
+    strip_moved_detection_settings, upgrade_legacy_color_lut_effects, IdMetadataExt, Item, Stack,
+    Timeline, Track,
+};
 use std::collections::{HashMap, HashSet};
 
 impl Timeline {
@@ -122,6 +125,7 @@ impl Stack {
             t.sanitize();
         }
         self.upgrade_legacy_color_luts();
+        self.strip_moved_detection_settings();
         self.ensure_unique_timeline_ids();
         self.cleanup_dangling_sync_clips();
     }
@@ -131,6 +135,7 @@ impl Stack {
             t.sanitize_preserving_all_gap_track();
         }
         self.upgrade_legacy_color_luts();
+        self.strip_moved_detection_settings();
         self.ensure_unique_timeline_ids();
         self.cleanup_dangling_sync_clips();
     }
@@ -149,6 +154,31 @@ impl Stack {
             }
             track.upgrade_legacy_resolve_volumes();
         }
+    }
+
+    /// Drop the detection settings now the player's (video-player-js #690)
+    /// from the effects of the stack, its tracks and their items, at any
+    /// depth; see [`strip_moved_detection_settings`].
+    fn strip_moved_detection_settings(&mut self) {
+        fn strip_tracks(tracks: &mut [Track]) {
+            for track in tracks {
+                strip_moved_detection_settings(&mut track.effects);
+                for item in &mut track.items {
+                    match item {
+                        Item::Clip(clip) => {
+                            strip_moved_detection_settings(&mut clip.effects);
+                        }
+                        Item::Composite(stack) => {
+                            strip_moved_detection_settings(&mut stack.effects);
+                            strip_tracks(&mut stack.children);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        strip_moved_detection_settings(&mut self.effects);
+        strip_tracks(&mut self.children);
     }
 
     fn ensure_unique_timeline_ids(&mut self) {

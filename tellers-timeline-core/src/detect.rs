@@ -25,9 +25,20 @@
 //! with [`Timeline::apply_detect_resolution`]. `detect` stays in the saved
 //! parameters; dropping `regions` (or the Mask's `x`) detects again.
 //!
+//! With `track` (a video track's name, id or `tellers.ai.timeline_id`),
+//! the subject is detected in the clip of that track playing longest
+//! alongside this one, and its regions are moved into this clip's time and
+//! box (video-player-js #690): an overlay's Mask with `invert: true` then
+//! cuts out a person crossing it. `pick` is then in this clip's seconds and
+//! frame coordinates.
+//!
+//! How well subjects are found (sample rate, models, thresholds) is the
+//! player's `detection` option, not the timeline's; `detect` keeps what to
+//! detect and how the regions look.
+//!
 //! The player resolves only clips' effects (not tracks' or composite
 //! clips'). Mirrors `EffectDetect` of `schema/timeline.schema.json` in
-//! `video-player-js` (#687).
+//! `video-player-js` (#687, #690).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -56,21 +67,23 @@ pub enum DetectShape {
     Outline,
 }
 
-/// The `detect` parameter of a filter or a `Mask`: the subject to detect
-/// and the `detectRegions` options to detect it with (left out: the
-/// player's defaults).
+/// The `detect` parameter of a filter or a `Mask`: the subject to detect,
+/// where, and how its regions look (left out: the player's defaults).
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectDetect {
     /// Faces, a group (people, animals, vehicles) or one COCO category;
     /// see [`crate::is_follow_target`].
     pub target: String,
+    /// Detect in the clip of this video track (its name, id or
+    /// `tellers.ai.timeline_id`) playing longest alongside this clip,
+    /// instead of in this clip's media.
+    pub track: Option<String>,
     /// Only the subjects at these points (a Mask: the first one found);
     /// written as one object when there is one point. Empty: a filter
     /// covers every subject and a Mask the one seen longest.
     pub pick: Vec<FollowPick>,
     pub shape: Option<DetectShape>,
-    /// `objectModel`, `faceModel`, `fps`, `width`, `minConfidence`,
-    /// `maxGap`, `minDuration`, `padX`, `padY`, beside `target` in the JSON.
+    /// `padX`, `padY`, beside `target` in the JSON.
     pub options: FollowDetect,
 }
 
@@ -79,10 +92,18 @@ impl EffectDetect {
     pub fn new(target: impl Into<String>) -> Self {
         EffectDetect {
             target: target.into(),
+            track: None,
             pick: Vec::new(),
             shape: None,
             options: FollowDetect::default(),
         }
+    }
+
+    /// Detect in the clip of the video track `track` (name, id or
+    /// `tellers.ai.timeline_id`) instead of in this clip's media.
+    pub fn on_track(mut self, track: impl Into<String>) -> Self {
+        self.track = Some(track.into());
+        self
     }
 
     /// Add a point to `pick`.
@@ -104,6 +125,11 @@ impl EffectDetect {
         if !is_follow_target(&target) {
             return None;
         }
+        let track = match object.remove("track") {
+            Some(Value::String(track)) => Some(track),
+            Some(_) => return None,
+            None => None,
+        };
         let pick = match object.remove("pick") {
             Some(Value::Array(picks)) if !picks.is_empty() => picks
                 .into_iter()
@@ -118,7 +144,7 @@ impl EffectDetect {
             None => None,
         };
         let options = serde_json::from_value(Value::Object(object)).ok()?;
-        Some(EffectDetect { target, pick, shape, options })
+        Some(EffectDetect { target, track, pick, shape, options })
     }
 
     pub fn to_value(&self) -> Value {
@@ -127,6 +153,9 @@ impl EffectDetect {
             _ => Map::new(),
         };
         object.insert("target".to_string(), self.target.clone().into());
+        if let Some(track) = &self.track {
+            object.insert("track".to_string(), track.clone().into());
+        }
         let pick = match self.pick.as_slice() {
             [] => None,
             [pick] => Some(serde_json::to_value(pick)),
@@ -307,7 +336,7 @@ mod tests {
     #[test]
     fn detect_uses_the_player_names_and_rejects_other_keys() {
         let value = json!({ "target": "people", "pick": { "t": 1, "x": 0.31, "y": -0.16 },
-                            "shape": "outline", "objectModel": "accurate", "padX": 1.2 });
+                            "shape": "outline", "padX": 1.2 });
         let detect = EffectDetect::from_value(&value).unwrap();
         assert_eq!(detect.shape, Some(DetectShape::Outline));
         assert_eq!(detect.pick, vec![FollowPick { t: 1.0, x: 0.31, y: -0.16 }]);
@@ -319,6 +348,18 @@ mod tests {
         assert!(EffectDetect::from_value(&json!({ "pick": { "t": 0, "x": 0, "y": 0 } })).is_none());
         assert!(EffectDetect::from_value(&json!({ "target": "faces", "shape": "path" })).is_none());
         assert!(EffectDetect::from_value(&json!({ "target": "faces", "modelUrl": "x" })).is_none());
+        // How well subjects are found is the player's setting now (video-player-js #690).
+        for key in crate::MOVED_DETECTION_SETTINGS {
+            assert!(EffectDetect::from_value(&json!({ "target": "faces", key: 1 })).is_none(), "{key}");
+        }
+
+        // `track`: detect in another track's clip (video-player-js #690).
+        let crossing = json!({ "target": "people", "track": "Base", "pick": { "t": 1.0, "x": 0.0, "y": 0.0 } });
+        let detect = EffectDetect::from_value(&crossing).unwrap();
+        assert_eq!(detect.track.as_deref(), Some("Base"));
+        assert_eq!(detect.to_value(), crossing);
+        assert_eq!(EffectDetect::new("people").on_track("v1").to_value(), json!({ "target": "people", "track": "v1" }));
+        assert!(EffectDetect::from_value(&json!({ "target": "people", "track": 2 })).is_none());
 
         // `pick` can be a list of points (video-player-js #689), not an empty one.
         let faces = json!({ "target": "faces",

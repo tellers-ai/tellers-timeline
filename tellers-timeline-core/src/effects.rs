@@ -142,6 +142,9 @@ pub enum ParameterKind {
     /// A `Transform`'s `follow`: the auto-tracking zoom recipe its `x`, `y`
     /// and `scale` were computed from; see [`crate::Follow`].
     Follow,
+    /// A `Transform`'s `attach`: the subject of another track its `x`, `y`
+    /// (and `opacity`) keep it on; see [`crate::Attach`].
+    Attach,
     /// A filter's or a `Mask`'s `detect`: the subject the player detects to
     /// fill its `regions` or shape; see [`crate::EffectDetect`].
     Detect,
@@ -329,6 +332,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("rotation"),
             anim("opacity"),
             ParameterSpec { name: "follow", kind: ParameterKind::Follow },
+            ParameterSpec { name: "attach", kind: ParameterKind::Attach },
         ],
     ),
     // A Transform measured to cancel camera shake (`VideoPlayer.stabilize`),
@@ -736,6 +740,7 @@ fn parameter_value_is_valid(kind: ParameterKind, value: &Value) -> bool {
             .as_array()
             .is_some_and(|regions| regions.iter().all(mask_shape_is_valid)),
         ParameterKind::Follow => crate::follow::follow_value_is_valid(value),
+        ParameterKind::Attach => crate::attach::attach_value_is_valid(value),
         ParameterKind::Detect => crate::detect::detect_value_is_valid(value),
     }
 }

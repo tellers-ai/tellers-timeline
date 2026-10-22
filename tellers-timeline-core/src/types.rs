@@ -1917,6 +1917,10 @@ impl Timeline {
     pub fn delete_track(&mut self, id: &str) -> Option<Track> {
         self.tracks.delete_track(id)
     }
+    /// See [`Stack::rename_track`].
+    pub fn rename_track(&mut self, id: &str, name: Option<String>) -> bool {
+        self.tracks.rename_track(id, name)
+    }
     /// Clear the `target_url` on every media reference of every clip and on
     /// every effect (see [`crate::effect_assets`]) in the timeline.
     ///

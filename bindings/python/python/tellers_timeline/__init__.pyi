@@ -75,7 +75,7 @@ class TellersEffectInput(TypedDict, total=False):
 
 class EffectParameterSpec(TypedDict, total=False):
     name: Required[str]
-    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions", "follow", "detect"]]
+    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions", "follow", "attach", "detect"]]
     options: list[str]
 
 # The `follow` parameter of a Transform (an auto-tracking zoom recipe), with
@@ -87,16 +87,10 @@ class FollowPick(TypedDict):
     x: float
     y: float
 
-# The `detectRegions` options a follow is detected with; left out, the
-# player's defaults.
+# How a detected region looks; left out, the player's defaults. How well
+# subjects are found (fps, width, models, thresholds) is the player's
+# `detection` option, not the timeline's; `sanitize` drops those keys.
 class FollowDetect(TypedDict, total=False):
-    objectModel: Literal["fast", "accurate"]
-    faceModel: Literal["short", "full"]
-    fps: float
-    width: float
-    minConfidence: float
-    maxGap: float
-    minDuration: float
     padX: float
     padY: float
 
@@ -119,16 +113,48 @@ class Follow(TypedDict, total=False):
     anchorX: float
     anchorY: float
     hold: float
-    tolerance: float
+
+# The `attach` parameter of a Transform: keeps the clip on a subject detected
+# in the clip of another video track (`track`: its name, id or timeline id).
+# Needs `region`, or `target` (then the player detects and resolves it, see
+# `unresolved_attaches`); `region` and, with `hide`, `opacity` are written on
+# resolution.
+class Attach(TypedDict, total=False):
+    track: Required[str]
+    target: str
+    pick: FollowPick
+    """This clip's seconds and frame coordinates."""
+    detect: FollowDetect
+    anchorX: float
+    anchorY: float
+    smoothing: float
+    hide: bool
+    opacity: Animatable
+    region: dict[str, Any]
 
 # The `detect` parameter of a filter or a Mask: what the player detects on load
 # to fill a filter's `regions` or a Mask's shape. The FollowDetect options sit
 # beside `target`.
 class EffectDetect(FollowDetect, total=False):
     target: Required[str]
+    track: str
+    """Detect in the clip of this video track (name, id or timeline id) playing alongside, instead of this clip's media."""
     pick: Union[FollowPick, list[FollowPick]]
     """One point, or several (a filter covers each subject found; a Mask the first)."""
     shape: Literal["rectangle", "ellipse", "outline"]
+
+# An effect naming another track; `matches` are the ids of the video tracks it
+# names (by name or timeline id, never its own track): empty, it does nothing.
+class TrackReference(TypedDict):
+    owner_id: Optional[str]
+    track_index: int
+    item_index: Optional[int]
+    effect_index: int
+    effect_name: str
+    enabled: bool
+    kind: Literal["track_matte", "attach", "detect"]
+    track: str
+    matches: list[Optional[str]]
 
 class ItemDetect(TypedDict):
     item_id: str
@@ -593,6 +619,9 @@ class Stack:
     def prune_empty_partner_tracks(self) -> list[str]: ...
     def track_groups(self) -> list[TrackGroup]: ...
     def delete_track(self, id: str) -> Optional[Track]: ...
+    def rename_track(self, id: str, name: Optional[str] = None) -> bool: ...
+    def track_references(self) -> list[TrackReference]: ...
+    def dangling_track_references(self) -> list[TrackReference]: ...
     def set_tracks(self, tracks: list[Track]) -> None: ...
     def sanitize(self) -> None: ...
     def get_track_by_id(self, id: str) -> Optional[tuple[int, Track]]: ...
@@ -751,7 +780,13 @@ class Timeline:
     def normalize_track_order(self) -> bool: ...
     def prune_empty_partner_tracks(self) -> list[str]: ...
     def track_groups(self) -> list[TrackGroup]: ...
+    # Deleting a track unlinks the effects naming it: a TrackMatte is removed,
+    # an attach dropped (baked x/y stay), a detect dropped (resolved regions or
+    # shape stay; an unresolved one's effect is removed).
     def delete_track(self, id: str) -> Optional[Track]: ...
+    def rename_track(self, id: str, name: Optional[str] = None) -> bool: ...
+    def track_references(self) -> list[TrackReference]: ...
+    def dangling_track_references(self) -> list[TrackReference]: ...
     def move_item(self, item_id: str, dest_track_id: str, dest_time: float) -> bool: ...
     def get_fonts(self) -> list[FontFace]: ...
     def add_font(
@@ -829,6 +864,12 @@ class Timeline:
     def unresolved_follows(self) -> list[tuple[str, Follow]]: ...
     def apply_follow_resolution(self, item_id: str, parameters: dict[str, Any]) -> bool: ...
     def clear_item_follow(self, item_id: str) -> bool: ...
+    def get_item_attach(self, item_id: str) -> Optional[Attach]: ...
+    def set_item_attach(self, item_id: str, attach: Attach, transform: Optional[dict[str, Animatable]] = None) -> bool: ...
+    def item_attaches(self) -> list[tuple[str, Attach]]: ...
+    def unresolved_attaches(self) -> list[tuple[str, Attach]]: ...
+    def apply_attach_resolution(self, item_id: str, parameters: dict[str, Any]) -> bool: ...
+    def clear_item_attach(self, item_id: str) -> bool: ...
     # Filters and Masks declared with `detect` (what the player detects to fill
     # their `regions` or shape); `effect_index` counts every effect of the clip.
     def get_item_detects(self, item_id: str) -> list[ItemDetect]: ...

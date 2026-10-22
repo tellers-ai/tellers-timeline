@@ -267,12 +267,52 @@ def test_declared_follow_is_resolved_by_the_player_and_saved():
 def test_follow_detect_settings_round_trip():
     video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
     tl = Timeline([video])
-    follow = {"target": "car", "pick": {"t": 1.0, "x": 0.0, "y": 0.0},
-              "detect": {"objectModel": "accurate", "fps": 12.0}}
+    follow = {"target": "car", "pick": {"t": 1.0, "x": 0.0, "y": 0.0}, "detect": {"padX": 1.2}}
     assert tl.set_item_follow("vc", follow)
     assert tl.get_item_follow("vc") == follow
-    assert not tl.set_item_follow("vc", {**follow, "detect": {"objectModel": "best"}})
+    # How well subjects are found is the player's setting (video-player-js #690).
+    assert not tl.set_item_follow("vc", {**follow, "detect": {"objectModel": "accurate"}})
+    assert not tl.set_item_follow("vc", {**follow, "tolerance": 0.002})
     assert not tl.set_item_follow("vc", {**follow, "detect": {"delegate": "GPU"}})
+
+
+def test_attach_keeps_a_clip_on_a_subject_of_another_track():
+    base = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    labels = Track(kind="video", id="l", children=[Item.from_clip(make_clip("label"))])
+    tl = Timeline([base, labels])
+    attach = {"track": "v", "target": "people", "pick": {"t": 1.0, "x": 0.2, "y": 0.0}, "anchorY": -0.7, "hide": True}
+    assert not tl.set_item_attach("label", {"target": "people"})
+    assert not tl.set_item_attach("label", {"track": "v"})
+    assert tl.set_item_attach("label", attach)
+    assert tl.get_item_attach("label") == attach
+    assert tl.unresolved_attaches() == [("label", attach)]
+    (transform,) = tl.get_item_tellers_effects("label")
+    assert transform["name"] == "Attach"
+
+    region = {"shape": "rectangle", "width": 0.1, "height": 0.4, "x": 0.2}
+    resolved = {**attach, "region": region, "opacity": 1}
+    parameters = {"x": 0.2, "y": -0.18, "opacity": 0.0, "scale": 3, "attach": resolved}
+    assert not tl.apply_attach_resolution("label", {**parameters, "attach": {**resolved, "anchorY": 0.5}})
+    assert tl.apply_attach_resolution("label", parameters)
+    assert tl.unresolved_attaches() == []
+    assert tl.item_attaches() == [("label", resolved)]
+    (transform,) = tl.get_item_tellers_effects("label")
+    assert transform["parameters"]["opacity"] == 0.0
+    assert "scale" not in transform["parameters"]
+    assert tl.clear_item_attach("label")
+    assert tl.get_item_attach("label") is None
+    kinds = {p["name"]: p["kind"] for s in tellers_effect_specs() if s["effect_name"] == "Transform" for p in s["parameters"]}
+    assert kinds["attach"] == "attach"
+
+
+def test_a_detect_can_read_another_track():
+    video = Track(kind="video", id="v", children=[Item.from_clip(make_clip("vc"))])
+    tl = Timeline([video])
+    detect = {"target": "people", "track": "Base"}
+    assert tl.set_item_tellers_effects("vc", [{"effect_name": "Mask", "parameters": {"invert": True, "detect": detect}}])
+    (unresolved,) = tl.unresolved_detects()
+    assert unresolved["detect"] == detect
+    assert validate_tellers_effect({"effect_name": "Blur", "parameters": {"detect": {"target": "faces", "fps": 8}}}) is not None
 
 
 def test_detect_on_filters_and_masks_is_resolved_by_the_player_and_saved():
@@ -312,3 +352,32 @@ def test_a_filter_detect_can_pick_several_subjects():
     (unresolved,) = tl.unresolved_detects()
     assert unresolved["detect"] == detect
     assert validate_tellers_effect({"effect_name": "Blur", "parameters": {"detect": {"target": "faces", "pick": []}}}) is not None
+
+
+def test_track_references_follow_a_rename_and_a_delete():
+    base = Track(kind="video", id="v1", children=[Item.from_clip(make_clip("vc"))])
+    base.set_name("Base")
+    overlay = Track(kind="video", id="v2", children=[Item.from_clip(make_clip("label"))])
+    tl = Timeline([base, overlay])
+    assert tl.set_track_tellers_effects("v2", [{"effect_name": "TrackMatte", "parameters": {"mode": "alpha", "track": "Base"}}])
+    assert tl.set_item_attach("label", {"track": "Base", "target": "people"}, {"x": 0.1, "y": 0.2})
+    refs = tl.track_references()
+    assert [(r["owner_id"], r["kind"], r["track"], r["matches"]) for r in refs] == [
+        ("v2", "track_matte", "Base", ["v1"]),
+        ("label", "attach", "Base", ["v1"]),
+    ]
+    assert tl.dangling_track_references() == [] and tl.validate() == []
+
+    assert tl.rename_track("v1", "Interview")
+    assert [r["track"] for r in tl.track_references()] == ["Interview", "Interview"]
+
+    assert tl.set_item_tellers_effects("vc", [{"effect_name": "TrackMatte", "parameters": {"track": "nowhere"}}])
+    (dangling,) = tl.dangling_track_references()
+    assert dangling["owner_id"] == "vc" and dangling["matches"] == []
+    assert len(tl.validate()) == 1 and "nowhere" in tl.validate()[0]
+
+    assert tl.delete_track("v1") is not None
+    assert tl.track_references() == []
+    assert tl.get_track_tellers_effects("v2") == []
+    assert tl.get_item_attach("label") is None
+    assert tl.get_item_tellers_effects("label")[0]["parameters"] == {"x": 0.1, "y": 0.2}

@@ -1,4 +1,5 @@
 pub mod associated_tracks;
+pub mod attach;
 pub mod color_grading;
 pub mod detect;
 pub mod effect_assets;
@@ -15,12 +16,14 @@ pub mod speed;
 pub mod stack_methods;
 pub mod text_styles;
 pub mod track_methods;
+pub mod track_refs;
 pub mod transitions;
 pub mod types;
 pub mod validate;
 pub mod volume;
 
 pub use associated_tracks::*;
+pub use attach::*;
 pub use color_grading::*;
 pub use detect::*;
 pub use effect_assets::*;
@@ -36,6 +39,7 @@ pub use speed::*;
 pub use stack_methods::*;
 pub use text_styles::*;
 pub use track_methods::*;
+pub use track_refs::*;
 pub use transitions::*;
 pub use types::*;
 pub use validate::*;
