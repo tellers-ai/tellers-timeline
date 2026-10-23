@@ -155,8 +155,7 @@ media and effect URLs before persistence (see `effect_assets.rs`).
 Legacy forms are migrated by `sanitize`: LUT keys written beside `parameters`
 and the `cube_url` name (`color_grading.rs`), and the Resolve clip volume
 (`volume.rs`). Rendering is the consuming application's responsibility. See the
-module documentation in `effects.rs`, `fonts.rs`, `text_styles.rs`, and
-`markers.rs` for conventions and compatibility behavior.
+module documentation in `effects.rs`, `fonts.rs`, and `markers.rs` for conventions and compatibility behavior.
 
 ## Visual test UI
 

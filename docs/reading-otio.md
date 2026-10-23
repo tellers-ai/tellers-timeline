@@ -98,8 +98,8 @@ items:
   - `Rich`: Resolve **Rich Text**. The HTML is in
     `parameters.Resolve_OTIO[…]` (`Effect Name: "Rich Text"`), under the
     `title blob` parameter's `Title HTML`. Its `position` (0–1, centered at
-    0.5), zoom and rotation place the text box. HTML classes come from
-    `textStyles`, and fonts from `availableFonts`.
+    0.5), zoom and rotation place the text box. Fonts come from
+    `availableFonts`.
   - `Text`: **plain text**.
     - `parameters.text`, or `parameters.words` (`[{text, start, end?}]` with
       times in seconds, for karaoke-style captions)
@@ -213,7 +213,6 @@ Clip LUTs apply first, then the track's, then the timeline's.
 | timeline | `groups` | `{ <group_id>: { parameters } }`: a keyframable transform (`x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `pivotX`, `pivotY`) applied to the group's clips and composite clips together. Keyframe `t` counts from the earliest member's start. A `group_id` missing here leaves its clips ungrouped. |
 | tracks | `created_by: "auto"` | The library created the track; `prune_empty_partner_tracks` removes it once it is an empty audio track. |
 | markers | `created_by` | The user who left the note. |
-| timeline, tracks | `textStyles` | Named CSS classes for Rich Text HTML. A track's override the timeline's. |
 | timeline | `availableFonts` | `[{family, url, weight?, style?}]` fonts that text clips may use. |
 
 The player also reads `tellers_aspect_ratio` (`16_9`, `9_16`, …) directly in

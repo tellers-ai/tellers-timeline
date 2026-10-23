@@ -11,12 +11,12 @@ A tellers timeline is an [OpenTimelineIO](https://opentimelineio.readthedocs.io)
 
 ### Timeline
 
-The document. Its `tracks` stack holds every track; timeline-wide settings (fonts, text styles) live in its `metadata["tellers.ai"]`.
+The document. Its `tracks` stack holds every track; timeline-wide settings (fonts) live in its `metadata["tellers.ai"]`.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Timeline.1"` | Always `Timeline.1`. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, `tellers.ai.textStyles` the shared CSS classes of rich-text clips. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library keeps as plain metadata, with no typed API. |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library keeps as plain metadata, with no typed API. |
 | `name` | string \| null |  |  | Display name. |
 | `tracks` | [Stack](#stack) |  |  | The stack of every track. |
 
@@ -45,7 +45,7 @@ A row of items played one after the other: each item starts where the previous o
 | `enabled` | boolean |  | `true` | A disabled track is neither drawn nor heard. |
 | `kind` | [TrackKind](#trackkind) | yes |  | `video`, `audio` or `other`. |
 | `markers` | array of [Marker](#marker) |  |  | Track markers, in timeline time. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the track id; `tellers.ai.created_by: "auto"` marks tracks the library created; `tellers.ai.textStyles` overrides the timeline's. |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the track id; `tellers.ai.created_by: "auto"` marks tracks the library created. |
 | `name` | string \| null |  |  | Display name, e.g. `V1` or `A2`. |
 
 ### TrackKind
