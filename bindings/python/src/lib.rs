@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TextStyle, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection, AudioTransitionKind,
+    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection, AudioTransitionKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
@@ -1160,25 +1160,6 @@ impl PyTrack {
     fn get_name(&self) -> Option<String> {
         self.inner.name.clone()
     }
-    /// The CSS classes declared on this track only (not merged with the
-    /// timeline's), as `{"name", "declarations"}` dicts.
-    fn get_text_styles(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        text_styles_to_python(py, self.inner.get_text_styles())
-    }
-    /// The declaration block of the class `name` declared on this track only.
-    fn get_text_style(&self, name: &str) -> Option<String> {
-        self.inner.get_text_style(name)
-    }
-    /// Declare (or redefine) the class `name` on this track object. Tracks
-    /// returned by a timeline are copies: use
-    /// `Timeline.set_track_text_style` to change a track already in one.
-    fn set_text_style(&mut self, name: String, declarations: String) -> bool {
-        self.inner.set_text_style(name, declarations)
-    }
-    /// Remove the class `name` from this track object.
-    fn remove_text_style(&mut self, name: &str) -> bool {
-        self.inner.remove_text_style(name)
-    }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
     fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
@@ -2051,18 +2032,6 @@ fn generator_parameters_from_python<T: serde::de::DeserializeOwned>(parameters: 
     })
 }
 
-fn text_styles_to_python(py: Python<'_>, styles: Vec<TextStyle>) -> PyResult<Vec<PyObject>> {
-    styles
-        .into_iter()
-        .map(|style| {
-            let dict = PyDict::new(py);
-            dict.set_item("name", style.name)?;
-            dict.set_item("declarations", style.declarations)?;
-            Ok(dict.into_py(py))
-        })
-        .collect()
-}
-
 fn marker_info_to_python(py: Python<'_>, info: MarkerInfo) -> PyResult<PyObject> {
     let dict = PyDict::new(py);
     dict.set_item("id", info.marker.get_id())?;
@@ -2301,28 +2270,6 @@ impl PyTimeline {
     fn remove_font(&mut self, family: &str) -> bool {
         self.inner.remove_font(family)
     }
-    /// The CSS classes declared for rich-text clips, as
-    /// `{"name", "declarations"}` dicts. Styles the player would ignore are
-    /// skipped.
-    fn get_text_styles(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        text_styles_to_python(py, self.inner.get_text_styles())
-    }
-    /// The declaration block of the class `name`, or None if not declared.
-    fn get_text_style(&self, name: &str) -> Option<String> {
-        self.inner.get_text_style(name)
-    }
-    /// Declare (or redefine) the CSS class `name` with `declarations`
-    /// (`"font-size:56px;color:#fff"`), for clips to use as
-    /// `class="name"` in their Title HTML. Returns False, changing nothing,
-    /// when the name is not a plain CSS identifier or the declarations are
-    /// empty or contain a brace.
-    fn set_text_style(&mut self, name: String, declarations: String) -> bool {
-        self.inner.set_text_style(name, declarations)
-    }
-    /// Remove the declared class `name`, returning whether it was present.
-    fn remove_text_style(&mut self, name: &str) -> bool {
-        self.inner.remove_text_style(name)
-    }
     /// Every marker of the timeline (stack, tracks, clips) as dicts with
     /// timeline times: `{"id", "name", "comment", "color", "created_by",
     /// "owner_kind", "owner_id", "track_id", "timeline_start", "duration",
@@ -2381,41 +2328,6 @@ impl PyTimeline {
     /// Remove a marker. Returns False when no such marker exists.
     fn delete_marker(&mut self, marker_id: &str) -> bool {
         self.inner.delete_marker(marker_id).is_some()
-    }
-    /// The stylesheet the player injects for this timeline's text clips: one
-    /// `.name { declarations }` rule per declared style.
-    fn text_styles_css(&self) -> String {
-        self.inner.text_styles_css()
-    }
-    /// The styles that apply to the clips of the track `track_id`: the
-    /// timeline's styles with the track's merged over them by class name.
-    /// None when no track has this id.
-    fn get_track_text_styles(
-        &self,
-        py: Python<'_>,
-        track_id: &str,
-    ) -> PyResult<Option<Vec<PyObject>>> {
-        self.inner
-            .get_track_text_styles(track_id)
-            .map(|styles| text_styles_to_python(py, styles))
-            .transpose()
-    }
-    /// Declare (or redefine) the class `name` on the track `track_id`,
-    /// overriding a timeline class of the same name for that track. Returns
-    /// False, changing nothing, when no track has this id or the style is
-    /// unusable.
-    fn set_track_text_style(&mut self, track_id: &str, name: String, declarations: String) -> bool {
-        self.inner.set_track_text_style(track_id, name, declarations)
-    }
-    /// Remove the class `name` from the track `track_id`, returning whether it
-    /// was present there. A timeline class of the same name applies again.
-    fn remove_track_text_style(&mut self, track_id: &str, name: &str) -> bool {
-        self.inner.remove_track_text_style(track_id, name)
-    }
-    /// The stylesheet the player injects for the clips of the track
-    /// `track_id` (merged timeline and track styles), or None.
-    fn track_text_styles_css(&self, track_id: &str) -> Option<String> {
-        self.inner.track_text_styles_css(track_id)
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the timeline, applied over the whole composited image,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.

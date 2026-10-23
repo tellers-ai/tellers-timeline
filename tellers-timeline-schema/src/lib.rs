@@ -35,7 +35,7 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
     (
         "Timeline",
         "The document. Its `tracks` stack holds every track; timeline-wide settings \
-         (fonts, text styles) live in its `metadata[\"tellers.ai\"]`.",
+         (fonts) live in its `metadata[\"tellers.ai\"]`.",
     ),
     (
         "Stack",
@@ -170,8 +170,7 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     (
         "Timeline",
         "metadata",
-        "Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, \
-         `tellers.ai.textStyles` the shared CSS classes of rich-text clips. The player also \
+        "Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use. The player also \
          reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip \
          group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) \
          and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library \
@@ -199,7 +198,7 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
         "Track",
         "metadata",
         "Free JSON. `tellers.ai.timeline_id` is the track id; `tellers.ai.created_by: \"auto\"` \
-         marks tracks the library created; `tellers.ai.textStyles` overrides the timeline's.",
+         marks tracks the library created.",
     ),
     ("Clip", "OTIO_SCHEMA", "`Clip.2` (`Clip.1` is read too)."),
     ("Clip", "name", "Display name."),

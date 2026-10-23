@@ -153,8 +153,8 @@ fills the URLs on every stage before playback, and `clear_target_urls` strips
 media and effect URLs before persistence (see `effect_assets.rs`).
 
 Rendering is the consuming application's responsibility. See the
-module documentation in `effects.rs`, `fonts.rs`, `text_styles.rs`, and
-`markers.rs` for conventions and compatibility behavior.
+module documentation in `effects.rs`, `fonts.rs`, and `markers.rs` for
+conventions and compatibility behavior.
 
 ## Visual test UI
 
