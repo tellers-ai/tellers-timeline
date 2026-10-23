@@ -59,8 +59,7 @@
 //! resolved from the id (see [`crate::effect_assets`]).
 //!
 //! The tellers effects of a stage, in list order, are its effect list. Other
-//! effects (Resolve transforms and crop, a legacy Resolve volume (see
-//! [`crate::volume`]); OTIO time warps) are left where they are. Indices
+//! effects (Resolve transforms and crop; OTIO time warps) are left where they are. Indices
 //! passed to the list methods count tellers effects only, which are exactly
 //! what [`resolve_tellers_effects`] returns.
 

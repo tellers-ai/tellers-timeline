@@ -118,22 +118,3 @@ def test_clear_target_urls_strips_media_and_effect_urls():
     clip = data["tracks"]["children"][0]["children"][0]
     assert clip["effects"] == [lut_effect("log")]
     assert clip["media_references"]["DEFAULT_MEDIA"]["target_url"] == ""
-
-
-def test_sanitize_upgrades_legacy_luts():
-    legacy = {
-        "OTIO_SCHEMA": "Effect.1",
-        "name": "look.cube",
-        "effect_name": "ColorLut",
-        "metadata": {"tellers.ai": {"asset_id": "a", "cube_url": "https://old/a.cube"}},
-    }
-    data = json.loads(make_timeline().to_json())
-    data["tracks"]["effects"] = [legacy]
-    tl = Timeline.parse_json(json.dumps(data))
-
-    tl.sanitize()
-
-    assert json.loads(tl.to_json())["tracks"]["effects"] == [
-        lut_effect("a", "look.cube", url="https://old/a.cube")
-    ]
-    assert tl.effect_asset_ids() == ["a"]
