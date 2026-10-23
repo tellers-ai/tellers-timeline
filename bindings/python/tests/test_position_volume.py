@@ -322,33 +322,3 @@ def test_parse_json_with_position_and_volume():
     pos2 = clip2.get_position()
     assert abs(pos2.get_x() - 0.3) < 0.001
     assert abs(pos2.get_rotation() - 45.0) < 0.001
-
-
-def test_upgrade_legacy_resolve_volumes():
-    """A legacy Resolve volume is folded into tellers.ai.Volume."""
-    ref = MediaReference("file:///test.mp4")
-    clip = Clip(10.0, {"DEFAULT_MEDIA": ref}, "DEFAULT_MEDIA")
-    clip_dict = json.loads(clip.to_json())
-    clip_dict["effects"] = [{
-        "OTIO_SCHEMA": "Effect.1",
-        "name": "",
-        "effect_name": "Resolve Effect",
-        "metadata": {"Resolve_OTIO": {
-            "Effect Name": "Fairlight Clip Volume and Fades",
-            "Enabled": True,
-            "Name": "Volume",
-            "Parameters": [{"Parameter ID": "volume", "Parameter Value": -9.0, "Variant Type": "Double"}],
-            "Type": 62,
-        }},
-    }]
-    timeline = Timeline.parse_json(json.dumps({
-        "OTIO_SCHEMA": "Timeline.1",
-        "tracks": {"OTIO_SCHEMA": "Stack.1", "children": [
-            {"OTIO_SCHEMA": "Track.1", "kind": "Audio", "children": [clip_dict]},
-        ]},
-    }))
-    assert timeline.upgrade_legacy_resolve_volumes() == 1
-    assert timeline.upgrade_legacy_resolve_volumes() == 0
-    migrated = json.loads(timeline.to_json(None, False))["tracks"]["children"][0]["children"][0]
-    assert [e["effect_name"] for e in migrated["effects"]] == ["tellers.ai.Volume"]
-    assert migrated["effects"][0]["metadata"]["tellers.ai"]["parameters"]["volume"] == -9.0

@@ -16,9 +16,7 @@
 //!
 //! These functions read only `parameters`, and cover every effect on every
 //! stage (the timeline, its tracks, their clips, gaps and composite clips,
-//! nested ones included), whatever its `effect_name`. Legacy LUT forms are
-//! brought into `parameters` by [`crate::Stack::sanitize`] (see
-//! [`crate::color_grading`]).
+//! nested ones included), whatever its `effect_name`.
 
 use std::collections::HashMap;
 

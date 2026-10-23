@@ -1,5 +1,5 @@
 use crate::{
-    strip_moved_detection_settings, upgrade_legacy_color_lut_effects, IdMetadataExt, Item, Stack,
+    strip_moved_detection_settings, IdMetadataExt, Item, Stack,
     Timeline, Track,
 };
 use std::collections::{HashMap, HashSet};
@@ -124,7 +124,6 @@ impl Stack {
         for t in &mut self.children {
             t.sanitize();
         }
-        self.upgrade_legacy_color_luts();
         self.strip_moved_detection_settings();
         self.ensure_unique_timeline_ids();
         self.cleanup_dangling_sync_clips();
@@ -134,26 +133,9 @@ impl Stack {
         for t in &mut self.children {
             t.sanitize_preserving_all_gap_track();
         }
-        self.upgrade_legacy_color_luts();
         self.strip_moved_detection_settings();
         self.ensure_unique_timeline_ids();
         self.cleanup_dangling_sync_clips();
-    }
-
-    /// Bring LUT effects written in a legacy form (`ColorLut`, keys beside
-    /// `parameters`) up to date on the stack, its tracks and their clips, and
-    /// fold clips' legacy Resolve volumes into `tellers.ai.Volume`.
-    fn upgrade_legacy_color_luts(&mut self) {
-        upgrade_legacy_color_lut_effects(&mut self.effects);
-        for track in &mut self.children {
-            upgrade_legacy_color_lut_effects(&mut track.effects);
-            for item in &mut track.items {
-                if let Item::Clip(clip) = item {
-                    upgrade_legacy_color_lut_effects(&mut clip.effects);
-                }
-            }
-            track.upgrade_legacy_resolve_volumes();
-        }
     }
 
     /// Drop the detection settings now the player's (video-player-js #690)
