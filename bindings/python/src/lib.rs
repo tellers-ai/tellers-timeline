@@ -2933,6 +2933,7 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                         ParameterKind::Follow => "follow",
                         ParameterKind::Attach => "attach",
                         ParameterKind::Detect => "detect",
+                        ParameterKind::Bands => "bands",
                     };
                     p.set_item("kind", kind)?;
                     Ok(p.into_py(py))
