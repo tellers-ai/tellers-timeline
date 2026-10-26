@@ -152,6 +152,12 @@ An effect that loads an asset (a LUT's `.cube`) stores the persistent
 fills the URLs on every stage before playback, and `clear_target_urls` strips
 media and effect URLs before persistence (see `effect_assets.rs`).
 
+A declared font (`availableFonts`) is either linked by `url` or uploaded as an
+asset, stored as its `asset_id` like an effect's. `Timeline.font_asset_ids`,
+`set_font_target_urls` and `clear_font_target_urls` resolve and strip its
+`target_url` the same way, and `clear_target_urls` strips it too (see
+`fonts.rs`).
+
 Rendering is the consuming application's responsibility. See the
 module documentation in `effects.rs`, `fonts.rs`, and `markers.rs` for
 conventions and compatibility behavior.

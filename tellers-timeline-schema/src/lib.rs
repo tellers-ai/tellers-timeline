@@ -170,7 +170,9 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     (
         "Timeline",
         "metadata",
-        "Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use. The player also \
+        "Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, each \
+         `{family, url}` (linked) or `{family, asset_id}` (uploaded; see \
+         [Asset references](#asset-references)), with optional `weight` and `style`. The player also \
          reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip \
          group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) \
          and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library \
@@ -628,6 +630,11 @@ fn effects_section(out: &mut String) {
          from its `target_url` parameter. `target_url` is resolved from `asset_id` before \
          playback and stripped before saving, like a media reference's `target_url`; this \
          holds for every effect with an `asset_id`, whatever its name.\n\n\
+         An uploaded font in `metadata[\"tellers.ai\"].availableFonts` works the same \
+         way: its entry stores `asset_id` instead of `url`, and the player loads it from the \
+         entry's `target_url`, resolved before playback (`set_font_target_urls`) and \
+         stripped before saving (`clear_target_urls`). Until it resolves the player skips \
+         the font.\n\n\
          A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, directly \
          in `tellers.ai`, and the URL used to be named `cube_url`; `sanitize` upgrades \
          those forms.\n"
