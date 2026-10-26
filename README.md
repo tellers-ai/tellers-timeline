@@ -107,7 +107,7 @@ remaining work; it is not a claim of complete OTIO conformance.
 | Audio/video sync and groups | ✅ Supported | Linked editing, sync partner placement, associated tracks, group discovery, and optional track normalization. |
 | Sanitization | ✅ Supported | Clamp clips to available media, repair missing/duplicate track and item IDs, merge gaps, remove zero-length items/trailing gaps, and clean dangling sync links. |
 | Validation | 🟡 Partial | Negative item-duration checks. Comprehensive structural and schema validation remains. |
-| Rich text and styling | 🟡 Partial | Resolve rich-text generators, typed Text and Shape generator clips, timeline font declarations, and LUT asset/URL helpers. Rich-text HTML cannot be edited after the clip is created. |
+| Rich text and styling | 🟡 Partial | Typed Text and Shape generator clips, timeline font declarations, and LUT asset/URL helpers. Resolve rich-text generators are read (`get_rich_text`) but no longer created or edited: new text is a Text clip. |
 | Nested compositions | 🟡 Partial | Composite clips (a `Stack.1` on a track) load, round-trip, and move, split, resize, and delete like clips; their effects are editable. Deeper editing inside nested tracks remains. |
 | Transitions and time effects | 🟡 Partial | `Transition.1` items load, round-trip, and are edited (typed kind, direction, colour, offsets, and audio fade curve: `tellers.ai.audio-constant-power` / `tellers.ai.audio-constant-gain`). `TimeWarp`, `LinearTimeWarp.1`, and `FreezeFrame.1` are kept as effect data; speed-aware editing remains. |
 | Full OTIO schema coverage | ⬜ Missing | Remaining object types, schema-version handling, and comprehensive interoperability fixtures. |
