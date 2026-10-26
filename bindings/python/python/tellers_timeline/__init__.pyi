@@ -76,7 +76,7 @@ class TellersEffectInput(TypedDict, total=False):
 
 class EffectParameterSpec(TypedDict, total=False):
     name: Required[str]
-    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions", "follow", "attach", "detect"]]
+    kind: Required[Literal["animatable", "color", "string", "choice", "bool", "points", "regions", "follow", "attach", "detect", "bands"]]
     options: list[str]
 
 # The `follow` parameter of a Transform (an auto-tracking zoom recipe), with

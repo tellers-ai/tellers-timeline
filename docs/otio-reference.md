@@ -320,7 +320,7 @@ Every effect the player renders has the same shape: an `Effect.1` whose `effect_
 }
 ```
 
-The same effect can sit on a clip or a track (applied to each of its clips); clip effects apply first, then the track's. On the stack the player applies only a `MotionBlur` (every clip's default) and `ColorLut`s. Where an effect applies once (`Transform`, `Blend`, `Volume`, ...), the first enabled one wins. Parameters left out take the player's defaults.
+The same effect can sit on a clip or a track (applied to each of its clips); clip effects apply first, then the track's. On the stack the player applies only a `MotionBlur` (every clip's default) and `ColorLut`s. Where an effect applies once (`Transform`, `Blend`, `Volume`, ...), the first enabled one wins; the sound effects `Equalizer`, `Compressor` and `Limiter` all apply, in order, before the `Volume`, `Pan` and fades of their clip or track. Parameters left out take the player's defaults.
 
 | Effect | `effect_name` | Applies to | Parameters |
 |---|---|---|---|
@@ -344,6 +344,9 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [TrackMatte](#effect-trackmatte) | `tellers.ai.TrackMatte` | video (picture) | `mode`, `track` |
 | [Volume](#effect-volume) | `tellers.ai.Volume` | audio (sound) | `volume`, `fadeIn`, `fadeOut` |
 | [Pan](#effect-pan) | `tellers.ai.Pan` | audio (sound) | `pan` |
+| [Equalizer](#effect-equalizer) | `tellers.ai.Equalizer` | audio (sound) | `bands` |
+| [Compressor](#effect-compressor) | `tellers.ai.Compressor` | audio (sound) | `threshold`, `ratio`, `knee`, `attack`, `release`, `makeup` |
+| [Limiter](#effect-limiter) | `tellers.ai.Limiter` | audio (sound) | `ceiling`, `release` |
 | [TimeWarp](#effect-timewarp) | `tellers.ai.TimeWarp` | playback speed | `speed`, `preserve_pitch` |
 | [TextTypewriter](#effect-texttypewriter) | `tellers.ai.TextTypewriter` | text clips | `progress` |
 | [TextWordReveal](#effect-textwordreveal) | `tellers.ai.TextWordReveal` | text clips | `progress`, `style` |
@@ -614,6 +617,39 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | Parameter | Value |
 |---|---|
 | `pan` | [animatable](#animatable-parameters) number |
+
+<a id="effect-equalizer"></a>
+### Equalizer
+
+`tellers.ai.Equalizer`, applies to audio (sound).
+
+| Parameter | Value |
+|---|---|
+| `bands` | array of filter bands run in order, each `{ "type", "frequency"?, "gain"?, "q"? }`: `type` one of `"highpass"`, `"lowpass"`, `"lowshelf"`, `"highshelf"`, `"peaking"`; `frequency` in Hz (default 1000), `gain` in dB (shelves and peaking only, default 0) and `q` (default 0.707) animatable numbers |
+
+<a id="effect-compressor"></a>
+### Compressor
+
+`tellers.ai.Compressor`, applies to audio (sound).
+
+| Parameter | Value |
+|---|---|
+| `threshold` | [animatable](#animatable-parameters) number |
+| `ratio` | [animatable](#animatable-parameters) number |
+| `knee` | [animatable](#animatable-parameters) number |
+| `attack` | [animatable](#animatable-parameters) number |
+| `release` | [animatable](#animatable-parameters) number |
+| `makeup` | [animatable](#animatable-parameters) number |
+
+<a id="effect-limiter"></a>
+### Limiter
+
+`tellers.ai.Limiter`, applies to audio (sound).
+
+| Parameter | Value |
+|---|---|
+| `ceiling` | [animatable](#animatable-parameters) number |
+| `release` | [animatable](#animatable-parameters) number |
 
 <a id="effect-timewarp"></a>
 ### TimeWarp

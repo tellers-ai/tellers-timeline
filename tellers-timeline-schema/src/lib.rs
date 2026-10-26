@@ -15,7 +15,7 @@ use std::fmt::Write as _;
 use serde_json::Value;
 use tellers_timeline_core::{
     Ease, EffectTarget, ParameterKind, ATTACH_PARAMETER, DETECT_MASK_PARAMETERS, DETECT_PARAMETER,
-    EFFECT_SPECS, FOLLOW_PARAMETER, FOLLOW_GROUP_TARGETS, MOVED_DETECTION_SETTINGS,
+    EFFECT_SPECS, EQUALIZER_BAND_TYPES, FOLLOW_PARAMETER, FOLLOW_GROUP_TARGETS, MOVED_DETECTION_SETTINGS,
     COCO_CATEGORIES,
     TELLERS_EFFECT_PREFIX,
 };
@@ -561,6 +561,16 @@ fn kind_string(kind: ParameterKind) -> String {
              (a Mask); see [Detect](#detect)"
                 .to_string()
         }
+        ParameterKind::Bands => format!(
+            "array of filter bands run in order, each `{{ \"type\", \"frequency\"?, \"gain\"?, \"q\"? }}`: \
+             `type` one of {}; `frequency` in Hz (default 1000), `gain` in dB (shelves and peaking \
+             only, default 0) and `q` (default 0.707) animatable numbers",
+            EQUALIZER_BAND_TYPES
+                .iter()
+                .map(|t| format!("`\"{t}\"`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -592,7 +602,9 @@ fn effects_section(out: &mut String) {
          The same effect can sit on a clip or a track (applied to each of its clips); clip \
          effects apply first, then the track's. On the stack the player applies only a \
          `MotionBlur` (every clip's default) and `ColorLut`s. Where an effect applies once (`Transform`, `Blend`, `Volume`, \
-         ...), the first enabled one wins. Parameters left out take the player's defaults.\n"
+         ...), the first enabled one wins; the sound effects `Equalizer`, `Compressor` and `Limiter` all \
+         apply, in order, before the `Volume`, `Pan` and fades of their clip or track. Parameters \
+         left out take the player's defaults.\n"
     );
     out.push_str("| Effect | `effect_name` | Applies to | Parameters |\n|---|---|---|---|\n");
     for spec in EFFECT_SPECS {

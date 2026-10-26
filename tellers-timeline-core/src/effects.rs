@@ -38,6 +38,12 @@
 //! effects can be written on the root stack, but the player applies only a
 //! `MotionBlur` there, as every clip's default.
 //!
+//! The sound effects `Equalizer`, `Compressor` and `Limiter` all apply, in
+//! list order, on a clip's sound before its `Volume`, `Pan` and fades, or on
+//! the sum of a track's clips before the track's `Volume` and `Pan`. An
+//! `Equalizer`'s `bands` are filters run in order, each an object with a
+//! `type` and animatable `frequency`, `gain` and `q`.
+//!
 //! Each effect has a target ([`EffectTarget`]) deciding where it may go:
 //! picture effects on video (and other) tracks and their clips, text clips
 //! included; text effects (`Text*`) on text clips only (and on non-audio
@@ -147,7 +153,17 @@ pub enum ParameterKind {
     /// A filter's or a `Mask`'s `detect`: the subject the player detects to
     /// fill its `regions` or shape; see [`crate::EffectDetect`].
     Detect,
+    /// An `Equalizer`'s `bands`: a list of filters run in order, each an
+    /// object with a `type` (one of [`EQUALIZER_BAND_TYPES`]) and the
+    /// [`Animatable`]s `frequency` (Hz), `gain` (dB, shelves and peaking
+    /// only) and `q`.
+    Bands,
 }
+
+/// The `type` of an `Equalizer` band.
+pub const EQUALIZER_BAND_TYPES: &[&str] = &["highpass", "lowpass", "lowshelf", "highshelf", "peaking"];
+/// The numeric keys of an `Equalizer` band, each an [`Animatable`].
+pub const EQUALIZER_BAND_NUMBERS: &[&str] = &["frequency", "gain", "q"];
 
 /// A parameter of a tellers effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,6 +406,20 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
     ),
     effect("Volume", Audio, &[anim("volume"), anim("fadeIn"), anim("fadeOut")]),
     effect("Pan", Audio, &[anim("pan")]),
+    effect("Equalizer", Audio, &[ParameterSpec { name: "bands", kind: ParameterKind::Bands }]),
+    effect(
+        "Compressor",
+        Audio,
+        &[
+            anim("threshold"),
+            anim("ratio"),
+            anim("knee"),
+            anim("attack"),
+            anim("release"),
+            anim("makeup"),
+        ],
+    ),
+    effect("Limiter", Audio, &[anim("ceiling"), anim("release")]),
     effect("TimeWarp", Time, &[anim("speed"), boolean("preserve_pitch")]),
     effect("TextTypewriter", Text, &[anim("progress")]),
     effect(
@@ -741,7 +771,25 @@ fn parameter_value_is_valid(kind: ParameterKind, value: &Value) -> bool {
         ParameterKind::Follow => crate::follow::follow_value_is_valid(value),
         ParameterKind::Attach => crate::attach::attach_value_is_valid(value),
         ParameterKind::Detect => crate::detect::detect_value_is_valid(value),
+        ParameterKind::Bands => value
+            .as_array()
+            .is_some_and(|bands| bands.iter().all(equalizer_band_is_valid)),
     }
+}
+
+/// Whether `band` is an `Equalizer` band: an object with a known `type` and
+/// animatable `frequency`, `gain` and `q`, nothing else.
+fn equalizer_band_is_valid(band: &Value) -> bool {
+    band.as_object().is_some_and(|band| {
+        band.get("type")
+            .and_then(Value::as_str)
+            .is_some_and(|t| EQUALIZER_BAND_TYPES.contains(&t))
+            && band.iter().all(|(key, v)| {
+                key == "type"
+                    || (EQUALIZER_BAND_NUMBERS.contains(&key.as_str())
+                        && Animatable::from_value(v).is_some())
+            })
+    })
 }
 
 /// Whether `shape` is an object of `Mask` parameters (a filter region, a
@@ -1379,6 +1427,38 @@ mod tests {
             .is_ok());
         assert!(TellersEffect::new("Stabilize").with_parameter("opacity", 1.0).validate().is_err());
         assert!(!TellersEffect::new("Stabilize").allowed_on(&TrackKind::Audio));
+    }
+
+    #[test]
+    fn audio_chain_effects_are_audio_and_bands_are_checked() {
+        for name in ["Equalizer", "Compressor", "Limiter"] {
+            assert!(TellersEffect::new(name).allowed_on(&TrackKind::Audio), "{name}");
+            assert!(!TellersEffect::new(name).allowed_on(&TrackKind::Video), "{name}");
+        }
+        assert!(TellersEffect::new("Compressor")
+            .with_parameter("threshold", -30.0)
+            .with_parameter("ratio", 4.0)
+            .with_parameter("makeup", json!({ "keyframes": [ { "t": 0, "v": 0 }, { "t": 1, "v": 12 } ] }))
+            .validate()
+            .is_ok());
+        assert!(TellersEffect::new("Compressor").with_parameter("volume", 1.0).validate().is_err());
+        assert!(TellersEffect::new("Limiter").with_parameter("ceiling", -1.0).validate().is_ok());
+        let bands = json!([
+            { "type": "highpass", "frequency": { "keyframes": [ { "t": 0, "v": 900 }, { "t": 1.5, "v": 90, "ease": "easeOut" } ] } },
+            { "type": "peaking", "frequency": 3500, "gain": 4, "q": 1 }
+        ]);
+        assert!(TellersEffect::new("Equalizer").with_parameter("bands", bands).validate().is_ok());
+        assert!(TellersEffect::new("Equalizer").with_parameter("bands", json!([])).validate().is_ok());
+        // A band needs a known type, and only its numbers.
+        for bad in [
+            json!([{ "frequency": 100 }]),
+            json!([{ "type": "notch", "frequency": 100 }]),
+            json!([{ "type": "peaking", "gain": "loud" }]),
+            json!([{ "type": "peaking", "width": 1 }]),
+            json!({ "type": "peaking" }),
+        ] {
+            assert!(TellersEffect::new("Equalizer").with_parameter("bands", bad.clone()).validate().is_err(), "{bad}");
+        }
     }
 
     #[test]

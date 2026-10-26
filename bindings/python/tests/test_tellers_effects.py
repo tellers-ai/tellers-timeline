@@ -155,6 +155,13 @@ def test_specs_validate_and_evaluate():
     assert specs["TextWave"]["target"] == "text"
     blend_mode = specs["Blend"]["parameters"][0]
     assert blend_mode["kind"] == "choice" and "multiply" in blend_mode["options"]
+    assert specs["Equalizer"]["target"] == "audio"
+    assert specs["Equalizer"]["parameters"][0] == {"name": "bands", "kind": "bands"}
+    assert [p["name"] for p in specs["Compressor"]["parameters"]] == ["threshold", "ratio", "knee", "attack", "release", "makeup"]
+    assert [p["name"] for p in specs["Limiter"]["parameters"]] == ["ceiling", "release"]
+    bands = [{"type": "highpass", "frequency": FADE_IN}, {"type": "peaking", "frequency": 3500, "gain": 4, "q": 1}]
+    assert validate_tellers_effect({"effect_name": "Equalizer", "parameters": {"bands": bands}}) is None
+    assert "bands" in validate_tellers_effect({"effect_name": "Equalizer", "parameters": {"bands": [{"type": "notch"}]}})
 
     assert validate_tellers_effect({"effect_name": "Blur", "parameters": {"strength": FADE_IN}}) is None
     assert "unknown" in validate_tellers_effect({"effect_name": "Sparkles"})
