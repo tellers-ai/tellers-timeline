@@ -153,10 +153,11 @@ fills the URLs on every stage before playback, and `clear_target_urls` strips
 media and effect URLs before persistence (see `effect_assets.rs`).
 
 A declared font (`availableFonts`) is either linked by `url` or uploaded as an
-asset, stored as its `asset_id` like an effect's. `Timeline.font_asset_ids`,
-`set_font_target_urls` and `clear_font_target_urls` resolve and strip its
-`target_url` the same way, and `clear_target_urls` strips it too (see
-`fonts.rs`).
+asset, stored as its `asset_id` like an effect's. `Timeline.font_asset_ids` lists the ids,
+`set_font_asset_urls` resolves each into the entry's `url` (the field the
+player reads for every font, so the player knows nothing of assets), and
+`clear_font_asset_urls` / `clear_target_urls` strip that resolved `url`
+before persistence, leaving linked fonts alone (see `fonts.rs`).
 
 Rendering is the consuming application's responsibility. See the
 module documentation in `effects.rs`, `fonts.rs`, and `markers.rs` for

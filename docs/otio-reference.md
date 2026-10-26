@@ -681,7 +681,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 
 An effect that loads an asset (a `ColorLut`'s `.cube` file) names it in its `asset_id` parameter, which is what the timeline stores, and the player loads it from its `target_url` parameter. `target_url` is resolved from `asset_id` before playback and stripped before saving, like a media reference's `target_url`; this holds for every effect with an `asset_id`, whatever its name.
 
-An uploaded font in `metadata["tellers.ai"].availableFonts` works the same way: its entry stores `asset_id` instead of `url`, and the player loads it from the entry's `target_url`, resolved before playback (`set_font_target_urls`) and stripped before saving (`clear_target_urls`). Until it resolves the player skips the font.
+An uploaded font in `metadata["tellers.ai"].availableFonts` stores `asset_id` instead of `url`. Before playback or export the host resolves the asset into the entry's `url` (`set_font_asset_urls`), which the player reads like a linked font's, and strips it before saving (`clear_target_urls`). Until it resolves the player skips the font.
 
 A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, directly in `tellers.ai`, and the URL used to be named `cube_url`; `sanitize` upgrades those forms.
 
