@@ -127,7 +127,7 @@ wider interoperability; they are not ratified OTIO standards.
 | Transform and crop | Read/write helpers currently use Resolve representations (volume is the `tellers.ai.Volume` effect). | Shared effect schemas and mappings between application-specific encodings. |
 | Color grading assets | Ordered LUTs on clips, video tracks, and the stack; persistent `parameters.asset_id`, resolvable `parameters.target_url` (named like a media reference's). | Predictable grading stages and a common distinction between asset identity and temporary delivery URLs. |
 | Sync and edit groups | Sync links use `Resolve_OTIO["Link Group ID"]`; edit groups use `tellers.ai["Tellers Group ID"]`. Associated tracks are computed. | Portable sync/group semantics without persisting redundant track associations. |
-| Text and fonts | `tellers.ai.availableFonts`; rich-text generator helpers. | Portable typography and text generator conventions. |
+| Text and fonts | `tellers.ai.availableFonts` (fonts linked by URL or uploaded as an asset, with `target_url` resolution); rich-text generator helpers. | Portable typography and text generator conventions. |
 | Provenance | `tellers.ai.created_by` on markers and automatically created tracks. | Documented creator/provenance semantics, with room to separate user identity from automatic creation. |
 
 Bring real timelines, editor integrations, and competing representations. The

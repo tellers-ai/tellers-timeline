@@ -16,7 +16,7 @@ The document. Its `tracks` stack holds every track; timeline-wide settings (font
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Timeline.1"` | Always `Timeline.1`. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library keeps as plain metadata, with no typed API. |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, each `{family, url}` (linked) or `{family, asset_id}` (uploaded; see [Asset references](#asset-references)), with optional `weight` and `style`. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library keeps as plain metadata, with no typed API. |
 | `name` | string \| null |  |  | Display name. |
 | `tracks` | [Stack](#stack) |  |  | The stack of every track. |
 
@@ -680,6 +680,8 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 ### Asset references
 
 An effect that loads an asset (a `ColorLut`'s `.cube` file) names it in its `asset_id` parameter, which is what the timeline stores, and the player loads it from its `target_url` parameter. `target_url` is resolved from `asset_id` before playback and stripped before saving, like a media reference's `target_url`; this holds for every effect with an `asset_id`, whatever its name.
+
+An uploaded font in `metadata["tellers.ai"].availableFonts` works the same way: its entry stores `asset_id` instead of `url`, and the player loads it from the entry's `target_url`, resolved before playback (`set_font_target_urls`) and stripped before saving (`clear_target_urls`). Until it resolves the player skips the font.
 
 A `ColorLut`'s `asset_id` and URL used to be written beside `parameters`, directly in `tellers.ai`, and the URL used to be named `cube_url`; `sanitize` upgrades those forms.
 

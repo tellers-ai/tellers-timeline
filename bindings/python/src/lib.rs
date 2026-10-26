@@ -4,7 +4,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection, AudioTransitionKind,
+    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, FontSource, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection, AudioTransitionKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
@@ -1985,8 +1985,17 @@ fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<Py
         .into_iter()
         .map(|font| {
             let dict = PyDict::new(py);
+            let (url, asset_id, target_url) = match font.source {
+                FontSource::Url(url) => (Some(url), None, None),
+                FontSource::Asset {
+                    asset_id,
+                    target_url,
+                } => (None, Some(asset_id), target_url),
+            };
             dict.set_item("family", font.family)?;
-            dict.set_item("url", font.url)?;
+            dict.set_item("url", url)?;
+            dict.set_item("asset_id", asset_id)?;
+            dict.set_item("target_url", target_url)?;
             dict.set_item("weight", font.weight)?;
             dict.set_item("style", font.style)?;
             Ok(dict.into_py(py))
@@ -2108,7 +2117,8 @@ impl PyTimeline {
         self.inner.sanitize();
     }
 
-    /// Clear the `target_url` of every media reference and every effect.
+    /// Clear the `target_url` of every media reference, every effect and every
+    /// uploaded font.
     fn clear_target_urls(&mut self) {
         self.inner.clear_target_urls();
     }
@@ -2135,6 +2145,30 @@ impl PyTimeline {
     /// ids. Returns how many had one. `clear_target_urls` does this too.
     fn clear_effect_target_urls(&mut self) -> usize {
         self.inner.clear_effect_target_urls()
+    }
+
+    /// Every distinct asset id of the uploaded fonts (declared with
+    /// `add_font(..., asset_id=...)`), in declaration order: the ids to
+    /// resolve for `set_font_target_urls`.
+    fn font_asset_ids(&self) -> Vec<String> {
+        self.inner.font_asset_ids()
+    }
+
+    /// Set the `target_url` of every uploaded font whose `asset_id` is in
+    /// `urls` (asset id -> URL). Returns how many were set.
+    fn set_font_target_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
+        self.inner.set_font_target_urls(&urls)
+    }
+
+    /// `set_font_target_urls` for the single asset `asset_id`.
+    fn set_font_target_url(&mut self, asset_id: &str, url: &str) -> usize {
+        self.inner.set_font_target_url(asset_id, url)
+    }
+
+    /// Remove the `target_url` of every uploaded font, keeping the asset ids.
+    /// Returns how many had one. `clear_target_urls` does this too.
+    fn clear_font_target_urls(&mut self) -> usize {
+        self.inner.clear_font_target_urls()
     }
 
     fn get_name(&self) -> Option<String> {
@@ -2242,28 +2276,45 @@ impl PyTimeline {
         ))
     }
     /// The custom fonts declared for rich-text clips, as
-    /// `{"family", "url", "weight", "style"}` dicts. Fonts the player would
-    /// ignore are skipped.
+    /// `{"family", "url", "asset_id", "target_url", "weight", "style"}` dicts:
+    /// a font linked by URL has `url`, an uploaded font has `asset_id` (and
+    /// `target_url` once resolved). Fonts the player would ignore are skipped.
     fn get_fonts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         font_faces_to_python(py, self.inner.get_fonts())
     }
     /// Declare a custom font, replacing an entry with the same family
-    /// (case-insensitive), weight and style. Returns False, changing nothing,
-    /// when the family is empty or the URL is not http/https/data.
-    #[pyo3(signature = (family, url, weight=None, style=None))]
+    /// (case-insensitive), weight and style. Give exactly one of `url` (a font
+    /// linked by URL) and `asset_id` (an uploaded font file asset; its URL is
+    /// resolved with `set_font_target_urls`). Returns False, changing nothing,
+    /// when the family is empty, the URL is not http/https/data, or the asset
+    /// id is empty; raises ValueError when both or neither source is given.
+    #[pyo3(signature = (family, url=None, weight=None, style=None, *, asset_id=None))]
     fn add_font(
         &mut self,
         family: String,
-        url: String,
+        url: Option<String>,
         weight: Option<String>,
         style: Option<String>,
-    ) -> bool {
-        self.inner.add_font(FontFace {
+        asset_id: Option<String>,
+    ) -> PyResult<bool> {
+        let source = match (url, asset_id) {
+            (Some(url), None) => FontSource::Url(url),
+            (None, Some(asset_id)) => FontSource::Asset {
+                asset_id,
+                target_url: None,
+            },
+            _ => {
+                return Err(value_error(
+                    "add_font needs exactly one of url and asset_id".to_string(),
+                ))
+            }
+        };
+        Ok(self.inner.add_font(FontFace {
             family,
-            url,
+            source,
             weight,
             style,
-        })
+        }))
     }
     /// Remove every declared font with this family (case-insensitive),
     /// returning whether one was present.

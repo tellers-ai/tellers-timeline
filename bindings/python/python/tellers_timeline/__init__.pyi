@@ -33,7 +33,12 @@ class TrackGroup(TypedDict):
 
 class FontFace(TypedDict):
     family: str
-    url: str
+    url: Optional[str]
+    """A font linked by URL; None for an uploaded font."""
+    asset_id: Optional[str]
+    """The uploaded font file asset; None for a font linked by URL."""
+    target_url: Optional[str]
+    """An uploaded font's resolved URL (see set_font_target_urls); never saved."""
     weight: Optional[str]
     style: Optional[str]
 
@@ -783,10 +788,16 @@ class Timeline:
     def add_font(
         self,
         family: str,
-        url: str,
+        url: Optional[str] = None,
         weight: Optional[str] = None,
         style: Optional[str] = None,
+        *,
+        asset_id: Optional[str] = None,
     ) -> bool: ...
+    def font_asset_ids(self) -> list[str]: ...
+    def set_font_target_urls(self, urls: dict[str, str]) -> int: ...
+    def set_font_target_url(self, asset_id: str, url: str) -> int: ...
+    def clear_font_target_urls(self) -> int: ...
     def remove_font(self, family: str) -> bool: ...
     def get_markers(self) -> list[MarkerInfo]: ...
     def get_marker(self, marker_id: str) -> Optional[MarkerInfo]: ...

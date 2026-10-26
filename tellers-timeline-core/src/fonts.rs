@@ -8,14 +8,25 @@
 //! family name (case-insensitively), downloads it, and embeds it in the SVG.
 //!
 //! They live in the timeline metadata at
-//! `metadata["tellers.ai"]["availableFonts"]`, as an array of
-//! `{ family, url, weight?, style? }` objects — the exact shape the player
-//! takes in its `availableFonts` option, so a caller can hand
-//! [`Timeline::get_fonts`] straight to the player.
+//! `metadata["tellers.ai"]["availableFonts"]`, as an array of objects of one
+//! of two distinct shapes (see [`FontSource`]):
+//!
+//! - a font linked by URL, `{ family, url, weight?, style? }`: the URL is what
+//!   the timeline persists and what the player fetches;
+//! - a font file uploaded as an asset, `{ family, asset_id, weight?, style? }`:
+//!   the asset id is what the timeline persists. The player fetches it from its
+//!   `target_url`, resolved from the asset id like a media reference's or a
+//!   LUT's: set it with [`Timeline::set_font_target_urls`] before handing the
+//!   timeline to the player, and strip it with [`Timeline::clear_target_urls`]
+//!   (or [`Timeline::clear_font_target_urls`]) so ephemeral (e.g. presigned)
+//!   URLs are not persisted.
 //!
 //! Reads drop entries the player itself would drop (missing family, or a URL
-//! that is not `http:`, `https:` or `data:`), and writes store the normalized
-//! form, so anything this module returns is a font the player will use.
+//! font whose URL is not `http:`, `https:` or `data:`), and writes store the
+//! normalized form. An asset font is kept before its `target_url` resolves:
+//! the player skips it until then.
+
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -24,14 +35,34 @@ use crate::Timeline;
 /// Metadata key, under the `tellers.ai` namespace, holding the font array.
 pub const AVAILABLE_FONTS_KEY: &str = "availableFonts";
 
+/// Key, in an asset font's entry, naming the uploaded font file asset.
+pub const FONT_ASSET_ID_KEY: &str = "asset_id";
+/// Key, in an asset font's entry, holding the URL resolved from its asset id.
+pub const FONT_TARGET_URL_KEY: &str = "target_url";
+
+/// Where a declared font's file comes from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FontSource {
+    /// A font file the user linked by URL. Must be `https:`, `http:` or
+    /// `data:`, and must allow CORS when remote.
+    Url(String),
+    /// A font file the user uploaded, stored as the asset `asset_id`.
+    /// `target_url` is where the player fetches it from: resolved from the
+    /// asset id before playback or export, and never persisted.
+    Asset {
+        asset_id: String,
+        target_url: Option<String>,
+    },
+}
+
 /// A font declared by a timeline for use by its rich-text clips.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "RawFontFace", try_from = "RawFontFace")]
 pub struct FontFace {
     /// CSS family name, as referenced by `font-family` in a clip's Title HTML.
     pub family: String,
-    /// Where the font file is fetched from. Must be `https:`, `http:` or
-    /// `data:`, and must allow CORS when remote.
-    pub url: String,
+    /// Where the font file comes from: a URL, or an uploaded asset.
+    pub source: FontSource,
     /// Optional CSS `font-weight` of this file: `normal`, `bold`, `400`, or a
     /// variable-font range such as `400 700`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,14 +72,103 @@ pub struct FontFace {
     pub style: Option<String>,
 }
 
+/// The stored JSON shape of a [`FontFace`]: `url` for a URL font,
+/// `asset_id` (and, once resolved, `target_url`) for an asset font.
+#[derive(Serialize, Deserialize)]
+struct RawFontFace {
+    family: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    asset_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    weight: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    style: Option<String>,
+}
+
+impl From<FontFace> for RawFontFace {
+    fn from(font: FontFace) -> Self {
+        let (url, asset_id, target_url) = match font.source {
+            FontSource::Url(url) => (Some(url), None, None),
+            FontSource::Asset {
+                asset_id,
+                target_url,
+            } => (None, Some(asset_id), target_url),
+        };
+        RawFontFace {
+            family: font.family,
+            url,
+            asset_id,
+            target_url,
+            weight: font.weight,
+            style: font.style,
+        }
+    }
+}
+
+impl TryFrom<RawFontFace> for FontFace {
+    type Error = String;
+
+    fn try_from(raw: RawFontFace) -> Result<Self, Self::Error> {
+        let source = match (raw.asset_id, raw.url) {
+            (Some(asset_id), _) => FontSource::Asset {
+                asset_id,
+                target_url: raw.target_url,
+            },
+            (None, Some(url)) => FontSource::Url(url),
+            (None, None) => return Err("a font needs a url or an asset_id".to_string()),
+        };
+        Ok(FontFace {
+            family: raw.family,
+            source,
+            weight: raw.weight,
+            style: raw.style,
+        })
+    }
+}
+
 impl FontFace {
-    /// A font face with no explicit weight or style.
+    /// A font linked by URL, with no explicit weight or style.
     pub fn new(family: impl Into<String>, url: impl Into<String>) -> Self {
         FontFace {
             family: family.into(),
-            url: url.into(),
+            source: FontSource::Url(url.into()),
             weight: None,
             style: None,
+        }
+    }
+
+    /// A font uploaded as the asset `asset_id`, with no explicit weight or
+    /// style. Its URL is resolved later (see [`Timeline::set_font_target_urls`]).
+    pub fn from_asset(family: impl Into<String>, asset_id: impl Into<String>) -> Self {
+        FontFace {
+            family: family.into(),
+            source: FontSource::Asset {
+                asset_id: asset_id.into(),
+                target_url: None,
+            },
+            weight: None,
+            style: None,
+        }
+    }
+
+    /// The URL the player fetches this font from: a URL font's URL, or an
+    /// asset font's resolved `target_url` (`None` until it resolves).
+    pub fn url(&self) -> Option<&str> {
+        match &self.source {
+            FontSource::Url(url) => Some(url),
+            FontSource::Asset { target_url, .. } => target_url.as_deref(),
+        }
+    }
+
+    /// The uploaded asset this font is stored as; `None` for a URL font.
+    pub fn asset_id(&self) -> Option<&str> {
+        match &self.source {
+            FontSource::Url(_) => None,
+            FontSource::Asset { asset_id, .. } => Some(asset_id),
         }
     }
 
@@ -64,18 +184,19 @@ impl FontFace {
         self
     }
 
-    /// This face with family/url/weight/style trimmed, and an unusable weight or
-    /// style dropped. `None` when the player would ignore the font entirely:
-    /// an empty family, or a URL that is not `http:`, `https:` or `data:`.
+    /// This face with its family, URL or asset id, weight and style trimmed,
+    /// and an unusable weight, style or resolved `target_url` dropped. `None`
+    /// when the font can never be used: an empty family, a URL font whose URL
+    /// is not `http:`, `https:` or `data:`, or an asset font with no asset id.
     pub fn normalized(&self) -> Option<FontFace> {
         let family = self.family.trim();
-        let url = self.url.trim();
-        if family.is_empty() || !is_supported_font_url(url) {
+        if family.is_empty() {
             return None;
         }
+        let source = normalize_font_source(&self.source)?;
         Some(FontFace {
             family: family.to_string(),
-            url: url.to_string(),
+            source,
             weight: self
                 .weight
                 .as_deref()
@@ -102,13 +223,18 @@ pub fn resolve_available_fonts(metadata: &serde_json::Value) -> Vec<FontFace> {
 /// `tellers.ai` object and the font array as needed.
 ///
 /// An existing entry with the same family (case-insensitive), weight and style
-/// is replaced rather than duplicated, so re-adding a font updates its URL.
-/// Returns `false` — leaving the metadata untouched — when the font is one the
-/// player could not use (empty family, or an unsupported URL scheme).
+/// is replaced rather than duplicated, so re-adding a font updates its URL or
+/// asset. An asset font is stored without its `target_url`. Returns `false` —
+/// leaving the metadata untouched — when the font is one the player could not
+/// use (empty family, an unsupported URL scheme, or no asset id).
 pub fn add_available_font(metadata: &mut serde_json::Value, font: FontFace) -> bool {
-    let Some(font) = font.normalized() else {
+    let Some(mut font) = font.normalized() else {
         return false;
     };
+    // An asset font's URL is resolved for playback, never declared.
+    if let FontSource::Asset { target_url, .. } = &mut font.source {
+        *target_url = None;
+    }
     let entry = serde_json::to_value(&font).expect("FontFace serializes to JSON");
 
     let fonts = available_fonts_array_mut(metadata);
@@ -120,6 +246,60 @@ pub fn add_available_font(metadata: &mut serde_json::Value, font: FontFace) -> b
         None => fonts.push(entry),
     }
     true
+}
+
+/// Every distinct asset id of the uploaded fonts declared in `metadata`, in
+/// declaration order: the ids to resolve for [`set_font_target_urls`].
+pub fn font_asset_ids(metadata: &serde_json::Value) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for font in resolve_available_fonts(metadata) {
+        if let Some(id) = font.asset_id() {
+            if !ids.iter().any(|known| known == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids
+}
+
+/// Set the `target_url` of every uploaded font in `metadata` whose asset id
+/// is in `urls` (asset id → URL). Empty or unusable URLs and unknown ids are
+/// ignored. Returns how many fonts were updated.
+pub fn set_font_target_urls(
+    metadata: &mut serde_json::Value,
+    urls: &HashMap<String, String>,
+) -> usize {
+    let Some(fonts) = raw_available_fonts_mut(metadata) else {
+        return 0;
+    };
+    let mut updated = 0;
+    for entry in fonts.iter_mut() {
+        let Some(url) = raw_font_asset_id(entry)
+            .and_then(|id| urls.get(id))
+            .map(|url| url.trim().to_string())
+            .filter(|url| is_supported_font_url(url))
+        else {
+            continue;
+        };
+        if let Some(entry) = entry.as_object_mut() {
+            entry.insert(FONT_TARGET_URL_KEY.to_string(), serde_json::Value::String(url));
+            updated += 1;
+        }
+    }
+    updated
+}
+
+/// Remove the `target_url` of every font in `metadata`, keeping the asset
+/// ids. Returns how many had one.
+pub fn clear_font_target_urls(metadata: &mut serde_json::Value) -> usize {
+    let Some(fonts) = raw_available_fonts_mut(metadata) else {
+        return 0;
+    };
+    fonts
+        .iter_mut()
+        .filter_map(|entry| entry.as_object_mut())
+        .filter_map(|entry| entry.remove(FONT_TARGET_URL_KEY))
+        .count()
 }
 
 /// Remove every font whose family matches `family` (case-insensitively) from
@@ -156,18 +336,47 @@ pub fn remove_available_font(metadata: &mut serde_json::Value, family: &str) -> 
 
 impl Timeline {
     /// The custom fonts this timeline declares for its rich-text clips, in
-    /// declaration order. Fonts the player would ignore are skipped; the result
-    /// can be handed to the player's `availableFonts` option as-is.
+    /// declaration order, URL fonts and uploaded (asset) fonts alike. Fonts
+    /// the player would ignore are skipped; an asset font is listed before its
+    /// `target_url` resolves.
     pub fn get_fonts(&self) -> Vec<FontFace> {
         resolve_available_fonts(&self.metadata)
     }
 
     /// Declare `font` on this timeline, replacing an existing entry with the
-    /// same family (case-insensitive), weight and style. Returns `false`, and
-    /// changes nothing, when the font has no family or an unsupported URL
-    /// scheme (only `https:`, `http:` and `data:` are usable by the player).
+    /// same family (case-insensitive), weight and style — so uploading a file
+    /// for a family linked by URL (or the reverse) switches its source.
+    /// Returns `false`, and changes nothing, when the font has no family, a URL
+    /// font has an unsupported URL scheme (only `https:`, `http:` and `data:`
+    /// are usable by the player), or an asset font has no asset id.
     pub fn add_font(&mut self, font: FontFace) -> bool {
         add_available_font(&mut self.metadata, font)
+    }
+
+    /// Every distinct asset id of the uploaded fonts this timeline declares,
+    /// in declaration order: the ids to resolve for
+    /// [`Timeline::set_font_target_urls`].
+    pub fn font_asset_ids(&self) -> Vec<String> {
+        font_asset_ids(&self.metadata)
+    }
+
+    /// Set the `target_url` of every uploaded font whose asset id is in
+    /// `urls` (asset id → URL). Returns how many were updated.
+    pub fn set_font_target_urls(&mut self, urls: &HashMap<String, String>) -> usize {
+        set_font_target_urls(&mut self.metadata, urls)
+    }
+
+    /// [`Timeline::set_font_target_urls`] for the single asset `asset_id`.
+    pub fn set_font_target_url(&mut self, asset_id: &str, url: &str) -> usize {
+        let urls = HashMap::from([(asset_id.trim().to_string(), url.to_string())]);
+        self.set_font_target_urls(&urls)
+    }
+
+    /// Remove the `target_url` of every uploaded font, keeping the asset ids.
+    /// Returns how many had one. [`Timeline::clear_target_urls`] does this
+    /// along with the media references and effects.
+    pub fn clear_font_target_urls(&mut self) -> usize {
+        clear_font_target_urls(&mut self.metadata)
     }
 
     /// Remove every declared font with this family (case-insensitive),
@@ -190,6 +399,23 @@ fn raw_available_fonts(metadata: &serde_json::Value) -> Option<&Vec<serde_json::
         .get("tellers.ai")?
         .get(AVAILABLE_FONTS_KEY)?
         .as_array()
+}
+
+fn raw_available_fonts_mut(
+    metadata: &mut serde_json::Value,
+) -> Option<&mut Vec<serde_json::Value>> {
+    metadata
+        .get_mut("tellers.ai")?
+        .get_mut(AVAILABLE_FONTS_KEY)?
+        .as_array_mut()
+}
+
+/// The trimmed, non-empty asset id of a raw font entry.
+fn raw_font_asset_id(raw: &serde_json::Value) -> Option<&str> {
+    raw.get(FONT_ASSET_ID_KEY)?
+        .as_str()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
 }
 
 /// The font array at `metadata["tellers.ai"]["availableFonts"]`, creating the
@@ -216,23 +442,67 @@ fn available_fonts_array_mut(metadata: &mut serde_json::Value) -> &mut Vec<serde
 }
 
 /// Read one raw metadata entry, mirroring the player's own normalization: a
-/// string family and url are required, and a weight or style it cannot use is
-/// dropped rather than failing the whole entry.
+/// string family is required, with an asset id (an uploaded font; it wins
+/// over a stray `url`) or a usable url, and a weight, style or `target_url`
+/// it cannot use is dropped rather than failing the whole entry.
 fn font_from_json(raw: &serde_json::Value) -> Option<FontFace> {
     let family = raw.get("family")?.as_str()?.trim();
-    let url = raw.get("url")?.as_str()?.trim();
-    if family.is_empty() || !is_supported_font_url(url) {
+    if family.is_empty() {
         return None;
     }
+    let source = match raw_font_asset_id(raw) {
+        Some(asset_id) => FontSource::Asset {
+            asset_id: asset_id.to_string(),
+            target_url: raw
+                .get(FONT_TARGET_URL_KEY)
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|url| is_supported_font_url(url))
+                .map(str::to_string),
+        },
+        None => {
+            let url = raw.get("url")?.as_str()?.trim();
+            if !is_supported_font_url(url) {
+                return None;
+            }
+            FontSource::Url(url.to_string())
+        }
+    };
     Some(FontFace {
         family: family.to_string(),
-        url: url.to_string(),
+        source,
         weight: raw.get("weight").and_then(normalize_font_weight),
         style: raw
             .get("style")
             .and_then(|value| value.as_str())
             .and_then(normalize_font_style),
     })
+}
+
+fn normalize_font_source(source: &FontSource) -> Option<FontSource> {
+    match source {
+        FontSource::Url(url) => {
+            let url = url.trim();
+            is_supported_font_url(url).then(|| FontSource::Url(url.to_string()))
+        }
+        FontSource::Asset {
+            asset_id,
+            target_url,
+        } => {
+            let asset_id = asset_id.trim();
+            if asset_id.is_empty() {
+                return None;
+            }
+            Some(FontSource::Asset {
+                asset_id: asset_id.to_string(),
+                target_url: target_url
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|url| is_supported_font_url(url))
+                    .map(str::to_string),
+            })
+        }
+    }
 }
 
 /// The player fetches the font itself, so only schemes it can fetch are usable.
