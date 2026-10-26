@@ -230,8 +230,7 @@ fn metadata_helpers_work_on_bare_metadata() {
 }
 
 // Uploaded fonts: an entry stores the font file's `asset_id`, distinct from a
-// URL font's `url`; its `url` is resolved for playback and never saved, so
-// the player reads both shapes the same way.
+// URL font's `url`; its `target_url` is resolved for playback and never saved.
 
 fn uploaded() -> FontFace {
     FontFace::from_asset("Brand Sans", "font_asset_1").with_weight("700")
@@ -254,18 +253,18 @@ fn add_asset_font_stores_the_asset_id_not_a_url() {
 }
 
 #[test]
-fn add_asset_font_never_persists_a_resolved_url() {
+fn add_asset_font_never_persists_a_target_url() {
     let mut tl = timeline();
     let mut font = uploaded();
     font.source = FontSource::Asset {
         asset_id: " font_asset_1 ".to_string(),
-        url: Some("https://s3.example.test/presigned".to_string()),
+        target_url: Some("https://s3.example.test/presigned".to_string()),
     };
     assert!(tl.add_font(font));
 
     assert_eq!(tl.get_fonts(), vec![uploaded()]);
     assert!(tl.metadata["tellers.ai"]["availableFonts"][0]
-        .get("url")
+        .get("target_url")
         .is_none());
 }
 
@@ -303,7 +302,7 @@ fn font_asset_ids_lists_uploaded_fonts_once_in_order() {
 }
 
 #[test]
-fn set_font_asset_urls_resolves_then_clear_target_urls_strips() {
+fn set_font_target_urls_resolves_then_clear_target_urls_strips() {
     let mut tl = timeline();
     assert!(tl.add_font(uploaded()));
     assert!(tl.add_font(FontFace::new("Url", "https://cdn.example.test/url.woff2")));
@@ -313,7 +312,7 @@ fn set_font_asset_urls_resolves_then_clear_target_urls_strips() {
         ("font_asset_1".to_string(), " https://s3.example.test/presigned ".to_string()),
         ("unknown".to_string(), "https://s3.example.test/unknown".to_string()),
     ]);
-    assert_eq!(tl.set_font_asset_urls(&urls), 1);
+    assert_eq!(tl.set_font_target_urls(&urls), 1);
 
     let fonts = tl.get_fonts();
     assert_eq!(fonts[0].url(), Some("https://s3.example.test/presigned"));
@@ -321,27 +320,25 @@ fn set_font_asset_urls_resolves_then_clear_target_urls_strips() {
     assert_eq!(fonts[1].url(), Some("https://cdn.example.test/url.woff2"));
     assert_eq!(fonts[2].url(), None);
     assert_eq!(
-        tl.metadata["tellers.ai"]["availableFonts"][0]["url"],
+        tl.metadata["tellers.ai"]["availableFonts"][0]["target_url"],
         "https://s3.example.test/presigned"
     );
 
     tl.clear_target_urls();
     assert_eq!(tl.get_fonts()[0], uploaded());
     assert!(tl.metadata["tellers.ai"]["availableFonts"][0]
-        .get("url")
+        .get("target_url")
         .is_none());
-    // A linked font keeps its own url.
-    assert_eq!(tl.get_fonts()[1].url(), Some("https://cdn.example.test/url.woff2"));
-    assert_eq!(tl.clear_font_asset_urls(), 0);
+    assert_eq!(tl.clear_font_target_urls(), 0);
 }
 
 #[test]
-fn set_font_asset_url_ignores_unusable_urls() {
+fn set_font_target_url_ignores_unusable_urls() {
     let mut tl = timeline();
     assert!(tl.add_font(uploaded()));
-    assert_eq!(tl.set_font_asset_url("font_asset_1", ""), 0);
-    assert_eq!(tl.set_font_asset_url("font_asset_1", "ftp://nope"), 0);
-    assert_eq!(tl.set_font_asset_url(" font_asset_1 ", "https://ok.test/f.woff2"), 1);
+    assert_eq!(tl.set_font_target_url("font_asset_1", ""), 0);
+    assert_eq!(tl.set_font_target_url("font_asset_1", "ftp://nope"), 0);
+    assert_eq!(tl.set_font_target_url(" font_asset_1 ", "https://ok.test/f.woff2"), 1);
     assert_eq!(tl.get_fonts()[0].url(), Some("https://ok.test/f.woff2"));
 }
 
@@ -349,21 +346,20 @@ fn set_font_asset_url_ignores_unusable_urls() {
 fn get_fonts_reads_asset_entries() {
     let mut tl = timeline();
     tl.metadata["tellers.ai"]["availableFonts"] = serde_json::json!([
-        { "family": "Up", "asset_id": "up", "url": "https://s3.example.test/up" },
-        { "family": "Bad Url", "asset_id": "bad", "url": "ftp://nope" },
-        { "family": "Unresolved", "asset_id": "later" },
+        { "family": "Up", "asset_id": "up", "target_url": "https://s3.example.test/up" },
+        { "family": "Bad Url", "asset_id": "bad", "target_url": "ftp://nope" },
+        { "family": "Both", "asset_id": "both", "url": "https://cdn.example.test/both.woff2" },
         { "family": "Empty Id", "asset_id": "  " },
     ]);
 
     let fonts = tl.get_fonts();
     assert_eq!(fonts.len(), 3);
-    // A resolved upload reads its url, keeping its asset id.
-    assert_eq!(fonts[0].asset_id(), Some("up"));
     assert_eq!(fonts[0].url(), Some("https://s3.example.test/up"));
     // An unusable resolved URL is dropped, the font kept.
     assert_eq!(fonts[1].asset_id(), Some("bad"));
     assert_eq!(fonts[1].url(), None);
-    assert_eq!(fonts[2].asset_id(), Some("later"));
+    // The asset id wins over a stray url.
+    assert_eq!(fonts[2].asset_id(), Some("both"));
     assert_eq!(fonts[2].url(), None);
 }
 

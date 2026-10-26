@@ -1922,8 +1922,8 @@ impl Timeline {
         self.tracks.rename_track(id, name)
     }
     /// Clear the `target_url` on every media reference of every clip, on
-    /// every effect (see [`crate::effect_assets`]), and the resolved `url` of
-    /// every uploaded font (see [`crate::fonts`]) in the timeline.
+    /// every effect (see [`crate::effect_assets`]) and on every uploaded font
+    /// (see [`crate::fonts`]) in the timeline.
     ///
     /// Used before serving a project or applying a front-end update so that
     /// ephemeral (e.g. presigned) URLs are not persisted or sent onward;
@@ -1931,7 +1931,7 @@ impl Timeline {
     /// effects' and fonts' `asset_id` instead.
     pub fn clear_target_urls(&mut self) {
         self.clear_effect_target_urls();
-        self.clear_font_asset_urls();
+        self.clear_font_target_urls();
         for track in &mut self.tracks.children {
             for item in &mut track.items {
                 item.clear_media_target_urls();

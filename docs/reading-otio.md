@@ -213,7 +213,7 @@ Clip LUTs apply first, then the track's, then the timeline's.
 | timeline | `groups` | `{ <group_id>: { parameters } }`: a keyframable transform (`x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `pivotX`, `pivotY`) applied to the group's clips and composite clips together. Keyframe `t` counts from the earliest member's start. A `group_id` missing here leaves its clips ungrouped. |
 | tracks | `created_by: "auto"` | The library created the track; `prune_empty_partner_tracks` removes it once it is an empty audio track. |
 | markers | `created_by` | The user who left the note. |
-| timeline | `availableFonts` | `[{family, url, weight?, style?}]` or `[{family, asset_id, url?, weight?, style?}]` fonts that text clips may use: linked by URL, or uploaded as an asset whose `url` is resolved before playback and never saved (see [Asset references](otio-reference.md#asset-references)). |
+| timeline | `availableFonts` | `[{family, url, weight?, style?}]` or `[{family, asset_id, target_url?, weight?, style?}]` fonts that text clips may use: linked by URL, or uploaded as an asset whose `target_url` is resolved before playback and never saved (see [Asset references](otio-reference.md#asset-references)). |
 
 The player also reads `tellers_aspect_ratio` (`16_9`, `9_16`, …) directly in
 the timeline's `metadata`: the output aspect ratio, 16:9 when absent. Any other
