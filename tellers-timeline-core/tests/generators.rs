@@ -307,7 +307,15 @@ fn accessors_refuse_the_wrong_kind() {
     assert!(text.set_shape_parameters(&ShapeParameters::new(ShapeKind::Line)).is_err());
     assert!(text.text_parameters().is_ok());
 
-    let rich = MediaReference::create_rich_text_reference("<p>x</p>".to_string());
+    // A Rich Text clip of an older project: read, never created.
+    let rich: MediaReference = serde_json::from_str(r##"{
+        "OTIO_SCHEMA": "GeneratorReference.1",
+        "generator_kind": "Rich",
+        "parameters": { "Resolve_OTIO": [ {
+            "Effect Name": "Rich Text", "Enabled": true, "Name": "Rich Text", "Type": 24,
+            "Parameters": [ { "Parameter ID": "title blob", "Title HTML": "<p>x</p>" } ]
+        } ] }
+    }"##).unwrap();
     assert!(matches!(rich.text_parameters(), Err(GeneratorError::WrongKind { .. })));
 
     let video = MediaReference::ExternalReference {

@@ -47,8 +47,6 @@ def _fmt(value: Any) -> str:
 
 
 def make_media_reference(spec: dict) -> MediaReference:
-    if spec.get("text"):
-        return MediaReference.create_rich_text_reference(spec.get("text_html") or "<p>Text</p>")
     url = spec.get("url") or "file:///placeholder.mov"
     media_duration = spec.get("media_duration")
     if media_duration in ("", None):
@@ -76,13 +74,22 @@ def make_item(spec: dict):
         if spec.get("name"):
             gap.set_name(spec["name"])
         return gap
-    clip = Clip(
-        duration,
-        {"DEFAULT_MEDIA": make_media_reference(spec)},
-        active_key="DEFAULT_MEDIA",
-        name=spec.get("name") or None,
-        id=item_id,
-    )
+    if spec.get("text"):
+        # A plain Text clip (the player's own text); rich text is no longer created.
+        clip = Clip.new_text(
+            duration,
+            {"text": spec.get("text_plain") or spec.get("name") or "Text"},
+            spec.get("name") or None,
+            item_id,
+        )
+    else:
+        clip = Clip(
+            duration,
+            {"DEFAULT_MEDIA": make_media_reference(spec)},
+            active_key="DEFAULT_MEDIA",
+            name=spec.get("name") or None,
+            id=item_id,
+        )
     if spec.get("enabled") is False:
         clip.set_enabled(False)
     if spec.get("source_start"):
@@ -101,7 +108,7 @@ def describe_item(spec: dict) -> str:
         return f"Gap({duration:g})"
     parts = [f"{duration:g}"]
     if spec.get("text"):
-        parts.append('{"DEFAULT_MEDIA": MediaReference.create_rich_text_reference(...)}')
+        parts.append(f'{{"text": {_fmt(spec.get("text_plain") or spec.get("name") or "Text")}}}')
     else:
         parts.append(f'{{"DEFAULT_MEDIA": MediaReference({_fmt(spec.get("url") or "file:///placeholder.mov")})}}')
     if spec.get("name"):

@@ -109,12 +109,6 @@ impl PyMediaReference {
     fn get_rich_text(&self) -> Option<String> {
         self.inner.get_rich_text()
     }
-    #[staticmethod]
-    fn create_rich_text_reference(title_html: String) -> Self {
-        Self {
-            inner: MediaReference::create_rich_text_reference(title_html),
-        }
-    }
     fn get_generator_kind(&self) -> Option<String> {
         self.inner.generator_kind().cloned()
     }

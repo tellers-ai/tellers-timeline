@@ -107,7 +107,15 @@ def test_wrong_kind_raises():
     with pytest.raises(ValueError):
         text.set_shape_parameters({"shape": "line"})
 
-    rich = MediaReference.create_rich_text_reference("<p>x</p>")
+    # A Rich Text clip of an older project: read, never created.
+    rich = MediaReference.parse_json("""{
+        "OTIO_SCHEMA": "GeneratorReference.1",
+        "generator_kind": "Rich",
+        "parameters": {"Resolve_OTIO": [{
+            "Effect Name": "Rich Text", "Enabled": true, "Name": "Rich Text", "Type": 24,
+            "Parameters": [{"Parameter ID": "title blob", "Title HTML": "<p>x</p>"}]
+        }]}
+    }""")
     assert rich.get_generator_kind() == "Rich"
     with pytest.raises(ValueError):
         rich.get_text_parameters()
