@@ -2118,6 +2118,33 @@ impl PyTimeline {
         self.inner.clear_target_urls();
     }
 
+    /// Every distinct asset id the clips play (each clip's active media
+    /// reference's `metadata["tellers.ai"]["media_id"]`), clips inside
+    /// composite clips included, in timeline order: the ids to resolve for
+    /// `set_media_target_urls`.
+    fn media_asset_ids(&self) -> Vec<String> {
+        self.inner.media_asset_ids()
+    }
+
+    /// Set the `target_url` of every clip's active external reference whose
+    /// media id is in `urls` (asset id -> URL), clips inside composite clips
+    /// included. Returns how many were set.
+    fn set_media_target_urls(&mut self, urls: std::collections::HashMap<String, String>) -> usize {
+        self.inner.set_media_target_urls(&urls)
+    }
+
+    /// `set_media_target_urls` for the single asset `asset_id`.
+    fn set_media_target_url(&mut self, asset_id: &str, url: &str) -> usize {
+        self.inner.set_media_target_url(asset_id, url)
+    }
+
+    /// Empty the `target_url` of every media reference that has a media id,
+    /// keeping a URL that is the only record of its media. Returns how many
+    /// had one. `clear_target_urls` empties them all.
+    fn clear_media_asset_target_urls(&mut self) -> usize {
+        self.inner.clear_media_asset_target_urls()
+    }
+
     /// Every distinct asset id referenced by an effect's `asset_id`
     /// parameter (e.g. a `ColorLut`'s `.cube`), in timeline order: the ids
     /// to resolve for `set_effect_target_urls`.
