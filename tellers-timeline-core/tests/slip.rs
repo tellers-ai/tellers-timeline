@@ -4,6 +4,7 @@
 mod common;
 
 use common::*;
+use tellers_timeline_core::{Animatable, Keyframe, TellersEffect};
 
 /// A 4 s clip at timeline 2 s playing 10 s media from source `source_start`,
 /// after a 2 s clip; with `synced`, an audio partner of the same media.
@@ -123,4 +124,49 @@ fn a_clip_without_a_known_media_length_slips_freely_forward() {
     );
     assert_eq!(stack.slip_item("c", 12.0, true), 1);
     assert_eq!(source_start(&stack, "c"), 12.0);
+}
+
+/// Give the clip `c` of a [`ranged_stack`] (no partner) a keyframed speed.
+fn with_ramp(stack: &mut Stack, keyframes: Vec<Keyframe>) {
+    let Item::Clip(clip) = &mut stack.children[0].items[1] else {
+        panic!("c is not a clip");
+    };
+    clip.effects = vec![TellersEffect::new("TimeWarp")
+        .with_parameter("speed", Animatable::from(keyframes).to_value())
+        .to_effect()];
+}
+
+#[test]
+fn slip_bounds_integrate_a_speed_ramp() {
+    // 1x to 2x over the 4 s clip plays 6 s of the 10 s media: 4 s of room.
+    let mut stack = ranged_stack(0.0, false);
+    with_ramp(
+        &mut stack,
+        vec![Keyframe::new(0.0, 1.0), Keyframe::new(4.0, 2.0)],
+    );
+    let (low, high) = stack.item_slip_bounds("c", true).unwrap();
+    assert_eq!(low, 0.0);
+    assert!((high - 4.0).abs() < 1e-9);
+    assert_eq!(stack.slip_item("c", 9.0, true), 1);
+    assert!((source_start(&stack, "c") - 4.0).abs() < 1e-9);
+    assert_eq!(timeline_range(&stack, "c"), (2.0, 4.0));
+
+    // Keyframes are clip-relative: a slip leaves the ramp, so its room, as is.
+    let (_, high) = stack.item_slip_bounds("c", true).unwrap();
+    assert!((high - 4.0).abs() < 1e-9);
+
+    // A ramp backwards throughout covers the same window.
+    with_ramp(
+        &mut stack,
+        vec![Keyframe::new(0.0, -1.0), Keyframe::new(4.0, -2.0)],
+    );
+    let (_, high) = stack.item_slip_bounds("c", true).unwrap();
+    assert!((high - 4.0).abs() < 1e-9);
+
+    // A ramp crossing zero is ignored by the player: the clip plays at 1x.
+    with_ramp(
+        &mut stack,
+        vec![Keyframe::new(0.0, -1.0), Keyframe::new(4.0, 1.0)],
+    );
+    assert_eq!(stack.item_slip_bounds("c", true), Some((0.0, 6.0)));
 }
