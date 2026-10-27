@@ -148,6 +148,13 @@ LUTs (`tellers.ai.ColorLut`) and clip volume (`tellers.ai.Volume`) are ordinary
 tellers effects, edited with the `*_tellers_effect*` methods like any other.
 All their data is in `metadata["tellers.ai"]["parameters"]`.
 
+A clip's media reference stores the asset it plays as
+`metadata["tellers.ai"]["media_id"]` and is played from `target_url`.
+`Timeline.media_asset_ids` lists the ids to resolve (clips inside composite
+clips included), `set_media_target_urls` fills the URLs before playback, and
+`clear_media_asset_target_urls` strips them again, keeping a URL that has no
+media id (see `media_assets.rs`). `Timeline.for_each_clip` walks the same clips.
+
 An effect that loads an asset (a LUT's `.cube`) stores the persistent
 `asset_id` and is played from `target_url`, named like a media reference's.
 `Timeline.effect_asset_ids` lists the ids to resolve, `set_effect_target_urls`
