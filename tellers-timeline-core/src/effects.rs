@@ -106,8 +106,9 @@ impl EffectTarget {
     /// Whether an effect of this target belongs on a track of `kind`, or on
     /// a clip of one: picture and text effects on any track but an audio
     /// one, sound effects on audio tracks only (video tracks carry no
-    /// sound; it plays from their bound audio clips), speed on any track.
-    /// A text effect also needs a text clip; see [`Self::allowed_on_item`].
+    /// sound; it plays from their bound audio clips), speed on a clip of
+    /// any track. A text effect also needs a text clip, and speed a media
+    /// clip; see [`Self::allowed_on_item`].
     pub fn allowed_on(self, kind: &TrackKind) -> bool {
         match self {
             EffectTarget::Video | EffectTarget::Text => *kind != TrackKind::Audio,
@@ -116,13 +117,25 @@ impl EffectTarget {
         }
     }
 
+    /// Whether an effect of this target belongs on a track of `kind` itself:
+    /// as [`Self::allowed_on`], but no speed, which the player reads from
+    /// clips only.
+    pub fn allowed_on_track(self, kind: &TrackKind) -> bool {
+        self != EffectTarget::Time && self.allowed_on(kind)
+    }
+
     /// Whether an effect of this target belongs on `item`, on a track of
-    /// `kind`: as [`Self::allowed_on`], and a text effect only on a text
-    /// clip. Picture effects go on text clips too.
+    /// `kind`: as [`Self::allowed_on`], a text effect only on a text clip,
+    /// and speed only on a media clip (not a composite clip, nor a Text,
+    /// Shape or Rich Text clip, which the player shows at normal speed).
+    /// Picture effects go on text clips too.
     pub fn allowed_on_item(self, kind: &TrackKind, item: &Item) -> bool {
         self.allowed_on(kind)
-            && (self != EffectTarget::Text
-                || matches!(item, Item::Clip(clip) if clip.is_text_clip()))
+            && match self {
+                EffectTarget::Text => matches!(item, Item::Clip(clip) if clip.is_text_clip()),
+                EffectTarget::Time => matches!(item, Item::Clip(clip) if !clip.is_generator_clip()),
+                EffectTarget::Video | EffectTarget::Audio => true,
+            }
     }
 }
 
@@ -650,6 +663,22 @@ impl TellersEffect {
         self.spec().is_some_and(|spec| spec.target.allowed_on(kind))
     }
 
+    /// Whether this effect belongs on a track of `kind` itself; see
+    /// [`EffectTarget::allowed_on_track`].
+    pub fn allowed_on_track(&self, kind: &TrackKind) -> bool {
+        self.spec().is_some_and(|spec| spec.target.allowed_on_track(kind))
+    }
+
+    fn is_time(&self) -> bool {
+        self.spec().is_some_and(|spec| spec.target == EffectTarget::Time)
+    }
+
+    /// Whether the player plays this effect's speed as written (see
+    /// [`crate::unplayable_speed`]); `true` for any other effect.
+    fn speed_is_playable(&self) -> bool {
+        crate::unplayable_speed(&self.to_effect()).is_none()
+    }
+
     /// The numeric parameter `key`, read as the player does; see
     /// [`Animatable::from_value`].
     pub fn animatable(&self, key: &str) -> Option<Animatable> {
@@ -934,8 +963,9 @@ trait EffectStage {
     fn stage_effects(&self) -> Option<&[Effect]>;
     fn stage_effects_mut(&mut self) -> Option<&mut Vec<Effect>>;
     /// Whether `effect` may be added here; a track takes only the effects
-    /// of its kind (see [`EffectTarget::allowed_on`]). A clip does not know
-    /// its track, so the [`Timeline`] checks it for `*_item_*` edits.
+    /// of its kind (see [`EffectTarget::allowed_on_track`]), and only a
+    /// media clip takes speed, one the player plays as written. A clip does
+    /// not know its track, so the [`Timeline`] checks it for `*_item_*` edits.
     fn stage_accepts(&self, _effect: &TellersEffect) -> bool {
         true
     }
@@ -960,11 +990,12 @@ macro_rules! impl_effect_stage {
     };
 }
 
-impl_effect_stage!(Clip, |c| c.effects);
-impl_effect_stage!(CompositeStack, |s| s.effects);
-impl_effect_stage!(Track, |t| t.effects, accepts |t, e| e.allowed_on(&t.kind));
+impl_effect_stage!(Clip, |c| c.effects, accepts |c, e|
+    !e.is_time() || (!c.is_generator_clip() && e.speed_is_playable()));
+impl_effect_stage!(CompositeStack, |s| s.effects, accepts |_s, e| !e.is_time());
+impl_effect_stage!(Track, |t| t.effects, accepts |t, e| e.allowed_on_track(&t.kind));
 // OTIO timelines have no effects of their own; the root stack holds them.
-impl_effect_stage!(Timeline, |t| t.tracks.effects);
+impl_effect_stage!(Timeline, |t| t.tracks.effects, accepts |_t, e| !e.is_time());
 
 /// A clip's or a composite clip's effects; gaps and transitions have none.
 impl EffectStage for Item {
@@ -980,6 +1011,13 @@ impl EffectStage for Item {
             Item::Clip(clip) => clip.stage_effects_mut(),
             Item::Composite(stack) => stack.stage_effects_mut(),
             Item::Gap(_) | Item::Transition(_) => None,
+        }
+    }
+    fn stage_accepts(&self, effect: &TellersEffect) -> bool {
+        match self {
+            Item::Clip(clip) => clip.stage_accepts(effect),
+            Item::Composite(stack) => stack.stage_accepts(effect),
+            Item::Gap(_) | Item::Transition(_) => false,
         }
     }
 }
@@ -1192,14 +1230,19 @@ impl Timeline {
     /// Whether `effect` may go on the clip or composite clip `item_id`,
     /// given the kind of the track holding it (see
     /// [`EffectTarget::allowed_on_item`]): no Volume on a video clip, no
-    /// Blur on an audio clip, no TextWave on anything but a text clip.
+    /// Blur on an audio clip, no TextWave on anything but a text clip. Inside
+    /// a composite clip, no speed and no `ColorLut`: the player draws
+    /// neither there.
     fn item_accepts_effect(&self, item_id: &str, effect: &TellersEffect) -> bool {
         let (Some(kind), Some(item), Some(spec)) =
             (self.item_track_kind(item_id), self.effect_item(item_id), effect.spec())
         else {
             return false;
         };
+        let nested = self.tracks.composite_path(item_id).is_some_and(|path| !path.is_empty());
         spec.target.allowed_on_item(&kind, item)
+            && item.stage_accepts(effect)
+            && !(nested && (spec.target == EffectTarget::Time || spec.name == "ColorLut"))
     }
 
     fn effect_track(&self, track_id: &str) -> Option<&Track> {
@@ -1558,7 +1601,11 @@ mod tests {
         let mut audio = Track { kind: TrackKind::Audio, ..Track::default() };
         assert!(!audio.push_tellers_effect(TellersEffect::new("Blur")));
         assert!(audio.push_tellers_effect(TellersEffect::new("Pan")));
-        assert!(audio.push_tellers_effect(TellersEffect::new("TimeWarp")));
+        // Speed goes on clips of any track, never on a track itself.
+        assert!(!audio.push_tellers_effect(TellersEffect::new("TimeWarp")));
+        assert!(!video.push_tellers_effect(TellersEffect::new("TimeWarp")));
+        assert!(!EffectTarget::Time.allowed_on_track(&TrackKind::Audio));
+        assert!(EffectTarget::Video.allowed_on_track(&TrackKind::Video));
 
         let clip = |id: &str| json!({
             "OTIO_SCHEMA": "Clip.2",

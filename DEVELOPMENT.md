@@ -54,9 +54,11 @@ cargo run -p tellers-timeline-schema --bin tellers-timeline-schema --quiet  # or
 ```
 
 Inspect the generated diff before committing. The schema describes the modeled
-JSON shape; `validate_timeline` currently checks negative item durations and
-effects naming a track no other video track matches, rather than performing
-comprehensive schema validation.
+JSON shape; `validate_timeline` currently checks negative item durations,
+effects naming a track no other video track matches, and what the player
+cannot draw as written (speed off a media clip or out of range, repeated
+effects the player reads once, composite content it skips), rather than
+performing comprehensive schema validation.
 
 ## Working with the engine
 

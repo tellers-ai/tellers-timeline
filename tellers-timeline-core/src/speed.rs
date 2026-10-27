@@ -159,28 +159,56 @@ fn preserve_pitch(effect: &Effect) -> bool {
     value != Some(&Value::Bool(false))
 }
 
+/// The speed a time effect asks for, enabled or not and before the
+/// player's checks; `None` for any other effect.
+fn requested_speed(effect: &Effect) -> Option<Animatable> {
+    if schema_is(effect, FREEZE_FRAME_SCHEMA) {
+        Some(Animatable::Value(0.0))
+    } else if schema_is(effect, LINEAR_TIME_WARP_SCHEMA) {
+        Some(Animatable::Value(effect.other.get("time_scalar").and_then(Value::as_f64).unwrap_or(1.0)))
+    } else {
+        TellersEffect::from_effect(effect)
+            .filter(|e| e.effect_name == TIME_WARP)?
+            .animatable("speed")
+    }
+}
+
+/// Whether a ramp runs both forwards and backwards (its zero keyframes aside).
+fn crosses_zero(keyframes: &[Keyframe]) -> bool {
+    keyframes.iter().any(|k| k.v > 0.0) && keyframes.iter().any(|k| k.v < 0.0)
+}
+
 fn read_time_warp(effect: &Effect) -> Option<ClipSpeed> {
     if effect.enabled == Some(false) {
         return None;
     }
-    let speed = if schema_is(effect, FREEZE_FRAME_SCHEMA) {
-        Animatable::Value(0.0)
-    } else if schema_is(effect, LINEAR_TIME_WARP_SCHEMA) {
-        Animatable::Value(effect.other.get("time_scalar").and_then(Value::as_f64).unwrap_or(1.0))
-    } else {
-        TellersEffect::from_effect(effect)
-            .filter(|e| e.effect_name == TIME_WARP)?
-            .animatable("speed")?
-    };
-    // A ramp must not cross zero (its zero keyframes aside).
-    if let Animatable::Keyframes { ref keyframes } = speed {
-        let forward = keyframes.iter().any(|k| k.v > 0.0);
-        let backward = keyframes.iter().any(|k| k.v < 0.0);
-        if forward && backward {
-            return None;
-        }
+    let speed = requested_speed(effect)?;
+    // A ramp must not cross zero.
+    if matches!(&speed, Animatable::Keyframes { keyframes } if crosses_zero(keyframes)) {
+        return None;
     }
     Some(ClipSpeed { speed, preserve_pitch: preserve_pitch(effect) })
+}
+
+/// Why the player does not play the speed the time effect `effect` asks
+/// for as written: a ramp crossing zero is ignored, and a speed outside
+/// [`MIN_CLIP_SPEED`]..=[`MAX_CLIP_SPEED`] in magnitude is clamped (a
+/// constant 0 aside: a freeze). `None` when it plays as written, or for any
+/// other effect.
+pub fn unplayable_speed(effect: &Effect) -> Option<String> {
+    let in_range = |v: f64| (MIN_CLIP_SPEED..=MAX_CLIP_SPEED).contains(&v.abs());
+    match requested_speed(effect)? {
+        Animatable::Value(v) if v != 0.0 && !in_range(v) => Some(format!(
+            "speed {v} is outside {MIN_CLIP_SPEED} to {MAX_CLIP_SPEED} in magnitude (0 freezes)"
+        )),
+        Animatable::Keyframes { keyframes } if crosses_zero(&keyframes) => {
+            Some("speed ramp crosses zero, so the player ignores it".to_string())
+        }
+        Animatable::Keyframes { keyframes } => keyframes.iter().find(|k| !in_range(k.v)).map(|k| {
+            format!("speed ramp keyframe {} is outside {MIN_CLIP_SPEED} to {MAX_CLIP_SPEED} in magnitude", k.v)
+        }),
+        Animatable::Value(_) => None,
+    }
 }
 
 /// The speed the player applies for `effects`: the first enabled time effect
@@ -195,6 +223,9 @@ pub enum SpeedError {
     /// Not 0 (a freeze) and outside `MIN_CLIP_SPEED..=MAX_CLIP_SPEED` in
     /// magnitude.
     OutOfRange(f64),
+    /// The clip is a Text, Shape or Rich Text clip, which the player shows
+    /// at normal speed whatever its time effects.
+    NotRetimable,
 }
 
 impl std::fmt::Display for SpeedError {
@@ -203,6 +234,10 @@ impl std::fmt::Display for SpeedError {
             SpeedError::OutOfRange(speed) => write!(
                 f,
                 "speed must be 0 (freeze) or between {MIN_CLIP_SPEED} and {MAX_CLIP_SPEED} in magnitude (negative plays backwards), got {speed}"
+            ),
+            SpeedError::NotRetimable => write!(
+                f,
+                "only video and audio clips play at a speed; Text, Shape and Rich Text clips do not"
             ),
         }
     }
@@ -271,8 +306,12 @@ impl Clip {
     /// Play this clip at a constant `speed` (0 freezes its first frame,
     /// negative plays it backwards); see
     /// [`set_clip_speed`]. The clip keeps its duration on the timeline, so it
-    /// plays more or less of its media.
+    /// plays more or less of its media. A generator clip (Text, Shape, Rich
+    /// Text) only takes normal speed: [`SpeedError::NotRetimable`].
     pub fn set_speed(&mut self, speed: f64, preserve_pitch: Option<bool>) -> Result<(), SpeedError> {
+        if speed != 1.0 && self.is_generator_clip() {
+            return Err(SpeedError::NotRetimable);
+        }
         set_clip_speed(&mut self.effects, speed, preserve_pitch)
     }
 

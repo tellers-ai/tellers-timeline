@@ -336,7 +336,11 @@ mod tests {
         ];
         let dangling: Vec<_> = timeline.tracks.dangling_track_references().into_iter().map(|r| r.track).collect();
         assert_eq!(dangling, ["Base", "Music", "nowhere"]);
-        let errors: Vec<_> = crate::validate_timeline(&timeline).iter().map(|e| e.to_string()).collect();
+        let errors: Vec<_> = crate::validate_timeline(&timeline)
+            .iter()
+            .filter(|e| matches!(e, crate::ValidationError::DanglingTrackReference { .. }))
+            .map(|e| e.to_string())
+            .collect();
         assert_eq!(errors.len(), 3);
         assert!(errors[2].contains("TrackMatte") && errors[2].contains("vc") && errors[2].contains("nowhere"), "{}", errors[2]);
     }

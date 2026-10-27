@@ -71,8 +71,10 @@ def test_bare_names_are_read_and_rewritten_prefixed():
     assert tl.get_tellers_effects()[0]["effect_name"] == "Pan"
     assert tl.set_tellers_effect_parameter(0, "pan", 1)
     assert json.loads(tl.to_json())["tracks"]["effects"][0]["effect_name"] == "tellers.ai.Pan"
-    assert tl.push_tellers_effect({"effect_name": "tellers.ai.TimeWarp", "parameters": {"preserve_pitch": False}})
-    assert tl.get_tellers_effects()[1]["effect_name"] == "TimeWarp"
+    assert tl.push_tellers_effect({"effect_name": "tellers.ai.MotionBlur", "parameters": {"shutterAngle": 90}})
+    assert tl.get_tellers_effects()[1]["effect_name"] == "MotionBlur"
+    # Speed goes on clips only: the player ignores it on the timeline.
+    assert not tl.push_tellers_effect({"effect_name": "tellers.ai.TimeWarp", "parameters": {"speed": 2}})
 
 
 def test_unknown_effect_names_are_refused():

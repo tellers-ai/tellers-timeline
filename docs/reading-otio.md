@@ -195,6 +195,12 @@ Splitting a clip and clamping it to its media count the media it plays at
 that speed; split in two, a reversed clip's left half keeps the top of its
 source range.
 
+Only video and audio clips play at a speed. Edits refuse a time effect on a
+track, the timeline, a composite clip or anything inside one, and on a Text,
+Shape or Rich Text clip (`Clip.set_speed` raises for anything but 1), as well
+as a speed the player would clamp or ignore. `validate_timeline` reports such
+speed in a loaded document.
+
 ### Colour grading (`tellers.ai.ColorLut`)
 
 A `.cube` LUT, an ordinary tellers effect identified by its `asset_id`
