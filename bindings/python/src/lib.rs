@@ -528,6 +528,12 @@ impl PyClip {
     fn get_source_duration(&self) -> f64 {
         self.inner.source_duration()
     }
+    /// The earliest and latest source start this clip can slip to within its
+    /// media (the source it plays scales with its speed); None when the media
+    /// length is unknown.
+    fn get_source_start_bounds(&self) -> Option<(f64, f64)> {
+        self.inner.source_start_bounds()
+    }
     /// Whether this clip plays its source range backwards (a negative speed).
     fn is_reversed(&self) -> bool {
         self.inner.is_reversed()
@@ -1829,6 +1835,20 @@ impl PyStack {
         self.inner
             .set_item_speed(item_id, speed, preserve_pitch, with_sync_clips)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
+    }
+    /// Slip: play the part of its media starting at `source_start` (clamped to
+    /// the media) while keeping the clip's place and length on the timeline;
+    /// with `with_sync_clips`, its sync partners slip too. Returns how many
+    /// clips changed.
+    #[pyo3(signature = (item_id, source_start, with_sync_clips=true))]
+    fn slip_item(&mut self, item_id: &str, source_start: f64, with_sync_clips: bool) -> usize {
+        self.inner.slip_item(item_id, source_start, with_sync_clips)
+    }
+    /// The source starts `slip_item` accepts for this clip; None when no clip
+    /// has this id.
+    #[pyo3(signature = (item_id, with_sync_clips=true))]
+    fn get_item_slip_bounds(&self, item_id: &str, with_sync_clips: bool) -> Option<(f64, f64)> {
+        self.inner.item_slip_bounds(item_id, with_sync_clips)
     }
     fn resize_item(
         &mut self,

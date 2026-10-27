@@ -56,3 +56,13 @@ def test_stack_set_item_speed():
     assert stack.set_item_speed("v", -1.0) == 1
     with pytest.raises(ValueError):
         stack.set_item_speed("v", -10.0)
+
+
+def test_stack_slip_item():
+    stack = Stack([Track(kind="video")])
+    stack.insert_item_at_time(0, 0.0, make_clip("v"), "override", "split_and_insert")
+    bounds = stack.get_item_slip_bounds("v")
+    assert bounds is not None and bounds[0] == 0.0
+    assert stack.slip_item("v", 1.5) == 1
+    assert stack.get_item_slip_bounds("missing") is None
+    assert stack.slip_item("missing", 1.0) == 0
