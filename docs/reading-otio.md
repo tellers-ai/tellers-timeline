@@ -236,6 +236,10 @@ metadata is kept as it is.
 - **Composite clips:** a `Stack.1` placed inside a video track is drawn as
   one clip made of its own video tracks. Inside it, the player draws video,
   image, Text and Shape clips; it skips Rich Text clips and transitions.
+  Nesting goes one level deep: a `Stack.1` inside a composite's track is
+  skipped, and one without a `source_range` also takes no time, so the items
+  after it on that track start early. Give a nested composite a
+  `source_range`, or better, keep composites on the top-level tracks.
 
 > **Library support.** `tellers-timeline-core` loads, round-trips and edits
 > both transitions and composite clips, and reads and edits clip groups

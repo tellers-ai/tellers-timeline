@@ -89,7 +89,7 @@
       }
     },
     "CompositeStack": {
-      "description": "A `Stack` nested inside a track: a composite clip, drawn as one clip made of its own tracks (the player's `CompositeStack`).\n\nIts length is `source_range.duration` when a source range is set, otherwise the length of its longest child track. `source_range.start_time` is the offset into the child tracks where the composite starts playing.",
+      "description": "A `Stack` nested inside a track: a composite clip, drawn as one clip made of its own tracks (the player's `CompositeStack`).\n\nIts length is `source_range.duration` when a source range is set, otherwise the length of its longest child track. `source_range.start_time` is the offset into the child tracks where the composite starts playing.\n\nThe player draws one level of nesting: a `Stack` inside a composite's track is skipped. This library loads and edits composites at any depth.",
       "type": "object",
       "properties": {
         "OTIO_SCHEMA": {

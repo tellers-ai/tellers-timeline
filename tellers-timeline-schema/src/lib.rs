@@ -74,7 +74,8 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
         "CompositeStack",
         "A composite clip: a `Stack.1` nested inside a video track, drawn as one clip made \
          of its own tracks. It lasts `source_range.duration` when a source range is set, \
-         otherwise as long as its longest child track.",
+         otherwise as long as its longest child track. The player draws one level of \
+         nesting: a `Stack.1` inside a composite's track is skipped.",
     ),
     (
         "Transition",
