@@ -26,7 +26,7 @@ pub enum ValidationError {
     #[error("{owner}: {reason}")]
     UnplayableSpeed { owner: String, reason: String },
     /// More than one enabled effect the player reads once per owner
-    /// (`Blend`, `TrackMatte`, `Volume`, `Pan`, `MotionBlur`, speed): only
+    /// (`Blend`, `TrackMatte`, `Volume`, `Pan`, `Pitch`, `MotionBlur`, speed): only
     /// the first applies.
     #[error("{owner} has {count} enabled {effect} effects; only the first applies")]
     DuplicateEffect { owner: String, effect: String, count: usize },
@@ -42,7 +42,7 @@ pub enum ValidationError {
 }
 
 /// Effects the player reads once per owner: the first enabled one applies.
-const ONCE_PER_OWNER: &[&str] = &["Blend", "TrackMatte", "Volume", "Pan", "MotionBlur"];
+const ONCE_PER_OWNER: &[&str] = &["Blend", "TrackMatte", "Volume", "Pan", "Pitch", "MotionBlur"];
 
 pub fn validate_timeline(tl: &Timeline) -> Vec<ValidationError> {
     let mut errors = Vec::new();

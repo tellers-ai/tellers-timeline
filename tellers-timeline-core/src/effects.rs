@@ -42,7 +42,9 @@
 //! list order, on a clip's sound before its `Volume`, `Pan` and fades, or on
 //! the sum of a track's clips before the track's `Volume` and `Pan`. An
 //! `Equalizer`'s `bands` are filters run in order, each an object with a
-//! `type` and animatable `frequency`, `gain` and `q`.
+//! `type` and animatable `frequency`, `gain` and `q`. `Pitch` shifts a
+//! clip's pitch by `semitones` (clamped to -24..24) without changing its
+//! speed or length; on a track it applies to each clip without its own.
 //!
 //! Each effect has a target ([`EffectTarget`]) deciding where it may go:
 //! picture effects on video (and other) tracks and their clips, text clips
@@ -419,6 +421,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
     ),
     effect("Volume", Audio, &[anim("volume"), anim("fadeIn"), anim("fadeOut")]),
     effect("Pan", Audio, &[anim("pan")]),
+    effect("Pitch", Audio, &[anim("semitones")]),
     effect("Equalizer", Audio, &[ParameterSpec { name: "bands", kind: ParameterKind::Bands }]),
     effect(
         "Compressor",
@@ -1486,6 +1489,13 @@ mod tests {
             .is_ok());
         assert!(TellersEffect::new("Compressor").with_parameter("volume", 1.0).validate().is_err());
         assert!(TellersEffect::new("Limiter").with_parameter("ceiling", -1.0).validate().is_ok());
+        assert!(TellersEffect::new("Pitch").allowed_on(&TrackKind::Audio));
+        assert!(!TellersEffect::new("Pitch").allowed_on(&TrackKind::Video));
+        assert!(TellersEffect::new("Pitch")
+            .with_parameter("semitones", json!({ "keyframes": [ { "t": 0, "v": -12 }, { "t": 2, "v": 12 } ] }))
+            .validate()
+            .is_ok());
+        assert!(TellersEffect::new("Pitch").with_parameter("pitch", 3.0).validate().is_err());
         let bands = json!([
             { "type": "highpass", "frequency": { "keyframes": [ { "t": 0, "v": 900 }, { "t": 1.5, "v": 90, "ease": "easeOut" } ] } },
             { "type": "peaking", "frequency": 3500, "gain": 4, "q": 1 }
