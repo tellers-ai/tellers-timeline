@@ -193,7 +193,12 @@ fn validation_reports_effects_the_player_reads_once() {
         time_warp(json!(3.0)).to_effect(),
     ];
     let mut audio = track(TrackKind::Audio, "a", vec![]);
-    audio.effects = vec![TellersEffect::new("Volume").to_effect(), TellersEffect::new("Volume").to_effect()];
+    audio.effects = vec![
+        TellersEffect::new("Volume").to_effect(),
+        TellersEffect::new("Volume").to_effect(),
+        TellersEffect::new("Pitch").to_effect(),
+        TellersEffect::new("Pitch").to_effect(),
+    ];
     let timeline = timeline(vec![track(TrackKind::Video, "v", vec![Item::Clip(c)]), audio]);
 
     assert_eq!(
@@ -202,6 +207,7 @@ fn validation_reports_effects_the_player_reads_once() {
             "vc has 2 enabled speed effects; only the first applies",
             "vc has 2 enabled Blend effects; only the first applies",
             "a has 2 enabled Volume effects; only the first applies",
+            "a has 2 enabled Pitch effects; only the first applies",
         ]
     );
 }
