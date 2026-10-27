@@ -521,6 +521,12 @@ impl Clip {
         self.active_reference().is_ok_and(MediaReference::is_shape_generator)
     }
 
+    /// Whether the active reference is a generator (Text, Shape, Rich Text):
+    /// a clip with no media, which the player shows at normal speed.
+    pub fn is_generator_clip(&self) -> bool {
+        self.active_reference().is_ok_and(|r| r.generator_kind().is_some())
+    }
+
     pub fn text_parameters(&self) -> Result<TextParameters, GeneratorError> {
         self.active_reference()?.text_parameters()
     }

@@ -512,7 +512,8 @@ impl PyClip {
     /// Play this clip at a constant `speed` (0 freezes its first frame, else
     /// 0.25 to 4 in magnitude, negative playing it backwards);
     /// `preserve_pitch=None` keeps the current setting. Raises
-    /// ValueError for a speed out of range.
+    /// ValueError for a speed out of range, or other than 1 on a Text, Shape
+    /// or Rich Text clip.
     #[pyo3(signature = (speed, preserve_pitch=None))]
     fn set_speed(&mut self, speed: f64, preserve_pitch: Option<bool>) -> PyResult<()> {
         self.inner
