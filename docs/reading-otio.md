@@ -191,8 +191,11 @@ resamples the audio instead of time-stretching it.
 which source time shows at a timeline offset. `Clip.set_speed` writes a
 constant one (0 for a freeze, negative for reverse) as `LinearTimeWarp.1` / `FreezeFrame.1`, replacing any other
 time effect. `Stack.set_item_speed` does the same on a clip's sync partners.
-Splitting a clip and clamping it to its media count the media it plays at
-that speed; split in two, a reversed clip's left half keeps the top of its
+`Stack.slip_item` (slip) moves the part of its media a clip plays, keeping
+its place and length on the timeline, and slips its sync partners with it;
+`Stack.item_slip_bounds` gives the source starts it accepts. Splitting,
+slipping and clamping a clip to its media count the media it plays at that
+speed; split in two, a reversed clip's left half keeps the top of its
 source range.
 
 Only video and audio clips play at a speed. Edits refuse a time effect on a
