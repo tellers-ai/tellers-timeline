@@ -344,6 +344,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [TrackMatte](#effect-trackmatte) | `tellers.ai.TrackMatte` | video (picture) | `mode`, `track` |
 | [Volume](#effect-volume) | `tellers.ai.Volume` | audio (sound) | `volume`, `fadeIn`, `fadeOut` |
 | [Pan](#effect-pan) | `tellers.ai.Pan` | audio (sound) | `pan` |
+| [Pitch](#effect-pitch) | `tellers.ai.Pitch` | audio (sound) | `semitones` |
 | [Equalizer](#effect-equalizer) | `tellers.ai.Equalizer` | audio (sound) | `bands` |
 | [Compressor](#effect-compressor) | `tellers.ai.Compressor` | audio (sound) | `threshold`, `ratio`, `knee`, `attack`, `release`, `makeup` |
 | [Limiter](#effect-limiter) | `tellers.ai.Limiter` | audio (sound) | `ceiling`, `release` |
@@ -617,6 +618,15 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | Parameter | Value |
 |---|---|
 | `pan` | [animatable](#animatable-parameters) number |
+
+<a id="effect-pitch"></a>
+### Pitch
+
+`tellers.ai.Pitch`, applies to audio (sound).
+
+| Parameter | Value |
+|---|---|
+| `semitones` | [animatable](#animatable-parameters) number |
 
 <a id="effect-equalizer"></a>
 ### Equalizer
