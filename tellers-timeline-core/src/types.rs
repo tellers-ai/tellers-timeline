@@ -580,6 +580,9 @@ impl Item {
 /// Its length is `source_range.duration` when a source range is set, otherwise
 /// the length of its longest child track. `source_range.start_time` is the
 /// offset into the child tracks where the composite starts playing.
+///
+/// The player draws one level of nesting: a `Stack` inside a composite's
+/// track is skipped. This library loads and edits composites at any depth.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct CompositeStack {
     #[serde(rename = "OTIO_SCHEMA", default = "default_stack_schema")]

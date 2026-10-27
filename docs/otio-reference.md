@@ -91,7 +91,7 @@ Empty time on a track: nothing is drawn or heard for its duration.
 
 ### CompositeStack
 
-A composite clip: a `Stack.1` nested inside a video track, drawn as one clip made of its own tracks. It lasts `source_range.duration` when a source range is set, otherwise as long as its longest child track.
+A composite clip: a `Stack.1` nested inside a video track, drawn as one clip made of its own tracks. It lasts `source_range.duration` when a source range is set, otherwise as long as its longest child track. The player draws one level of nesting: a `Stack.1` inside a composite's track is skipped.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
