@@ -342,6 +342,7 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("bottom"),
             anim("left"),
             anim("opacity"),
+            anim("corner_radius"),
             color("color"),
         ],
     ),
@@ -1496,6 +1497,7 @@ mod tests {
             .validate()
             .is_ok());
         assert!(TellersEffect::new("Pitch").with_parameter("pitch", 3.0).validate().is_err());
+        assert!(TellersEffect::new("Border").with_parameter("corner_radius", 24.0).validate().is_ok());
         let bands = json!([
             { "type": "highpass", "frequency": { "keyframes": [ { "t": 0, "v": 900 }, { "t": 1.5, "v": 90, "ease": "easeOut" } ] } },
             { "type": "peaking", "frequency": 3500, "gain": 4, "q": 1 }

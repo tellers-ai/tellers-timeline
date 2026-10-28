@@ -335,7 +335,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [ZoomBlur](#effect-zoomblur) | `tellers.ai.ZoomBlur` | video (picture) | `strength`, `centerX`, `centerY`, `innerRadius`, `regions`, `detect` |
 | [DropShadow](#effect-dropshadow) | `tellers.ai.DropShadow` | video (picture) | `offsetX`, `offsetY`, `blur`, `alpha`, `color`, `regions`, `detect` |
 | [ChromaKey](#effect-chromakey) | `tellers.ai.ChromaKey` | video (picture) | `color`, `similarity`, `smoothness`, `spill`, `choke`, `regions`, `detect` |
-| [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color` |
+| [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `corner_radius`, `color` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
 | [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `follow`, `attach` |
 | [Stabilize](#effect-stabilize) | `tellers.ai.Stabilize` | video (picture) | `x`, `y`, `scale`, `rotation` |
@@ -516,6 +516,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `bottom` | [animatable](#animatable-parameters) number |
 | `left` | [animatable](#animatable-parameters) number |
 | `opacity` | [animatable](#animatable-parameters) number |
+| `corner_radius` | [animatable](#animatable-parameters) number |
 | `color` | CSS color string |
 
 <a id="effect-motionblur"></a>
