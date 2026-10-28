@@ -163,6 +163,8 @@ def test_specs_validate_and_evaluate():
     assert [p["name"] for p in specs["Limiter"]["parameters"]] == ["ceiling", "release"]
     assert specs["Pitch"]["target"] == "audio"
     assert specs["Pitch"]["parameters"] == [{"name": "semitones", "kind": "animatable"}]
+    assert {"name": "corner_radius", "kind": "animatable"} in specs["Border"]["parameters"]
+    assert validate_tellers_effect({"effect_name": "Border", "parameters": {"corner_radius": 24}}) is None
     bands = [{"type": "highpass", "frequency": FADE_IN}, {"type": "peaking", "frequency": 3500, "gain": 4, "q": 1}]
     assert validate_tellers_effect({"effect_name": "Equalizer", "parameters": {"bands": bands}}) is None
     assert "bands" in validate_tellers_effect({"effect_name": "Equalizer", "parameters": {"bands": [{"type": "notch"}]}})
