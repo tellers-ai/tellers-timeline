@@ -343,6 +343,8 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("left"),
             anim("opacity"),
             color("color"),
+            // Rounds the outer corners and clips the clip to them, in 1080p pixels.
+            anim("corner_radius"),
         ],
     ),
     effect(
@@ -1447,6 +1449,8 @@ mod tests {
         assert!(TellersEffect::new("Blur").with_parameter("strength", "x").validate().is_err());
         assert!(TellersEffect::new("Blend").with_parameter("mode", "Multiply").validate().is_ok());
         assert!(TellersEffect::new("Blend").with_parameter("mode", "burn").validate().is_err());
+        assert!(TellersEffect::new("Border").with_parameter("corner_radius", 24.0).validate().is_ok());
+        assert!(TellersEffect::new("Border").with_parameter("corner_radius", "round").validate().is_err());
         assert!(TellersEffect::new("Mask")
             .with_parameter("shape", "path")
             .with_parameter(
