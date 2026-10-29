@@ -338,7 +338,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [Vignette](#effect-vignette) | `tellers.ai.Vignette` | video (picture) | `color`, `amount`, `radius`, `softness`, `centerX`, `centerY`, `regions`, `detect` |
 | [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color`, `corner_radius` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
-| [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `follow`, `attach` |
+| [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `rotationX`, `rotationY`, `perspective`, `opacity`, `follow`, `attach` |
 | [Stabilize](#effect-stabilize) | `tellers.ai.Stabilize` | video (picture) | `x`, `y`, `scale`, `rotation` |
 | [Blend](#effect-blend) | `tellers.ai.Blend` | video (picture) | `mode` |
 | [Mask](#effect-mask) | `tellers.ai.Mask` | video (picture) | `shape`, `x`, `y`, `width`, `height`, `rotation`, `corner_radius`, `feather`, `opacity`, `invert`, `mode`, `closed`, `points`, `detect` |
@@ -560,6 +560,9 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `scaleX` | [animatable](#animatable-parameters) number |
 | `scaleY` | [animatable](#animatable-parameters) number |
 | `rotation` | [animatable](#animatable-parameters) number |
+| `rotationX` | [animatable](#animatable-parameters) number |
+| `rotationY` | [animatable](#animatable-parameters) number |
+| `perspective` | [animatable](#animatable-parameters) number |
 | `opacity` | [animatable](#animatable-parameters) number |
 | `follow` | object: the auto-tracking zoom recipe `x`, `y` and `scale` were computed from; see [Follow](#follow) |
 | `attach` | object: the subject of another track `x` and `y` (and `opacity`) keep the clip on; see [Attach](#attach) |

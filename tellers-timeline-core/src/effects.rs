@@ -368,6 +368,8 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
         Video,
         &[anim("shutterAngle"), anim("shutterPhase"), anim("samples")],
     ),
+    // `rotationX`/`rotationY` tilt the clip in 3D (degrees, added across the
+    // stack) seen from `perspective` frame widths away; the last one set wins.
     effect(
         "Transform",
         Video,
@@ -378,6 +380,9 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("scaleX"),
             anim("scaleY"),
             anim("rotation"),
+            anim("rotationX"),
+            anim("rotationY"),
+            anim("perspective"),
             anim("opacity"),
             ParameterSpec { name: "follow", kind: ParameterKind::Follow },
             ParameterSpec { name: "attach", kind: ParameterKind::Attach },
@@ -1500,6 +1505,14 @@ mod tests {
             .validate()
             .is_ok());
         assert!(TellersEffect::new("Stabilize").with_parameter("opacity", 1.0).validate().is_err());
+        assert!(TellersEffect::new("Transform")
+            .with_parameter("rotationY", json!({ "keyframes": [ { "t": 0, "v": 0, "ease": "easeInOut" }, { "t": 2.5, "v": 360 } ] }))
+            .with_parameter("rotationX", 8.0)
+            .with_parameter("perspective", 1.2)
+            .validate()
+            .is_ok());
+        assert!(TellersEffect::new("Transform").with_parameter("perspective", "far").validate().is_err());
+        assert!(TellersEffect::new("Stabilize").with_parameter("rotationY", 10.0).validate().is_err());
         assert!(!TellersEffect::new("Stabilize").allowed_on(&TrackKind::Audio));
     }
 

@@ -167,6 +167,8 @@ def test_specs_validate_and_evaluate():
     assert validate_tellers_effect({"effect_name": "Border", "parameters": {"corner_radius": 24}}) is None
     assert [p["name"] for p in specs["Vignette"]["parameters"]] == ["color", "amount", "radius", "softness", "centerX", "centerY", "regions", "detect"]
     assert validate_tellers_effect({"effect_name": "Vignette", "parameters": {"amount": 0.7, "color": "#000"}}) is None
+    assert {"name": "rotationY", "kind": "animatable"} in specs["Transform"]["parameters"]
+    assert validate_tellers_effect({"effect_name": "Transform", "parameters": {"rotationX": 8, "rotationY": -35, "perspective": 1.2}}) is None
     bands = [{"type": "highpass", "frequency": FADE_IN}, {"type": "peaking", "frequency": 3500, "gain": 4, "q": 1}]
     assert validate_tellers_effect({"effect_name": "Equalizer", "parameters": {"bands": bands}}) is None
     assert "bands" in validate_tellers_effect({"effect_name": "Equalizer", "parameters": {"bands": [{"type": "notch"}]}})
