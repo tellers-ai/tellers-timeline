@@ -335,6 +335,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [ZoomBlur](#effect-zoomblur) | `tellers.ai.ZoomBlur` | video (picture) | `strength`, `centerX`, `centerY`, `innerRadius`, `regions`, `detect` |
 | [DropShadow](#effect-dropshadow) | `tellers.ai.DropShadow` | video (picture) | `offsetX`, `offsetY`, `blur`, `alpha`, `color`, `regions`, `detect` |
 | [ChromaKey](#effect-chromakey) | `tellers.ai.ChromaKey` | video (picture) | `color`, `similarity`, `smoothness`, `spill`, `choke`, `regions`, `detect` |
+| [Vignette](#effect-vignette) | `tellers.ai.Vignette` | video (picture) | `color`, `amount`, `radius`, `softness`, `centerX`, `centerY`, `regions`, `detect` |
 | [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color`, `corner_radius` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
 | [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `opacity`, `follow`, `attach` |
@@ -500,6 +501,22 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `smoothness` | [animatable](#animatable-parameters) number |
 | `spill` | [animatable](#animatable-parameters) number |
 | `choke` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-vignette"></a>
+### Vignette
+
+`tellers.ai.Vignette`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `color` | CSS color string |
+| `amount` | [animatable](#animatable-parameters) number |
+| `radius` | [animatable](#animatable-parameters) number |
+| `softness` | [animatable](#animatable-parameters) number |
+| `centerX` | [animatable](#animatable-parameters) number |
+| `centerY` | [animatable](#animatable-parameters) number |
 | `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
 | `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
