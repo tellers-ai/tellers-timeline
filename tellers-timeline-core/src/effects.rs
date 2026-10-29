@@ -28,7 +28,7 @@
 //! - A numeric parameter is an [`Animatable`]: a number, or keyframes with
 //!   `t` in seconds from the start of the clip on the timeline. Strings
 //!   (colors, presets, modes) and booleans are fixed.
-//! - A filter (`Blur`, `Pixelate`, `Adjustment`, ... `ChromaKey`) can take
+//! - A filter (`Blur`, `Pixelate`, `Adjustment`, ... `Vignette`) can take
 //!   `regions`, a list of `Mask` shapes: it then shows only inside them
 //!   (one keyframed shape per tracked face or plate), and nowhere when the
 //!   list is empty. A filter or a `Mask` can instead declare `detect`, what
@@ -328,6 +328,22 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("smoothness"),
             anim("spill"),
             anim("choke"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    // Mixes the edges towards `color` along an ellipse following the clip's
+    // rectangle; `radius` 1 reaches the corners.
+    effect(
+        "Vignette",
+        Video,
+        &[
+            color("color"),
+            anim("amount"),
+            anim("radius"),
+            anim("softness"),
+            anim("centerX"),
+            anim("centerY"),
             REGIONS,
             DETECT,
         ],
@@ -1451,6 +1467,14 @@ mod tests {
         assert!(TellersEffect::new("Blend").with_parameter("mode", "burn").validate().is_err());
         assert!(TellersEffect::new("Border").with_parameter("corner_radius", 24.0).validate().is_ok());
         assert!(TellersEffect::new("Border").with_parameter("corner_radius", "round").validate().is_err());
+        assert!(TellersEffect::new("Vignette")
+            .with_parameter("amount", json!({ "keyframes": [ { "t": 0, "v": 0 }, { "t": 1, "v": 0.8 } ] }))
+            .with_parameter("radius", 0.6)
+            .with_parameter("color", "#102030")
+            .validate()
+            .is_ok());
+        assert!(!TellersEffect::new("Vignette").allowed_on(&TrackKind::Audio));
+        assert!(TellersEffect::new("Vignette").with_parameter("strength", 1.0).validate().is_err());
         assert!(TellersEffect::new("Mask")
             .with_parameter("shape", "path")
             .with_parameter(
@@ -1539,6 +1563,7 @@ mod tests {
         assert!(blur(json!([{ "x": "left" }])).is_err());
         assert!(blur(json!(face)).is_err());
         assert!(TellersEffect::new("ChromaKey").with_parameter("regions", json!([])).validate().is_ok());
+        assert!(TellersEffect::new("Vignette").with_parameter("regions", json!([face])).validate().is_ok());
         // Only the filters: not Transform, Border, ColorLut or Stabilize.
         for name in ["Transform", "Border", "ColorLut", "Stabilize", "Mask"] {
             assert!(effect_spec(name).unwrap().parameter("regions").is_none(), "{name}");
