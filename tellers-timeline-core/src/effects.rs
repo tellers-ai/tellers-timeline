@@ -28,7 +28,7 @@
 //! - A numeric parameter is an [`Animatable`]: a number, or keyframes with
 //!   `t` in seconds from the start of the clip on the timeline. Strings
 //!   (colors, presets, modes) and booleans are fixed.
-//! - A filter (`Blur`, `Pixelate`, `Adjustment`, ... `Vignette`) can take
+//! - A filter (`Blur`, `Pixelate`, `Adjustment`, ... `SimplexNoise`) can take
 //!   `regions`, a list of `Mask` shapes: it then shows only inside them
 //!   (one keyframed shape per tracked face or plate), and nowhere when the
 //!   list is empty. A filter or a `Mask` can instead declare `detect`, what
@@ -367,6 +367,268 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
         "MotionBlur",
         Video,
         &[anim("shutterAngle"), anim("shutterPhase"), anim("samples")],
+    ),
+    // The filters below come from pixi-filters. Their lengths (distances, radii,
+    // thicknesses, widths, `speed` in pixels) are 1080p pixels; switches
+    // (`knockout`, `replace`, `parallel`, ...) are on at 0.5 and above.
+    effect(
+        "Glow",
+        Video,
+        &[
+            anim("distance"),
+            anim("outerStrength"),
+            anim("innerStrength"),
+            color("color"),
+            anim("amount"),
+            anim("knockout"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "AdvancedBloom",
+        Video,
+        &[
+            anim("threshold"),
+            anim("bloomScale"),
+            anim("brightness"),
+            anim("blur"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "TiltShift",
+        Video,
+        &[
+            anim("blur"),
+            anim("gradientBlur"),
+            anim("startX"),
+            anim("startY"),
+            anim("endX"),
+            anim("endY"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "Glitch",
+        Video,
+        &[
+            anim("slices"),
+            anim("offset"),
+            anim("direction"),
+            anim("speed"),
+            anim("seed"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "OldFilm",
+        Video,
+        &[
+            anim("sepia"),
+            anim("noise"),
+            anim("noiseSize"),
+            anim("scratch"),
+            anim("scratchDensity"),
+            anim("scratchWidth"),
+            anim("vignetting"),
+            anim("vignettingAlpha"),
+            anim("vignettingBlur"),
+            anim("speed"),
+            anim("seed"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "CRT",
+        Video,
+        &[
+            anim("curvature"),
+            anim("lineWidth"),
+            anim("lineContrast"),
+            anim("verticalLine"),
+            anim("noise"),
+            anim("noiseSize"),
+            anim("vignetting"),
+            anim("vignettingAlpha"),
+            anim("vignettingBlur"),
+            anim("speed"),
+            anim("seed"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect("ColorOverlay", Video, &[color("color"), anim("amount"), REGIONS, DETECT]),
+    // `gradient` is a CSS linear-, radial- or conic-gradient(), not keyframable.
+    effect(
+        "ColorGradient",
+        Video,
+        &[
+            string("gradient"),
+            anim("amount"),
+            anim("replace"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "Shockwave",
+        Video,
+        &[
+            anim("centerX"),
+            anim("centerY"),
+            anim("speed"),
+            anim("amplitude"),
+            anim("wavelength"),
+            anim("brightness"),
+            anim("radius"),
+            anim("delay"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "Twist",
+        Video,
+        &[
+            anim("radius"),
+            anim("angle"),
+            anim("centerX"),
+            anim("centerY"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "BulgePinch",
+        Video,
+        &[
+            anim("centerX"),
+            anim("centerY"),
+            anim("radius"),
+            anim("strength"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "RadialBlur",
+        Video,
+        &[
+            anim("angle"),
+            anim("centerX"),
+            anim("centerY"),
+            anim("kernelSize"),
+            anim("radius"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "Godray",
+        Video,
+        &[
+            anim("angle"),
+            anim("parallel"),
+            anim("centerX"),
+            anim("centerY"),
+            anim("gain"),
+            anim("lacunarity"),
+            anim("amount"),
+            anim("speed"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect(
+        "Outline",
+        Video,
+        &[
+            anim("thickness"),
+            color("color"),
+            anim("amount"),
+            anim("knockout"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect("Emboss", Video, &[anim("strength"), REGIONS, DETECT]),
+    effect(
+        "Bevel",
+        Video,
+        &[
+            anim("rotation"),
+            anim("thickness"),
+            color("lightColor"),
+            anim("lightAlpha"),
+            color("shadowColor"),
+            anim("shadowAlpha"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect("Grayscale", Video, &[REGIONS, DETECT]),
+    effect(
+        "Reflection",
+        Video,
+        &[
+            anim("mirror"),
+            anim("boundary"),
+            anim("amplitudeStart"),
+            anim("amplitudeEnd"),
+            anim("wavelengthStart"),
+            anim("wavelengthEnd"),
+            anim("alphaStart"),
+            anim("alphaEnd"),
+            anim("speed"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect("KawaseBlur", Video, &[anim("strength"), anim("quality"), REGIONS, DETECT]),
+    effect(
+        "ColorReplace",
+        Video,
+        &[
+            color("originalColor"),
+            color("targetColor"),
+            anim("tolerance"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    // `replacements` is `#from>#to` pairs, comma separated, up to 8.
+    effect(
+        "MultiColorReplace",
+        Video,
+        &[
+            string("replacements"),
+            anim("tolerance"),
+            REGIONS,
+            DETECT,
+        ],
+    ),
+    effect("Dot", Video, &[anim("scale"), anim("angle"), anim("grayscale"), REGIONS, DETECT]),
+    effect("CrossHatch", Video, &[REGIONS, DETECT]),
+    effect("Ascii", Video, &[anim("size"), color("color"), anim("replaceColor"), REGIONS, DETECT]),
+    effect(
+        "SimplexNoise",
+        Video,
+        &[
+            anim("strength"),
+            anim("noiseScale"),
+            anim("offsetX"),
+            anim("offsetY"),
+            anim("offsetZ"),
+            anim("step"),
+            anim("speed"),
+            REGIONS,
+            DETECT,
+        ],
     ),
     // `rotationX`/`rotationY` tilt the clip in 3D (degrees, added across the
     // stack) seen from `perspective` frame widths away; the last one set wins.
@@ -1480,6 +1742,25 @@ mod tests {
             .is_ok());
         assert!(!TellersEffect::new("Vignette").allowed_on(&TrackKind::Audio));
         assert!(TellersEffect::new("Vignette").with_parameter("strength", 1.0).validate().is_err());
+        // The pixi-filters effects: numbers, colors and the two strings.
+        assert!(TellersEffect::new("Glow")
+            .with_parameter("distance", json!({ "keyframes": [ { "t": 0, "v": 0 }, { "t": 1, "v": 20 } ] }))
+            .with_parameter("color", "#ffcc00")
+            .with_parameter("knockout", 1.0)
+            .validate()
+            .is_ok());
+        assert!(TellersEffect::new("ColorGradient")
+            .with_parameter("gradient", "conic-gradient(red, blue)")
+            .validate()
+            .is_ok());
+        assert!(TellersEffect::new("ColorGradient").with_parameter("gradient", 3.0).validate().is_err());
+        assert!(TellersEffect::new("MultiColorReplace")
+            .with_parameter("replacements", "#ff0000>#00ff00, #0000ff>#ffffff")
+            .validate()
+            .is_ok());
+        assert!(TellersEffect::new("Grayscale").validate().is_ok());
+        assert!(TellersEffect::new("Grayscale").with_parameter("amount", 1.0).validate().is_err());
+        assert!(!TellersEffect::new("SimplexNoise").allowed_on(&TrackKind::Audio));
         assert!(TellersEffect::new("Mask")
             .with_parameter("shape", "path")
             .with_parameter(

@@ -2,9 +2,9 @@
 //!
 //! A `GeneratorReference.1` whose `generator_kind` is `"Text"` is a plain
 //! string (or timed words) the player draws live; one whose kind is
-//! `"Shape"` is a rectangle, ellipse or line. Both are placed by the clip's
-//! effects (Transform, Cropping), like a video clip, not by Resolve
-//! parameters. The source of truth is `definitions.MediaReference` in the
+//! `"Shape"` is a rectangle, ellipse, polygon (or star), line or path. Both
+//! are placed by the clip's effects (Transform, Cropping), like a video clip,
+//! not by Resolve parameters. The source of truth is `definitions.MediaReference` in the
 //! player's `schema/timeline.schema.json`.
 //!
 //! The parameters stay stored as raw JSON in
@@ -290,15 +290,44 @@ pub enum ShapeKind {
     Rectangle,
     Ellipse,
     Line,
+    /// `sides` corners, the first at the top; a star with `inner_radius`.
+    Polygon,
+    /// Freeform `points`, closed or open.
+    Path,
+}
+
+/// A point of a Shape `path`, as a `Mask` path's: `[x, y]`, or an object
+/// with Bezier handles relative to the point. Clip space ((0, 0) the box's
+/// center, ±0.5 its edges); numbers only, not keyframed.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[serde(untagged)]
+pub enum ShapePoint {
+    Xy([f64; 2]),
+    Bezier {
+        x: f64,
+        y: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        in_x: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        in_y: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        out_x: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        out_y: Option<f64>,
+    },
 }
 
 /// `parameters` of a `generator_kind: "Shape"` reference. Widths and radii
 /// are pixels of a 1080-high frame; line ends are fractions of the clip's box.
+/// `fill` and `stroke` are a CSS color, `none`, or a CSS `linear-gradient()`
+/// / `radial-gradient()` spanning the box.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
 pub struct ShapeParameters {
     pub shape: ShapeKind,
+    /// A CSS color, `none`, or a CSS linear-/radial-gradient().
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<String>,
+    /// A CSS color, `none`, or a CSS linear-/radial-gradient().
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -313,6 +342,20 @@ pub struct ShapeParameters {
     pub x2: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y2: Option<f64>,
+    /// Polygon corners, at least 3 (3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sides: Option<u32>,
+    /// Polygon: between 0 and 1 (exclusive), a star with inner corners at
+    /// this fraction of the outer radius.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_radius: Option<f64>,
+    /// Path points, at least 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub points: Option<Vec<ShapePoint>>,
+    /// Path: joins the last point to the first (true); an open path is
+    /// stroked only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<bool>,
     #[serde(flatten)]
     pub other: Extra,
 }
@@ -329,6 +372,10 @@ impl ShapeParameters {
             y1: None,
             x2: None,
             y2: None,
+            sides: None,
+            inner_radius: None,
+            points: None,
+            closed: None,
             other: Extra::new(),
         }
     }

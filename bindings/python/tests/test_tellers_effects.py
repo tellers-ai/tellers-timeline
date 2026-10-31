@@ -167,6 +167,12 @@ def test_specs_validate_and_evaluate():
     assert validate_tellers_effect({"effect_name": "Border", "parameters": {"corner_radius": 24}}) is None
     assert [p["name"] for p in specs["Vignette"]["parameters"]] == ["color", "amount", "radius", "softness", "centerX", "centerY", "regions", "detect"]
     assert validate_tellers_effect({"effect_name": "Vignette", "parameters": {"amount": 0.7, "color": "#000"}}) is None
+    assert [p["name"] for p in specs["Glow"]["parameters"]] == ["distance", "outerStrength", "innerStrength", "color", "amount", "knockout", "regions", "detect"]
+    assert [p["name"] for p in specs["Grayscale"]["parameters"]] == ["regions", "detect"]
+    gradient = {"gradient": "linear-gradient(90deg, #f00, #00f)", "amount": 0.8}
+    assert validate_tellers_effect({"effect_name": "ColorGradient", "parameters": gradient}) is None
+    assert validate_tellers_effect({"effect_name": "MultiColorReplace", "parameters": {"replacements": "#f00>#0f0"}}) is None
+    assert validate_tellers_effect({"effect_name": "Glitch", "parameters": {"slices": 12, "detect": {"target": "faces"}}}) is None
     assert {"name": "rotationY", "kind": "animatable"} in specs["Transform"]["parameters"]
     assert validate_tellers_effect({"effect_name": "Transform", "parameters": {"rotationX": 8, "rotationY": -35, "perspective": 1.2}}) is None
     bands = [{"type": "highpass", "frequency": FADE_IN}, {"type": "peaking", "frequency": 3500, "gain": 4, "q": 1}]

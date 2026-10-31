@@ -100,6 +100,13 @@ def test_shape_clip_round_trip():
         Clip.new_shape(1.0, {"shape": "triangle"})
 
 
+def test_polygon_and_path_shapes():
+    star = {"shape": "polygon", "sides": 5, "inner_radius": 0.45, "fill": "linear-gradient(to right, #ffd400, #ff0000)"}
+    assert Clip.new_shape(1.0, star).get_shape_parameters() == star
+    path = {"shape": "path", "closed": False, "points": [[-0.4, 0.3], {"x": 0.0, "y": -0.4, "out_x": 0.1}, [0.4, 0.3]]}
+    assert Clip.new_shape(1.0, path).get_shape_parameters() == path
+
+
 def test_wrong_kind_raises():
     text = Clip.new_text(1.0, {"text": "x"})
     with pytest.raises(ValueError):

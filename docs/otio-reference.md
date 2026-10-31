@@ -139,7 +139,7 @@ What a clip plays, chosen by `OTIO_SCHEMA`. `MissingReference.1` is also accepte
 | `OTIO_SCHEMA` | `"GeneratorReference.1"` | yes |  | Picks the kind of reference. |
 | `available_image_bounds` | any JSON |  |  | OTIO image bounds; unused by the player. |
 | `available_range` | [TimeRange](#timerange) \| null |  |  | The time range the media file covers, in its own time; `source_range` stays inside it. |
-| `generator_kind` | string | yes |  | `Rich` (Resolve Rich Text: HTML), `Text` (plain text), `Shape` (rectangle, ellipse, line) or another generator. |
+| `generator_kind` | string | yes |  | `Rich` (Resolve Rich Text: HTML), `Text` (plain text), `Shape` (rectangle, ellipse, polygon or star, line, path) or another generator. |
 | `metadata` | any JSON |  |  | Free JSON. `tellers.ai` holds asset details such as the asset id. |
 | `name` | string \| null |  |  | Display name. |
 | `parameters` | [GeneratorParameters](#generatorparameters) |  |  | The generator's parameters; see GeneratorParameters. |
@@ -338,6 +338,31 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [Vignette](#effect-vignette) | `tellers.ai.Vignette` | video (picture) | `color`, `amount`, `radius`, `softness`, `centerX`, `centerY`, `regions`, `detect` |
 | [Border](#effect-border) | `tellers.ai.Border` | video (picture) | `width`, `top`, `right`, `bottom`, `left`, `opacity`, `color`, `corner_radius` |
 | [MotionBlur](#effect-motionblur) | `tellers.ai.MotionBlur` | video (picture) | `shutterAngle`, `shutterPhase`, `samples` |
+| [Glow](#effect-glow) | `tellers.ai.Glow` | video (picture) | `distance`, `outerStrength`, `innerStrength`, `color`, `amount`, `knockout`, `regions`, `detect` |
+| [AdvancedBloom](#effect-advancedbloom) | `tellers.ai.AdvancedBloom` | video (picture) | `threshold`, `bloomScale`, `brightness`, `blur`, `regions`, `detect` |
+| [TiltShift](#effect-tiltshift) | `tellers.ai.TiltShift` | video (picture) | `blur`, `gradientBlur`, `startX`, `startY`, `endX`, `endY`, `regions`, `detect` |
+| [Glitch](#effect-glitch) | `tellers.ai.Glitch` | video (picture) | `slices`, `offset`, `direction`, `speed`, `seed`, `regions`, `detect` |
+| [OldFilm](#effect-oldfilm) | `tellers.ai.OldFilm` | video (picture) | `sepia`, `noise`, `noiseSize`, `scratch`, `scratchDensity`, `scratchWidth`, `vignetting`, `vignettingAlpha`, `vignettingBlur`, `speed`, `seed`, `regions`, `detect` |
+| [CRT](#effect-crt) | `tellers.ai.CRT` | video (picture) | `curvature`, `lineWidth`, `lineContrast`, `verticalLine`, `noise`, `noiseSize`, `vignetting`, `vignettingAlpha`, `vignettingBlur`, `speed`, `seed`, `regions`, `detect` |
+| [ColorOverlay](#effect-coloroverlay) | `tellers.ai.ColorOverlay` | video (picture) | `color`, `amount`, `regions`, `detect` |
+| [ColorGradient](#effect-colorgradient) | `tellers.ai.ColorGradient` | video (picture) | `gradient`, `amount`, `replace`, `regions`, `detect` |
+| [Shockwave](#effect-shockwave) | `tellers.ai.Shockwave` | video (picture) | `centerX`, `centerY`, `speed`, `amplitude`, `wavelength`, `brightness`, `radius`, `delay`, `regions`, `detect` |
+| [Twist](#effect-twist) | `tellers.ai.Twist` | video (picture) | `radius`, `angle`, `centerX`, `centerY`, `regions`, `detect` |
+| [BulgePinch](#effect-bulgepinch) | `tellers.ai.BulgePinch` | video (picture) | `centerX`, `centerY`, `radius`, `strength`, `regions`, `detect` |
+| [RadialBlur](#effect-radialblur) | `tellers.ai.RadialBlur` | video (picture) | `angle`, `centerX`, `centerY`, `kernelSize`, `radius`, `regions`, `detect` |
+| [Godray](#effect-godray) | `tellers.ai.Godray` | video (picture) | `angle`, `parallel`, `centerX`, `centerY`, `gain`, `lacunarity`, `amount`, `speed`, `regions`, `detect` |
+| [Outline](#effect-outline) | `tellers.ai.Outline` | video (picture) | `thickness`, `color`, `amount`, `knockout`, `regions`, `detect` |
+| [Emboss](#effect-emboss) | `tellers.ai.Emboss` | video (picture) | `strength`, `regions`, `detect` |
+| [Bevel](#effect-bevel) | `tellers.ai.Bevel` | video (picture) | `rotation`, `thickness`, `lightColor`, `lightAlpha`, `shadowColor`, `shadowAlpha`, `regions`, `detect` |
+| [Grayscale](#effect-grayscale) | `tellers.ai.Grayscale` | video (picture) | `regions`, `detect` |
+| [Reflection](#effect-reflection) | `tellers.ai.Reflection` | video (picture) | `mirror`, `boundary`, `amplitudeStart`, `amplitudeEnd`, `wavelengthStart`, `wavelengthEnd`, `alphaStart`, `alphaEnd`, `speed`, `regions`, `detect` |
+| [KawaseBlur](#effect-kawaseblur) | `tellers.ai.KawaseBlur` | video (picture) | `strength`, `quality`, `regions`, `detect` |
+| [ColorReplace](#effect-colorreplace) | `tellers.ai.ColorReplace` | video (picture) | `originalColor`, `targetColor`, `tolerance`, `regions`, `detect` |
+| [MultiColorReplace](#effect-multicolorreplace) | `tellers.ai.MultiColorReplace` | video (picture) | `replacements`, `tolerance`, `regions`, `detect` |
+| [Dot](#effect-dot) | `tellers.ai.Dot` | video (picture) | `scale`, `angle`, `grayscale`, `regions`, `detect` |
+| [CrossHatch](#effect-crosshatch) | `tellers.ai.CrossHatch` | video (picture) | `regions`, `detect` |
+| [Ascii](#effect-ascii) | `tellers.ai.Ascii` | video (picture) | `size`, `color`, `replaceColor`, `regions`, `detect` |
+| [SimplexNoise](#effect-simplexnoise) | `tellers.ai.SimplexNoise` | video (picture) | `strength`, `noiseScale`, `offsetX`, `offsetY`, `offsetZ`, `step`, `speed`, `regions`, `detect` |
 | [Transform](#effect-transform) | `tellers.ai.Transform` | video (picture) | `x`, `y`, `scale`, `scaleX`, `scaleY`, `rotation`, `rotationX`, `rotationY`, `perspective`, `opacity`, `follow`, `attach` |
 | [Stabilize](#effect-stabilize) | `tellers.ai.Stabilize` | video (picture) | `x`, `y`, `scale`, `rotation` |
 | [Blend](#effect-blend) | `tellers.ai.Blend` | video (picture) | `mode` |
@@ -546,6 +571,373 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `shutterAngle` | [animatable](#animatable-parameters) number |
 | `shutterPhase` | [animatable](#animatable-parameters) number |
 | `samples` | [animatable](#animatable-parameters) number |
+
+<a id="effect-glow"></a>
+### Glow
+
+`tellers.ai.Glow`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `distance` | [animatable](#animatable-parameters) number |
+| `outerStrength` | [animatable](#animatable-parameters) number |
+| `innerStrength` | [animatable](#animatable-parameters) number |
+| `color` | CSS color string |
+| `amount` | [animatable](#animatable-parameters) number |
+| `knockout` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-advancedbloom"></a>
+### AdvancedBloom
+
+`tellers.ai.AdvancedBloom`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `threshold` | [animatable](#animatable-parameters) number |
+| `bloomScale` | [animatable](#animatable-parameters) number |
+| `brightness` | [animatable](#animatable-parameters) number |
+| `blur` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-tiltshift"></a>
+### TiltShift
+
+`tellers.ai.TiltShift`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `blur` | [animatable](#animatable-parameters) number |
+| `gradientBlur` | [animatable](#animatable-parameters) number |
+| `startX` | [animatable](#animatable-parameters) number |
+| `startY` | [animatable](#animatable-parameters) number |
+| `endX` | [animatable](#animatable-parameters) number |
+| `endY` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-glitch"></a>
+### Glitch
+
+`tellers.ai.Glitch`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `slices` | [animatable](#animatable-parameters) number |
+| `offset` | [animatable](#animatable-parameters) number |
+| `direction` | [animatable](#animatable-parameters) number |
+| `speed` | [animatable](#animatable-parameters) number |
+| `seed` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-oldfilm"></a>
+### OldFilm
+
+`tellers.ai.OldFilm`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `sepia` | [animatable](#animatable-parameters) number |
+| `noise` | [animatable](#animatable-parameters) number |
+| `noiseSize` | [animatable](#animatable-parameters) number |
+| `scratch` | [animatable](#animatable-parameters) number |
+| `scratchDensity` | [animatable](#animatable-parameters) number |
+| `scratchWidth` | [animatable](#animatable-parameters) number |
+| `vignetting` | [animatable](#animatable-parameters) number |
+| `vignettingAlpha` | [animatable](#animatable-parameters) number |
+| `vignettingBlur` | [animatable](#animatable-parameters) number |
+| `speed` | [animatable](#animatable-parameters) number |
+| `seed` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-crt"></a>
+### CRT
+
+`tellers.ai.CRT`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `curvature` | [animatable](#animatable-parameters) number |
+| `lineWidth` | [animatable](#animatable-parameters) number |
+| `lineContrast` | [animatable](#animatable-parameters) number |
+| `verticalLine` | [animatable](#animatable-parameters) number |
+| `noise` | [animatable](#animatable-parameters) number |
+| `noiseSize` | [animatable](#animatable-parameters) number |
+| `vignetting` | [animatable](#animatable-parameters) number |
+| `vignettingAlpha` | [animatable](#animatable-parameters) number |
+| `vignettingBlur` | [animatable](#animatable-parameters) number |
+| `speed` | [animatable](#animatable-parameters) number |
+| `seed` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-coloroverlay"></a>
+### ColorOverlay
+
+`tellers.ai.ColorOverlay`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `color` | CSS color string |
+| `amount` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-colorgradient"></a>
+### ColorGradient
+
+`tellers.ai.ColorGradient`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `gradient` | string |
+| `amount` | [animatable](#animatable-parameters) number |
+| `replace` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-shockwave"></a>
+### Shockwave
+
+`tellers.ai.Shockwave`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `centerX` | [animatable](#animatable-parameters) number |
+| `centerY` | [animatable](#animatable-parameters) number |
+| `speed` | [animatable](#animatable-parameters) number |
+| `amplitude` | [animatable](#animatable-parameters) number |
+| `wavelength` | [animatable](#animatable-parameters) number |
+| `brightness` | [animatable](#animatable-parameters) number |
+| `radius` | [animatable](#animatable-parameters) number |
+| `delay` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-twist"></a>
+### Twist
+
+`tellers.ai.Twist`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `radius` | [animatable](#animatable-parameters) number |
+| `angle` | [animatable](#animatable-parameters) number |
+| `centerX` | [animatable](#animatable-parameters) number |
+| `centerY` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-bulgepinch"></a>
+### BulgePinch
+
+`tellers.ai.BulgePinch`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `centerX` | [animatable](#animatable-parameters) number |
+| `centerY` | [animatable](#animatable-parameters) number |
+| `radius` | [animatable](#animatable-parameters) number |
+| `strength` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-radialblur"></a>
+### RadialBlur
+
+`tellers.ai.RadialBlur`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `angle` | [animatable](#animatable-parameters) number |
+| `centerX` | [animatable](#animatable-parameters) number |
+| `centerY` | [animatable](#animatable-parameters) number |
+| `kernelSize` | [animatable](#animatable-parameters) number |
+| `radius` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-godray"></a>
+### Godray
+
+`tellers.ai.Godray`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `angle` | [animatable](#animatable-parameters) number |
+| `parallel` | [animatable](#animatable-parameters) number |
+| `centerX` | [animatable](#animatable-parameters) number |
+| `centerY` | [animatable](#animatable-parameters) number |
+| `gain` | [animatable](#animatable-parameters) number |
+| `lacunarity` | [animatable](#animatable-parameters) number |
+| `amount` | [animatable](#animatable-parameters) number |
+| `speed` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-outline"></a>
+### Outline
+
+`tellers.ai.Outline`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `thickness` | [animatable](#animatable-parameters) number |
+| `color` | CSS color string |
+| `amount` | [animatable](#animatable-parameters) number |
+| `knockout` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-emboss"></a>
+### Emboss
+
+`tellers.ai.Emboss`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `strength` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-bevel"></a>
+### Bevel
+
+`tellers.ai.Bevel`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `rotation` | [animatable](#animatable-parameters) number |
+| `thickness` | [animatable](#animatable-parameters) number |
+| `lightColor` | CSS color string |
+| `lightAlpha` | [animatable](#animatable-parameters) number |
+| `shadowColor` | CSS color string |
+| `shadowAlpha` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-grayscale"></a>
+### Grayscale
+
+`tellers.ai.Grayscale`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-reflection"></a>
+### Reflection
+
+`tellers.ai.Reflection`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `mirror` | [animatable](#animatable-parameters) number |
+| `boundary` | [animatable](#animatable-parameters) number |
+| `amplitudeStart` | [animatable](#animatable-parameters) number |
+| `amplitudeEnd` | [animatable](#animatable-parameters) number |
+| `wavelengthStart` | [animatable](#animatable-parameters) number |
+| `wavelengthEnd` | [animatable](#animatable-parameters) number |
+| `alphaStart` | [animatable](#animatable-parameters) number |
+| `alphaEnd` | [animatable](#animatable-parameters) number |
+| `speed` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-kawaseblur"></a>
+### KawaseBlur
+
+`tellers.ai.KawaseBlur`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `strength` | [animatable](#animatable-parameters) number |
+| `quality` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-colorreplace"></a>
+### ColorReplace
+
+`tellers.ai.ColorReplace`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `originalColor` | CSS color string |
+| `targetColor` | CSS color string |
+| `tolerance` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-multicolorreplace"></a>
+### MultiColorReplace
+
+`tellers.ai.MultiColorReplace`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `replacements` | string |
+| `tolerance` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-dot"></a>
+### Dot
+
+`tellers.ai.Dot`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `scale` | [animatable](#animatable-parameters) number |
+| `angle` | [animatable](#animatable-parameters) number |
+| `grayscale` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-crosshatch"></a>
+### CrossHatch
+
+`tellers.ai.CrossHatch`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-ascii"></a>
+### Ascii
+
+`tellers.ai.Ascii`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `size` | [animatable](#animatable-parameters) number |
+| `color` | CSS color string |
+| `replaceColor` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
+
+<a id="effect-simplexnoise"></a>
+### SimplexNoise
+
+`tellers.ai.SimplexNoise`, applies to video (picture).
+
+| Parameter | Value |
+|---|---|
+| `strength` | [animatable](#animatable-parameters) number |
+| `noiseScale` | [animatable](#animatable-parameters) number |
+| `offsetX` | [animatable](#animatable-parameters) number |
+| `offsetY` | [animatable](#animatable-parameters) number |
+| `offsetZ` | [animatable](#animatable-parameters) number |
+| `step` | [animatable](#animatable-parameters) number |
+| `speed` | [animatable](#animatable-parameters) number |
+| `regions` | array of [Mask](#effect-mask) parameter objects; the effect shows only inside them, nowhere when empty |
+| `detect` | object: the subject the player detects to fill `regions` (a filter) or the shape (a Mask); see [Detect](#detect) |
 
 <a id="effect-transform"></a>
 ### Transform
