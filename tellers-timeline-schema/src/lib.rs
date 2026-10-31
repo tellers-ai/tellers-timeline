@@ -291,7 +291,7 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
         "MediaReference",
         "generator_kind",
         "`Rich` (Resolve Rich Text: HTML), `Text` (plain text), `Shape` (rectangle, ellipse, \
-         line) or another generator.",
+         polygon or star, line, path) or another generator.",
     ),
     ("MediaReference", "parameters", "The generator's parameters; see GeneratorParameters."),
     (

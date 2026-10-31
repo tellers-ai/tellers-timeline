@@ -277,6 +277,40 @@ fn shape_parameters_round_trip() {
 }
 
 #[test]
+fn polygon_star_and_path_shapes() {
+    // A star with a gradient fill, as the player's shapes.otio writes it.
+    let star = json!({
+        "shape": "polygon", "sides": 5, "inner_radius": 0.45,
+        "fill": "linear-gradient(90deg, #ffd400, rgba(255, 0, 0, 0.5))", "stroke": "#000", "stroke_width": 4.0
+    });
+    let clip = Clip::new_shape(1.0, &serde_json::from_value(star.clone()).unwrap(), None, None).unwrap();
+    let shape = clip.shape_parameters().unwrap();
+    assert_eq!(shape.shape, ShapeKind::Polygon);
+    assert_eq!(shape.sides, Some(5));
+    assert_eq!(shape.inner_radius, Some(0.45));
+    assert_eq!(serde_json::to_value(&shape).unwrap(), star);
+
+    // Path points are a Mask path's: pairs or Bezier points, mixed.
+    let path = json!({
+        "shape": "path", "closed": false, "stroke": "radial-gradient(#fff, #000)",
+        "points": [[-0.4, 0.3], { "x": 0.0, "y": -0.4, "in_x": -0.1, "out_x": 0.1 }, [0.4, 0.3]]
+    });
+    let shape: ShapeParameters = serde_json::from_value(path.clone()).unwrap();
+    assert_eq!(shape.shape, ShapeKind::Path);
+    assert_eq!(shape.closed, Some(false));
+    let points = shape.points.as_ref().unwrap();
+    assert_eq!(points[0], ShapePoint::Xy([-0.4, 0.3]));
+    assert!(matches!(points[1], ShapePoint::Bezier { in_x: Some(_), in_y: None, .. }));
+    assert_eq!(serde_json::to_value(&shape).unwrap(), path);
+
+    // Keyframed points are not a Shape's.
+    assert!(serde_json::from_value::<ShapeParameters>(json!({
+        "shape": "path", "points": [[{ "keyframes": [] }, 0.0], [0.1, 0.2]]
+    }))
+    .is_err());
+}
+
+#[test]
 fn new_shape_clip_and_missing_shape() {
     let mut shape = ShapeParameters::new(ShapeKind::Ellipse);
     shape.fill = Some("#fff".to_string());

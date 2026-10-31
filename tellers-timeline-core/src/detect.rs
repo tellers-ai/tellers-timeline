@@ -1,7 +1,7 @@
 //! Effects on detected subjects: a filter or a `Mask` declared with a
 //! `detect` parameter.
 //!
-//! Any filter (`Blur`, `Pixelate`, `Adjustment`, ... `Vignette`) and a
+//! Any filter (`Blur`, `Pixelate`, `Adjustment`, ... `SimplexNoise`) and a
 //! `Mask` can take `detect`, what to detect in the clip, instead of drawn
 //! shapes:
 //!
@@ -395,7 +395,7 @@ mod tests {
             .map(|spec| spec.name)
             .collect();
         assert_eq!(takes_detect, filters);
-        assert_eq!(takes_detect.len(), 12);
+        assert_eq!(takes_detect.len(), 37);
         for name in ["Transform", "Border", "Stabilize", "ColorLut"] {
             assert!(with(name, json!({ "target": "faces" })).is_err(), "{name}");
         }

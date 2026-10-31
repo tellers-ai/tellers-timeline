@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, Optional, TypedDict, TypeVar, Union
+from typing import Any, Callable, List, Literal, Optional, Tuple, TypedDict, TypeVar, Union
 
 from typing_extensions import Required
 
@@ -266,10 +266,22 @@ TextParameters = TypedDict(
     total=False,
 )
 
+# A point of a Shape path, as a Mask path's (clip space, numbers only): Bezier
+# handles are relative to the point.
+class ShapeBezierPoint(TypedDict, total=False):
+    x: Required[float]
+    y: Required[float]
+    in_x: float
+    in_y: float
+    out_x: float
+    out_y: float
+
 # `parameters` of a `generator_kind: "Shape"` reference. Widths and radii are
 # pixels of a 1080-high frame; line ends are fractions of the clip's box.
+# `fill` and `stroke` are a CSS color, "none", or a CSS linear-gradient() /
+# radial-gradient() spanning the box.
 class ShapeParameters(TypedDict, total=False):
-    shape: Required[Literal["rectangle", "ellipse", "line"]]
+    shape: Required[Literal["rectangle", "ellipse", "line", "polygon", "path"]]
     fill: str
     stroke: str
     stroke_width: float
@@ -278,6 +290,12 @@ class ShapeParameters(TypedDict, total=False):
     y1: float
     x2: float
     y2: float
+    # Polygon: corners (3, the first at the top); inner_radius in (0, 1) makes a star.
+    sides: int
+    inner_radius: float
+    # Path: at least 2 points; closed (True) joins the last to the first.
+    points: List[Union[Tuple[float, float], ShapeBezierPoint]]
+    closed: bool
 
 class MediaReference:
     def __init__(
