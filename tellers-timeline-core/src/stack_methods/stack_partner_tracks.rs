@@ -12,10 +12,12 @@
 //!    and in no group at all: neither listed by a track nor listing any
 //!    (partners are reserved for their owner, and an audio group's owner
 //!    belongs to its stems);
-//! 4. for a move, the partner's source track when it is usable and the
-//!    destination has no partner of that kind at all, this column's earlier
-//!    slots included (one shared audio track serves both videos rather than
-//!    a new track per video);
+//! 4. for a move of a column with a single audio partner, that partner's
+//!    source track when it is usable, the destination has no partner of that
+//!    kind, and lifting the column left the track in no group (the column was
+//!    all its old owner had there). A source track still holding another
+//!    clip of its old owner stays in that group: a video moved to another
+//!    video track never leaves part of its audio behind;
 //! 5. a new track, created on the far side of the primary's existing partners
 //!    of that kind (right below the primary when it has none).
 //!
@@ -47,6 +49,9 @@ pub(super) struct PartnerSlotRequest<'a> {
     /// Tracks the fallback search never reuses (the sources of a move away
     /// from a cluster, so no partner is left behind on them).
     pub exclude_fallback: &'a [usize],
+    /// Whether the column has a single audio partner whose source track
+    /// lifting the column left in no group, so it may stay there (rule 4).
+    pub may_keep_source: bool,
 }
 
 impl Stack {
@@ -219,14 +224,15 @@ impl Stack {
         {
             return index;
         }
-        // The source track, only while the owner has no partner at all, this
-        // column's earlier slots included.
+        // The source track of a lone partner, only while the owner has no
+        // partner at all.
         if let Some(preferred) = request.preferred {
             let kind_matches = self
                 .children
                 .get(preferred)
                 .is_some_and(|track| track.kind == request.kind);
             if kind_matches
+                && request.may_keep_source
                 && associated.is_empty()
                 && request.used.is_empty()
                 && available(self, preferred)
@@ -265,6 +271,8 @@ impl Stack {
         let mut exclude_fallback: Vec<usize> = exclude_fallback.to_vec();
         let horizontal = preferred.iter().any(|p| p.is_some())
             && (exclude_fallback.is_empty() || exclude_fallback.contains(dest_track_index));
+        let may_keep_source =
+            matches!(preferred.as_slice(), [Some(index)] if self.track_is_free(*index));
 
         for (slot, &duration) in durations.iter().enumerate() {
             let end = start + duration;
@@ -300,6 +308,7 @@ impl Stack {
                     preferred: preferred[slot],
                     horizontal,
                     exclude_fallback: &exclude_fallback,
+                    may_keep_source,
                 },
                 &usable,
                 created_track_indices,

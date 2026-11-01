@@ -969,10 +969,15 @@ fn move_synced_video_across_tracks_with_ripple_keeps_partners_aligned() {
         OverlapPolicy::Override,
     ));
 
-    assert_eq!(stack.children.len(), 3);
+    // A1 still holds v2's audio, so it stays in V1's group: v1's audio
+    // follows v1 onto a new partner track of V2.
+    assert_eq!(stack.children.len(), 4);
+    let (v1_audio_track, _, _) = stack.get_item(&first.audio_clips[0].0).unwrap();
+    let v1_audio_track = stack.children[v1_audio_track].get_id().unwrap();
+    assert_ne!(v1_audio_track, "A1");
     for (id, track, start) in [
         ("v1", "V2", 10.0),
-        (first.audio_clips[0].0.as_str(), "A1", 10.0),
+        (first.audio_clips[0].0.as_str(), v1_audio_track.as_str(), 10.0),
         ("v2", "V1", 0.0),
         (second.audio_clips[0].0.as_str(), "A1", 0.0),
     ] {

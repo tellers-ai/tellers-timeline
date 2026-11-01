@@ -3703,6 +3703,20 @@ impl Stack {
         let mut owner_track_index = dest_track_index;
         let moved_end = moved_start + moved_duration;
         let horizontal = selected_source_track_index == dest_track_index;
+        // The column is already lifted: see `PartnerSlotRequest::may_keep_source`.
+        let audio_sources: Vec<usize> = sync_track_items
+            .iter()
+            .filter(|move_item| move_item.track_kind == TrackKind::Audio)
+            .map(|move_item| {
+                if move_item.track_index == dest_track_index {
+                    selected_source_track_index
+                } else {
+                    move_item.track_index
+                }
+            })
+            .collect();
+        let may_keep_source =
+            matches!(audio_sources.as_slice(), [index] if self.track_is_free(*index));
         let mut source_track_indices: Vec<usize> = std::iter::once(selected_source_track_index)
             .chain(
                 sync_track_items
@@ -3780,6 +3794,7 @@ impl Stack {
                             }),
                             horizontal,
                             exclude_fallback: &source_track_indices,
+                            may_keep_source,
                         },
                         &usable,
                         &mut created_track_indices,

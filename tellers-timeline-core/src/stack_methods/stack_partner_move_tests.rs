@@ -227,3 +227,56 @@ fn a_grouped_video_column_keeps_its_channel_order_on_another_video_track() {
         assert_eq!(track_of("C audio 2"), "b2", "grouped: {grouped}");
     }
 }
+
+/// A video clip moved onto a video track with no audio partners takes all of
+/// its audio along when its old audio tracks still hold other clips of the
+/// old video track, whether moved alone, as a Tellers group, or as a
+/// multi-selection. It never leaves a channel behind in the old group.
+#[test]
+fn a_video_column_moved_to_a_bare_video_track_takes_all_its_audio() {
+    for mode in ["single", "grouped", "selection"] {
+        let mut stack = stack();
+        stack.children.retain(|t| t.get_id().as_deref() != Some("vo"));
+        stack.children.push(track(TrackKind::Video, "v2", vec![]));
+        let ids = ["C", "C audio 1", "C audio 2"].map(String::from);
+        if mode == "grouped" {
+            assert!(stack.group_item(&ids).is_some());
+        }
+        let moved = if mode == "selection" {
+            stack.move_items_at_time(
+                "C",
+                &ids[1..],
+                "v2",
+                3.0,
+                true,
+                InsertPolicy::SplitAndInsert,
+                OverlapPolicy::Override,
+            )
+        } else {
+            stack.move_item_at_time(
+                "C",
+                "v2",
+                3.0,
+                true,
+                InsertPolicy::SplitAndInsert,
+                OverlapPolicy::Override,
+            )
+        };
+        assert!(moved, "{mode}");
+        let track_of = |id: &str| {
+            let (ti, _, _) = stack.get_item(id).unwrap();
+            stack.children[ti].get_id().unwrap()
+        };
+        assert_eq!(track_of("C"), "v2", "{mode}");
+        let v2 = track_index(&stack, "v2");
+        for id in ["C audio 1", "C audio 2"] {
+            let track = track_of(id);
+            assert!(!["a1", "a2"].contains(&track.as_str()), "{mode}: {id} on {track}");
+            assert!(
+                stack.associated_track_indices(v2).contains(&track_index(&stack, &track)),
+                "{mode}: {id} on {track}"
+            );
+        }
+        assert_eq!(track_of("B audio"), "a2", "{mode}");
+    }
+}
