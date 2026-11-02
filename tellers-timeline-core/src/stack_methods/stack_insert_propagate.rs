@@ -302,13 +302,11 @@ impl Stack {
             };
 
             let right_sync_clips_id = match (insert_sync_clips_id, overlap_policy) {
+                // A fresh id: `sync_id + 1` may already be another column's,
+                // which would merge the right piece into that column. The
+                // inserted column may not be placed yet, so skip its id too.
                 (Some(insert_id), OverlapPolicy::Override) => {
-                    let right_id = sync_id + 1;
-                    if right_id == insert_id {
-                        insert_id + 1
-                    } else {
-                        right_id
-                    }
+                    self.next_sync_clips_id().max(insert_id + 1)
                 }
                 (Some(_), OverlapPolicy::Push) => self.next_sync_clips_id(),
                 (None, OverlapPolicy::Override) => self.next_sync_clips_id(),

@@ -14,6 +14,29 @@ impl Stack {
         synced_audio_clips: Option<Vec<Item>>,
         synced_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
+        self.keeping_sync_columns(None, |stack| {
+            stack.insert_item_at_time_unchecked(
+                dest_track_index,
+                dest_time,
+                item,
+                overlap_policy,
+                insert_policy,
+                synced_audio_clips,
+                synced_video_clip,
+            )
+        })
+    }
+
+    fn insert_item_at_time_unchecked(
+        &mut self,
+        dest_track_index: usize,
+        dest_time: Seconds,
+        item: Item,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+        synced_audio_clips: Option<Vec<Item>>,
+        synced_video_clip: Option<Item>,
+    ) -> Option<InsertItemAtTimeResult> {
         if dest_track_index >= self.children.len() || synced_video_clip.is_some() {
             // A column with a video clip lands on a video track, as its primary.
             return None;
@@ -48,6 +71,29 @@ impl Stack {
         synced_audio_clips: Option<Vec<Item>>,
         synced_video_clip: Option<Item>,
     ) -> Option<InsertItemAtTimeResult> {
+        self.keeping_sync_columns(None, |stack| {
+            stack.insert_item_at_time_by_id_unchecked(
+                dest_track_id,
+                dest_time,
+                item,
+                overlap_policy,
+                insert_policy,
+                synced_audio_clips,
+                synced_video_clip,
+            )
+        })
+    }
+
+    fn insert_item_at_time_by_id_unchecked(
+        &mut self,
+        dest_track_id: &str,
+        dest_time: Seconds,
+        item: Item,
+        overlap_policy: OverlapPolicy,
+        insert_policy: InsertPolicy,
+        synced_audio_clips: Option<Vec<Item>>,
+        synced_video_clip: Option<Item>,
+    ) -> Option<InsertItemAtTimeResult> {
         let (dest_track_index, _) = self.get_track_by_id(dest_track_id)?;
         self.insert_item_at_time(
             dest_track_index,
@@ -63,6 +109,27 @@ impl Stack {
     /// Insert an item at an index into the track with `dest_track_id`.
     /// Returns the inserted item's id if insertion occurred.
     pub fn insert_item_at_index(
+        &mut self,
+        dest_track_id: &str,
+        dest_index: usize,
+        item: Item,
+        overlap_policy: OverlapPolicy,
+        synced_audio_clips: Option<Vec<Item>>,
+        synced_video_clip: Option<Item>,
+    ) -> Option<InsertItemAtTimeResult> {
+        self.keeping_sync_columns(None, |stack| {
+            stack.insert_item_at_index_unchecked(
+                dest_track_id,
+                dest_index,
+                item,
+                overlap_policy,
+                synced_audio_clips,
+                synced_video_clip,
+            )
+        })
+    }
+
+    fn insert_item_at_index_unchecked(
         &mut self,
         dest_track_id: &str,
         dest_index: usize,

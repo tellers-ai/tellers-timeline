@@ -660,12 +660,10 @@ class Stack:
         raises, the composite is left unchanged."""
         ...
     def set_composite_tracks(self, composite_id: str, tracks: list[Track]) -> bool: ...
-    def delete_item(
-        self,
-        id: str,
-        replace_with_gap: bool,
-        with_sync_clips: bool = True,
-    ) -> list[tuple[int, Item]]: ...
+    def delete_item(self, id: str, replace_with_gap: bool) -> list[tuple[int, Item]]:
+        """Delete the item with its synced clips and group members. One side
+        of a sync column cannot be deleted alone: delete its track instead."""
+        ...
     def insert_item_at_time(
         self,
         dest_track_index: int,

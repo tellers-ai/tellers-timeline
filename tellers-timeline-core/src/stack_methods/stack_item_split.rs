@@ -10,6 +10,12 @@ pub(super) enum SyncSplitIdPolicy {
 
 impl Stack {
     pub fn split_item_at_time(&mut self, item_id: &str, split_time: Seconds) -> bool {
+        self.keeping_sync_columns(false, |stack| {
+            stack.split_item_at_time_unchecked(item_id, split_time)
+        })
+    }
+
+    fn split_item_at_time_unchecked(&mut self, item_id: &str, split_time: Seconds) -> bool {
         let Some((selected_track_index, selected_item_index, selected_item)) =
             self.get_item(item_id)
         else {
