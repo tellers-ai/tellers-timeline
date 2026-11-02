@@ -736,6 +736,10 @@ class Stack:
         overlap_policy: OverlapPolicy,
     ) -> bool: ...
     def split_item_at_time(self, item_id: str, split_time: float) -> bool: ...
+    def set_item_enabled(self, item_id: str, enabled: bool, with_sync_clips: bool = True) -> int:
+        """Turn a clip or compound clip on or off; with ``with_sync_clips`` its
+        sync partners follow. Nothing moves. Returns how many items were set."""
+        ...
     def set_item_speed(
         self,
         item_id: str,

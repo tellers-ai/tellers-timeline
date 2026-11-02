@@ -66,3 +66,13 @@ def test_stack_slip_item():
     assert stack.slip_item("v", 1.5) == 1
     assert stack.get_item_slip_bounds("missing") is None
     assert stack.slip_item("missing", 1.0) == 0
+
+
+def test_stack_set_item_enabled():
+    stack = Stack([Track(kind="video")])
+    stack.insert_item_at_time(0, 0.0, make_clip("v"), "override", "split_and_insert")
+    assert stack.set_item_enabled("v", False) == 1
+    assert stack.get_item("v")[2].get_enabled() is False
+    assert stack.set_item_enabled("v", True, with_sync_clips=False) == 1
+    assert stack.get_item("v")[2].get_enabled() is True
+    assert stack.set_item_enabled("missing", False) == 0

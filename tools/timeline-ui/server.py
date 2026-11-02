@@ -651,13 +651,10 @@ def op_replace_item(state: State, p: dict):
 
 @op("set_item_enabled")
 def op_set_item_enabled(state: State, p: dict):
-    found = state.stack.get_item(p["id"])
-    if found is None:
-        return False, f"stack.get_item({_fmt(p['id'])}) -> None"
-    _, _, item = found
-    item.set_enabled(bool(p["enabled"]))
-    ok = state.stack.replace_item(p["id"], item)
-    return ok, f"item.set_enabled({bool(p['enabled'])}); stack.replace_item({_fmt(p['id'])}, item)"
+    enabled = bool(p["enabled"])
+    sync = bool(p.get("with_sync_clips", True))
+    n = state.stack.set_item_enabled(p["id"], enabled, sync)
+    return n, f"stack.set_item_enabled({_fmt(p['id'])}, {enabled}, with_sync_clips={sync})"
 
 
 @op("link_items")
