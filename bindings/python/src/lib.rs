@@ -1815,7 +1815,8 @@ impl PyStack {
     fn split_item_at_time(&mut self, item_id: &str, split_time: f64) -> bool {
         self.inner.split_item_at_time(item_id, split_time)
     }
-    /// Turn the clip or compound clip `item_id` on or off and, with
+    /// Turn the clip or compound clip `item_id` on or off (a disabled audio
+    /// clip is muted, a disabled video clip is not shown) and, with
     /// `with_sync_clips`, its sync partners too. Nothing moves. Returns how
     /// many items were set (0 when there is no clip or compound with this id).
     #[pyo3(signature = (item_id, enabled, with_sync_clips=true))]

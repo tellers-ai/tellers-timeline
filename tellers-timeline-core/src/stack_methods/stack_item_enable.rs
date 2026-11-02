@@ -4,11 +4,12 @@ use super::resolve_sync_clips_id;
 
 impl Stack {
     /// Turn the clip or compound clip `item_id` on or off (`enabled: false`
-    /// in the OTIO: the player skips it and keeps its slot). With
+    /// in the OTIO). The player skips a disabled clip and keeps its slot: a
+    /// disabled audio clip is muted, a disabled video clip is not shown. With
     /// `with_sync_clips`, its sync partners (the audio of a video clip, and
-    /// the reverse) follow, so muting a video's picture can also mute its
-    /// sound. Nothing moves. Returns how many items were set: 0 when there is
-    /// no clip or compound clip with this id.
+    /// the reverse) follow, so hiding a video also mutes its sound; without,
+    /// only that clip changes. Nothing moves. Returns how many items were
+    /// set: 0 when there is no clip or compound clip with this id.
     pub fn set_item_enabled(
         &mut self,
         item_id: &str,
