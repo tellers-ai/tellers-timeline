@@ -12,6 +12,16 @@ impl Stack {
     /// across the sync track cluster.
     /// Returns removed items with their source track indices.
     pub fn delete_item(&mut self, item_id: &str, replace_with_gap: bool) -> Vec<(usize, Item)> {
+        self.keeping_sync_columns(Vec::new(), |stack| {
+            stack.delete_item_unchecked(item_id, replace_with_gap)
+        })
+    }
+
+    fn delete_item_unchecked(
+        &mut self,
+        item_id: &str,
+        replace_with_gap: bool,
+    ) -> Vec<(usize, Item)> {
         if replace_with_gap {
             self.delete_item_replace_with_gap(item_id)
         } else {

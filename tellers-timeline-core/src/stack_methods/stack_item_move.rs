@@ -22,6 +22,27 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) -> bool {
+        self.keeping_sync_columns(false, |stack| {
+            stack.move_item_at_time_unchecked(
+                item_id,
+                dest_track_id,
+                dest_time,
+                replace_with_gap,
+                insert_policy,
+                overlap_policy,
+            )
+        })
+    }
+
+    fn move_item_at_time_unchecked(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_time: Seconds,
+        replace_with_gap: bool,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
         let carried = self.attached_transitions(item_id, dest_track_id, dest_time);
         let moved = self.move_item_at_time_inner(
             item_id,
@@ -52,6 +73,29 @@ impl Stack {
     /// clip cannot be placed.
     #[allow(clippy::too_many_arguments)]
     pub fn move_items_at_time(
+        &mut self,
+        item_id: &str,
+        other_ids: &[String],
+        dest_track_id: &str,
+        dest_time: Seconds,
+        replace_with_gap: bool,
+        insert_policy: InsertPolicy,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        self.keeping_sync_columns(false, |stack| {
+            stack.move_items_at_time_unchecked(
+                item_id,
+                other_ids,
+                dest_track_id,
+                dest_time,
+                replace_with_gap,
+                insert_policy,
+                overlap_policy,
+            )
+        })
+    }
+
+    fn move_items_at_time_unchecked(
         &mut self,
         item_id: &str,
         other_ids: &[String],
@@ -412,6 +456,25 @@ impl Stack {
     /// Attached transitions move with it as in [`Stack::move_item_at_time`].
     /// Returns true if the item was successfully moved.
     pub fn move_item_at_index(
+        &mut self,
+        item_id: &str,
+        dest_track_id: &str,
+        dest_index: usize,
+        replace_with_gap: bool,
+        overlap_policy: OverlapPolicy,
+    ) -> bool {
+        self.keeping_sync_columns(false, |stack| {
+            stack.move_item_at_index_unchecked(
+                item_id,
+                dest_track_id,
+                dest_index,
+                replace_with_gap,
+                overlap_policy,
+            )
+        })
+    }
+
+    fn move_item_at_index_unchecked(
         &mut self,
         item_id: &str,
         dest_track_id: &str,

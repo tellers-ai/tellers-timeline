@@ -21,6 +21,7 @@ mod stack_partner_tracks;
 mod stack_partner_move_tests;
 mod stack_ripple;
 mod stack_snap;
+mod stack_sync_guard;
 mod stack_track;
 mod stack_transition_cuts;
 

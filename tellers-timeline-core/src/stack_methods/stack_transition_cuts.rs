@@ -27,6 +27,25 @@ impl Stack {
         overlap_policy: OverlapPolicy,
         clamp_to_media: bool,
     ) -> bool {
+        self.keeping_sync_columns(false, |stack| {
+            stack.resize_item_unchecked(
+                item_id,
+                new_start_time,
+                new_duration,
+                overlap_policy,
+                clamp_to_media,
+            )
+        })
+    }
+
+    fn resize_item_unchecked(
+        &mut self,
+        item_id: &str,
+        new_start_time: Seconds,
+        new_duration: Seconds,
+        overlap_policy: OverlapPolicy,
+        clamp_to_media: bool,
+    ) -> bool {
         let edges = self.edge_transitions(item_id);
         let resized = self.resize_item_inner(
             item_id,
@@ -46,6 +65,27 @@ impl Stack {
     /// else on the edge of the clip it was on that is left, the trimmed one
     /// first. One whose clips are both gone is dropped.
     pub fn modify_item(
+        &mut self,
+        item_id: &str,
+        source_start_time: Seconds,
+        duration: Seconds,
+        clamp_to_media: bool,
+        resize_from_start: bool,
+        push_following: bool,
+    ) -> bool {
+        self.keeping_sync_columns(false, |stack| {
+            stack.modify_item_unchecked(
+                item_id,
+                source_start_time,
+                duration,
+                clamp_to_media,
+                resize_from_start,
+                push_following,
+            )
+        })
+    }
+
+    fn modify_item_unchecked(
         &mut self,
         item_id: &str,
         source_start_time: Seconds,

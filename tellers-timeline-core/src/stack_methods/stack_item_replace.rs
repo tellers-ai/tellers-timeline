@@ -9,6 +9,17 @@ impl Stack {
         item: Item,
         synced_audio_clips: Option<Vec<Item>>,
     ) -> bool {
+        self.keeping_sync_columns(false, |stack| {
+            stack.replace_item_unchecked(item_id, item, synced_audio_clips)
+        })
+    }
+
+    fn replace_item_unchecked(
+        &mut self,
+        item_id: &str,
+        item: Item,
+        synced_audio_clips: Option<Vec<Item>>,
+    ) -> bool {
         let Some((track_index, item_index, existing)) = self.get_item(item_id) else {
             return false;
         };

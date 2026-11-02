@@ -38,11 +38,14 @@ fn host_stack(audio_ids: &[&str], video_ids: &[&str]) -> Stack {
 }
 
 fn insert_column(stack: &mut Stack, track_id: &str, time: f64, id: &str, audio: Vec<Item>) -> bool {
+    // The video lasts as long as its sound: a column spans the same time on
+    // every track.
+    let duration = audio.first().map_or(2.0, Item::duration);
     stack
         .insert_item_at_time_by_id(
             track_id,
             time,
-            Item::Clip(clip(2.0, Some(id))),
+            Item::Clip(clip(duration, Some(id))),
             OverlapPolicy::Override,
             InsertPolicy::SplitAndInsert,
             Some(audio),
