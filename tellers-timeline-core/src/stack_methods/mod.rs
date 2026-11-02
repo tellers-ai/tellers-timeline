@@ -1437,16 +1437,17 @@ impl Stack {
                 let Some((track_index, _, _)) = self.get_item(&partner_id) else {
                     continue;
                 };
-                let old_start = before.start
-                    + applied
-                        .get(&track_index)
-                        .map(|gaps| {
-                            gaps.iter()
-                                .filter(|(from, _)| *from <= before.start + EPS)
-                                .map(|(_, delta)| *delta)
-                                .sum::<Seconds>()
-                        })
-                        .unwrap_or(0.0);
+                // How far earlier ripples on this track already moved it.
+                let already_shifted = applied
+                    .get(&track_index)
+                    .map(|gaps| {
+                        gaps.iter()
+                            .filter(|(from, _)| *from <= before.start + EPS)
+                            .map(|(_, delta)| *delta)
+                            .sum::<Seconds>()
+                    })
+                    .unwrap_or(0.0);
+                let old_start = before.start + already_shifted;
                 let old_end = old_start + before.duration;
                 let new_end_rel = change.start_delta + change.new_duration;
                 let trimmed_in_place = change.start_delta >= -EPS
@@ -1496,8 +1497,10 @@ impl Stack {
 
                 // Ripple: the whole column moved (pushed or pulled); unrelated
                 // content after it on the partner track follows, once per track.
-                if change.start_delta.abs() > EPS {
-                    let delta = change.start_delta;
+                // An earlier column's ripple already carried this partner part
+                // of the way, so only the rest is applied.
+                let delta = change.start_delta - already_shifted;
+                if delta.abs() > EPS {
                     let track = &mut self.children[track_index];
                     if delta > 0.0 {
                         track.insert_at_time(
@@ -2160,7 +2163,13 @@ impl Stack {
                     .insert(item_index, Item::Gap(Gap::make_gap(old_end - old_start)));
                 replace_track_range_with_item(track, target_start, new_end, item);
             } else {
+                // Lifted with a gap like Override: removing it outright would
+                // pull what follows back under `target_start`, and the insert
+                // would then split the next column.
                 track.items.remove(item_index);
+                track
+                    .items
+                    .insert(item_index, Item::Gap(Gap::make_gap(old_end - old_start)));
                 track.sanitize_preserving_all_gap_track();
                 track.insert_at_time(
                     target_start,
@@ -2295,13 +2304,35 @@ impl Stack {
         }
 
         if is_clip && !effective_push_following {
-            if resize_from_start && source_delta > 0.0 && effective_duration < old_duration {
+            // A head trim that stays inside the old span: a gap where the
+            // head was, the shorter clip, and a gap for whatever is left of
+            // the old span, so nothing after it moves. A clip that would now
+            // run past its old end takes the general path below.
+            let trimmed_end = source_delta + effective_duration;
+            if resize_from_start
+                && source_delta > 0.0
+                && effective_duration < old_duration
+                && trimmed_end <= old_duration + EPS
+            {
                 let targets = self.synced_clip_targets_for_item(item_id);
                 self.resize_synced_clips_with_leading_gap(
-                    targets,
+                    targets.clone(),
                     source_delta,
                     effective_duration,
                 );
+                let tail = old_duration - trimmed_end;
+                if tail > EPS {
+                    // Each clip moved one slot right behind its leading gap.
+                    let mut tails: Vec<(usize, usize)> =
+                        targets.into_iter().map(|(t, i)| (t, i + 1)).collect();
+                    tails.sort_unstable_by(|a, b| b.cmp(a));
+                    for (track_index, item_index) in tails {
+                        if let Some(track) = self.children.get_mut(track_index) {
+                            let at = (item_index + 1).min(track.items.len());
+                            track.items.insert(at, Item::Gap(Gap::make_gap(tail)));
+                        }
+                    }
+                }
                 self.sanitize_preserving_all_gap_tracks();
                 return true;
             }
@@ -4091,6 +4122,14 @@ fn replace_track_range_with_item(
 ) {
     let start = range_start.max(0.0);
     let end = range_end.max(start);
+
+    // Past the track's end, a gap fills up to `start`; without it the item
+    // would land at the end, and its sync partners (each placed on its own
+    // track) at different times.
+    let total = track.total_duration();
+    if start > total + EPS {
+        track.items.push(Item::Gap(Gap::make_gap(start - total)));
+    }
 
     track.split_at_time(start);
     let end_split = track.split_at_time(end);
