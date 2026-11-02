@@ -287,9 +287,8 @@ def test_stack_edit_methods_translate_return_types():
         bool,
     )
     assert isinstance(stack.delete_item("primary", True), list)
-    assert isinstance(stack.delete_item("primary", True, with_sync_clips=False), list)
-    with pytest.raises(ValueError):
-        stack.delete_item("primary", False, with_sync_clips=False)
+    with pytest.raises(TypeError):
+        stack.delete_item("primary", True, with_sync_clips=False)
 
 
 def test_timeline_delegates_to_stack():

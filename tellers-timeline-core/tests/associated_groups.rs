@@ -727,7 +727,7 @@ fn prune_removes_only_empty_auto_created_audio_tracks() {
         .children
         .push(empty_track(TrackKind::Audio, "user-track", 5.0));
     // Delete the column: every partner is empty.
-    assert!(!stack.delete_item("vid", true, true).is_empty());
+    assert!(!stack.delete_item("vid", true).is_empty());
 
     let removed = stack.prune_empty_partner_tracks();
     // Only the created, never renamed track goes; the look-alike, the

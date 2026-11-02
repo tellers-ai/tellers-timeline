@@ -117,7 +117,7 @@ fn shrinking_an_auto_length_composite_pulls_what_follows() {
     let mut stack = stack_with_auto_composite();
     stack.with_composite_mut("comp", |inner| inner.split_item_at_time("x", 1.0));
     let tail = stack.get_composite("comp").unwrap().children[0].items[1].get_id().unwrap();
-    stack.with_composite_mut("comp", |inner| inner.delete_item(&tail, false, true));
+    stack.with_composite_mut("comp", |inner| inner.delete_item(&tail, false));
     assert_eq!(duration_of(&stack, "comp"), 1.0);
     assert!(stack.get_composite("comp").unwrap().source_range.is_none());
     assert_eq!(start_of(&stack, "b"), 3.0);
@@ -176,7 +176,7 @@ fn growing_a_composite_pushes_its_sync_partners() {
     assert_eq!(start_of(&stack, "b-a"), 4.0, "b's audio follows it");
 
     // Shrinking back pulls b and its audio again.
-    stack.with_composite_mut("comp", |inner| inner.delete_item("y", false, true));
+    stack.with_composite_mut("comp", |inner| inner.delete_item("y", false));
     assert_eq!(duration_of(&stack, "comp"), 3.0);
     assert_eq!(start_of(&stack, "b"), 3.0);
     assert_eq!(start_of(&stack, "b-a"), 3.0);
@@ -243,7 +243,7 @@ fn item_tellers_effects_reach_nested_items() {
 fn emptying_an_auto_length_composite_removes_it() {
     // Its length drops to zero, and a resize to zero removes the item.
     let mut stack = stack_with_auto_composite();
-    stack.with_composite_mut("comp", |inner| inner.delete_item("x", false, true));
+    stack.with_composite_mut("comp", |inner| inner.delete_item("x", false));
     assert!(stack.get_composite("comp").is_none());
     assert_eq!(item_ids(&stack.children[0]), ["a", "b"]);
     assert_eq!(start_of(&stack, "b"), 2.0);

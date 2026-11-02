@@ -555,26 +555,13 @@ impl Stack {
     /// the item belongs to one (including each member's sync partners). Used only
     /// by the public delete entry points; the internal synced-move path keeps
     /// using the sync-only [`delete_item_targets`].
-    /// With `with_sync_clips` false, sync partners are left out: only the item
-    /// (and its group members) is targeted.
-    fn delete_item_group_targets(
-        &self,
-        item_id: &str,
-        with_sync_clips: bool,
-    ) -> Option<Vec<(usize, usize)>> {
-        let mut targets = if with_sync_clips {
-            self.delete_item_targets(item_id)?
-        } else {
-            vec![self.clip_target(item_id)?]
-        };
+    fn delete_item_group_targets(&self, item_id: &str) -> Option<Vec<(usize, usize)>> {
+        let mut targets = self.delete_item_targets(item_id)?;
         let (_, _, item) = self.get_item(item_id)?;
         if let Item::Clip(clip) = item {
             if let Some(group_id) = resolve_tellers_group_id(&clip.metadata) {
                 for member in self.tellers_group_targets(group_id) {
                     targets.push(member);
-                    if !with_sync_clips {
-                        continue;
-                    }
                     if let Some(Item::Clip(member_clip)) = self
                         .children
                         .get(member.0)
@@ -590,12 +577,8 @@ impl Stack {
         Some(targets)
     }
 
-    fn delete_item_replace_with_gap(
-        &mut self,
-        item_id: &str,
-        with_sync_clips: bool,
-    ) -> Vec<(usize, Item)> {
-        let Some(targets) = self.delete_item_group_targets(item_id, with_sync_clips) else {
+    fn delete_item_replace_with_gap(&mut self, item_id: &str) -> Vec<(usize, Item)> {
+        let Some(targets) = self.delete_item_group_targets(item_id) else {
             return Vec::new();
         };
         let removed = self.delete_clips_at_indices(targets, true);
@@ -649,7 +632,7 @@ impl Stack {
             return removed;
         }
 
-        let Some(clips_to_delete) = self.delete_item_group_targets(item_id, true) else {
+        let Some(clips_to_delete) = self.delete_item_group_targets(item_id) else {
             return Vec::new();
         };
         if clips_to_delete.is_empty() {
@@ -780,10 +763,10 @@ impl Stack {
             dest_time,
         )];
         let mut seen_ids: HashSet<String> = column_ids(item_id).into_iter().collect();
-        let mut targets = self.delete_item_group_targets(item_id, true)?;
+        let mut targets = self.delete_item_group_targets(item_id)?;
         for id in other_ids {
             if matches!(self.get_item(id), Some((_, _, Item::Clip(_)))) {
-                targets.extend(self.delete_item_group_targets(id, true).unwrap_or_default());
+                targets.extend(self.delete_item_group_targets(id).unwrap_or_default());
             }
         }
         for (track_index, item_index) in targets {
@@ -2224,7 +2207,7 @@ impl Stack {
         if effective_duration < 0.0 {
             let replace_with_gap =
                 !matches!(self.children[track_index].items[item_index], Item::Gap(_));
-            self.delete_item(item_id, replace_with_gap, true);
+            self.delete_item(item_id, replace_with_gap);
             self.sanitize_preserving_all_gap_tracks();
             return true;
         }

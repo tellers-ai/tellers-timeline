@@ -183,7 +183,7 @@ fn deleting_a_clip_removes_its_transitions() {
         transition("t2"),
         clip(2.0, "c"),
     ]);
-    let removed = stack.delete_item("b", false, true);
+    let removed = stack.delete_item("b", false);
     assert_eq!(removed.len(), 1);
     assert_eq!(ids(&stack), vec!["a", "c"]);
     assert!((stack.children[0].total_duration() - 4.0).abs() < 1e-9);
@@ -198,7 +198,7 @@ fn deleting_a_clip_with_gap_replacement_removes_its_transitions() {
         transition("t2"),
         clip(2.0, "c"),
     ]);
-    stack.delete_item("b", true, true);
+    stack.delete_item("b", true);
     let items = &stack.children[0].items;
     assert_eq!(items.len(), 3);
     assert!(matches!(items[0], Item::Clip(_)));
@@ -210,7 +210,7 @@ fn deleting_a_clip_with_gap_replacement_removes_its_transitions() {
 #[test]
 fn a_transition_can_be_deleted_by_id() {
     let mut stack = track_with(vec![clip(2.0, "a"), transition("t1"), clip(2.0, "b")]);
-    let removed = stack.delete_item("t1", false, true);
+    let removed = stack.delete_item("t1", false);
     assert_eq!(removed.len(), 1);
     assert!(matches!(removed[0].1, Item::Transition(_)));
     assert_eq!(ids(&stack), vec!["a", "b"]);

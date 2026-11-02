@@ -1526,25 +1526,19 @@ impl PyStack {
         self.inner
             .set_composite_tracks(composite_id, tracks.into_iter().map(|t| t.inner).collect())
     }
-    #[pyo3(signature = (id, replace_with_gap, with_sync_clips=true))]
+    /// Delete the item with its synced clips and group members; there is no
+    /// way to keep one side of a sync column (delete its track instead).
     fn delete_item(
         &mut self,
         py: Python<'_>,
         id: &str,
         replace_with_gap: bool,
-        with_sync_clips: bool,
-    ) -> PyResult<Vec<(usize, Py<PyItem>)>> {
-        if !replace_with_gap && !with_sync_clips {
-            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                "with_sync_clips=False requires replace_with_gap=True",
-            ));
-        }
-        Ok(self
-            .inner
-            .delete_item(id, replace_with_gap, with_sync_clips)
+    ) -> Vec<(usize, Py<PyItem>)> {
+        self.inner
+            .delete_item(id, replace_with_gap)
             .into_iter()
             .map(|(ti, it)| (ti, Py::new(py, PyItem { inner: it }).unwrap()))
-            .collect())
+            .collect()
     }
     #[pyo3(signature = (dest_track_index, dest_time, item, overlap_policy, insert_policy, linked_audio_clips=None, linked_video_clip=None))]
     fn insert_item_at_time(

@@ -209,7 +209,7 @@ fn move_resize_and_delete_composite() {
     assert_eq!(lower.duration(), 4.0);
 
     // Ripple delete pulls the rest of the track in.
-    let removed = timeline.tracks.delete_item("montage", false, true);
+    let removed = timeline.tracks.delete_item("montage", false);
     assert_eq!(removed.len(), 1);
     assert!(matches!(removed[0].1, Item::Composite(_)));
     assert!(timeline.tracks.get_item("montage").is_none());
