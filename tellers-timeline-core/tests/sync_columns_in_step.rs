@@ -142,3 +142,97 @@ fn splitting_a_column_by_an_insert_gives_the_right_piece_a_fresh_id() {
         .collect();
     assert_eq!(column_2.len(), 2, "only c2 and its audio share its id");
 }
+
+fn start_of(stack: &Stack, id: &str) -> f64 {
+    let (track_index, item_index, _) = stack.get_item(id).unwrap();
+    stack.children[track_index].start_time_of_item(item_index)
+}
+
+/// A video track owning an audio track, with the given (id, duration, sync
+/// id) items on each; `None` ids are gaps.
+fn video_and_audio(
+    video: &[(&str, f64, Option<i64>)],
+    audio: &[(&str, f64, Option<i64>)],
+) -> Stack {
+    let build = |kind, name: &str, items: &[(&str, f64, Option<i64>)]| {
+        let mut track = Track::new(kind, Some(name.into()));
+        track.items = items
+            .iter()
+            .map(|(id, duration, sync)| match (id.is_empty(), sync) {
+                (true, _) => gap(*duration),
+                (false, Some(sync)) => synced_clip_item(*duration, id, *sync),
+                (false, None) => Item::Clip(clip(*duration, Some(id))),
+            })
+            .collect();
+        track
+    };
+    let mut stack = Stack::default();
+    stack.children.push(build(TrackKind::Audio, "a", audio));
+    stack.children.push(build(TrackKind::Video, "v", video));
+    assert_columns_start_together(&stack);
+    stack
+}
+
+#[test]
+fn resizing_a_column_to_start_past_its_track_end_moves_every_channel_there() {
+    // The video track runs on after the column; its audio track ends with it.
+    let mut stack = video_and_audio(
+        &[("v1", 5.0, Some(1)), ("free", 5.0, None)],
+        &[("a1", 5.0, Some(1))],
+    );
+
+    assert!(stack.resize_item("v1", 15.0, 2.0, OverlapPolicy::Override, false));
+
+    assert_eq!(start_of(&stack, "v1"), 15.0);
+    assert_eq!(start_of(&stack, "a1"), 15.0);
+    assert_eq!(start_of(&stack, "free"), 5.0);
+}
+
+#[test]
+fn shortening_a_clip_with_push_pulls_each_later_column_back_once() {
+    // Free clips around two columns on the video track; the audio track has
+    // only the columns. Shrinking the second free clip with push pulls both
+    // columns back by the same 4 s on both tracks; the second column's audio
+    // used to be pulled once per column (8 s).
+    let mut stack = video_and_audio(
+        &[
+            ("f1", 5.0, None),
+            ("f2", 5.0, None),
+            ("f3", 5.0, None),
+            ("v1", 5.0, Some(1)),
+            ("f4", 5.0, None),
+            ("f5", 5.0, None),
+            ("v2", 5.0, Some(2)),
+            ("f6", 5.0, None),
+        ],
+        &[
+            ("", 15.0, None),
+            ("a1", 5.0, Some(1)),
+            ("", 10.0, None),
+            ("a2", 5.0, Some(2)),
+        ],
+    );
+
+    assert!(stack.modify_item("f2", 0.0, 1.0, true, true, true));
+
+    assert_eq!(start_of(&stack, "v1"), 11.0);
+    assert_eq!(start_of(&stack, "a1"), 11.0);
+    assert_eq!(start_of(&stack, "v2"), 26.0);
+    assert_eq!(start_of(&stack, "a2"), 26.0);
+}
+
+#[test]
+fn a_head_trim_that_shortens_more_than_it_slides_keeps_what_follows_in_place() {
+    // Slide the head by 1 s but keep only 2 s: the last 2 s of the old span
+    // stay as a gap, so the column after it doesn't move.
+    let mut stack = video_and_audio(
+        &[("free", 5.0, None), ("v1", 5.0, Some(1))],
+        &[("", 5.0, None), ("a1", 5.0, Some(1))],
+    );
+
+    assert!(stack.modify_item("free", 1.0, 2.0, true, true, false));
+
+    assert_eq!(start_of(&stack, "free"), 1.0);
+    assert_eq!(start_of(&stack, "v1"), 5.0);
+    assert_eq!(start_of(&stack, "a1"), 5.0);
+}
