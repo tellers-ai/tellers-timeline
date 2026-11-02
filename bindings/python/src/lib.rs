@@ -1815,6 +1815,14 @@ impl PyStack {
     fn split_item_at_time(&mut self, item_id: &str, split_time: f64) -> bool {
         self.inner.split_item_at_time(item_id, split_time)
     }
+    /// Turn the clip or compound clip `item_id` on or off (a disabled audio
+    /// clip is muted, a disabled video clip is not shown) and, with
+    /// `with_sync_clips`, its sync partners too. Nothing moves. Returns how
+    /// many items were set (0 when there is no clip or compound with this id).
+    #[pyo3(signature = (item_id, enabled, with_sync_clips=true))]
+    fn set_item_enabled(&mut self, item_id: &str, enabled: bool, with_sync_clips: bool) -> usize {
+        self.inner.set_item_enabled(item_id, enabled, with_sync_clips)
+    }
     /// `Clip.set_speed` on the clip `item_id` and, with `with_sync_clips`, on
     /// its sync partners. Returns how many clips changed (0 when no clip has
     /// this id); raises ValueError for a speed out of range.

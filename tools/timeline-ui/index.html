@@ -205,7 +205,7 @@
     <button id="btnUnlink" title="unlink_item (U)">Unlink</button>
     <button id="btnGroup" title="group_item (G)">Group</button>
     <button id="btnUngroup" title="ungroup_item (⇧G)">Ungroup</button>
-    <button id="btnToggle" title="set enabled via replace_item (E)">Enable/Disable</button>
+    <button id="btnToggle" title="set_item_enabled with linked clips (E; ⇧E: this clip only)">Enable/Disable</button>
     <button id="btnDelete" class="danger" title="delete_item (⌫)">Delete</button>
   </div>
 </div>
@@ -1058,7 +1058,8 @@
       { label: 'Delete → ripple (no gap)', key: '⇧⌫', run: () => deleteSelected(false) },
       { label: 'Replace with new clip…', run: () => openReplacePopover(it, ev) },
       { label: `Add clip marker here (${fmt(clickT)}s)`, disabled: it.kind !== 'clip' && it.kind !== 'composite', run: () => openMarkerPopover(ev, { owner_id: it.id, owner_label: `clip ${it.name || it.id}`, time: clickT }) },
-      { label: it.enabled ? 'Disable (set_enabled False)' : 'Enable', key: 'E', run: () => toggleEnabled() },
+      { label: `${it.enabled ? 'Disable' : 'Enable'} with linked clips`, key: 'E', run: () => toggleEnabled(true) },
+      ...(it.link_group_id != null ? [{ label: `${it.enabled ? 'Disable' : 'Enable'} this clip only`, key: '⇧E', run: () => toggleEnabled(false) }] : []),
       { sep: true },
       ...(it.kind === 'composite' ? [{ label: '⧉ Open compound (edit its tracks)', key: 'dbl-click', run: () => openCompound(it) }] : []),
       ...(it.kind === 'clip' || it.kind === 'composite' ? [
@@ -1259,8 +1260,13 @@
   async function deleteSelected(withGap) {
     for (const id of [...selected]) await api('delete_item', { id, replace_with_gap: withGap });
   }
-  async function toggleEnabled() {
-    for (const id of [...selected]) { const it = findItem(id); if (it) await api('set_item_enabled', { id, enabled: !it.enabled }); }
+  async function toggleEnabled(withSyncClips = true) {
+    // One target state for the whole selection: a video and its audio both
+    // selected would otherwise flip twice through their sync link.
+    const first = findItem([...selected][0]);
+    if (!first) return;
+    const enabled = !first.enabled;
+    for (const id of [...selected]) await api('set_item_enabled', { id, enabled, with_sync_clips: withSyncClips });
   }
   async function splitSelected() {
     for (const id of [...selected]) { const it = findItem(id); if (it && playhead > it.start && playhead < it.start + it.duration) await api('split_item', { id, time: playhead }); }
@@ -1270,7 +1276,7 @@
   $('#btnUnlink').addEventListener('click', () => api('unlink_items', { ids: [...selected] }));
   $('#btnGroup').addEventListener('click', () => api('group_items', { ids: [...selected] }));
   $('#btnUngroup').addEventListener('click', () => api('ungroup_items', { ids: [...selected] }));
-  $('#btnToggle').addEventListener('click', toggleEnabled);
+  $('#btnToggle').addEventListener('click', () => toggleEnabled(true));
   $('#btnDelete').addEventListener('click', () => deleteSelected($('#gapOnMove').checked));
   $('#btnSample').addEventListener('click', () => api('sample'));
   $('#btnReset').addEventListener('click', () => { selected.clear(); api('reset'); });
@@ -1296,7 +1302,7 @@
     if (k === 'l') return api('link_items', { ids: [...selected] });
     if (k === 'u') return api('unlink_items', { ids: [...selected] });
     if (k === 'g') return e.shiftKey ? api('ungroup_items', { ids: [...selected] }) : api('group_items', { ids: [...selected] });
-    if (k === 'e') return toggleEnabled();
+    if (k === 'e') return toggleEnabled(!e.shiftKey);
     if (k === 'f' && selected.size === 1) {
       const it = findItem([...selected][0]);
       if (it && (it.kind === 'clip' || it.kind === 'composite')) { const d = $(`.item[data-id="${it.id}"]`); openFxPopover(d, null, { item_id: it.id, label: `${it.kind} ${it.name || it.id}`, kind: it.track.kind === 'audio' ? 'audio' : it.text_clip ? 'text' : 'clip' }); }
