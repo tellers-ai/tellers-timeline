@@ -87,8 +87,11 @@ fn track_kinds_are_written_as_otio_spells_them() {
 }
 
 #[test]
-fn lowercase_track_kinds_still_read() {
+fn lowercase_track_kinds_read_and_write_back_capitalized() {
     let json = r#"{"OTIO_SCHEMA":"Track.1","kind":"audio","children":[]}"#;
     let track: Track = serde_json::from_str(json).expect("parse lowercase kind");
     assert_eq!(track.kind, TrackKind::Audio);
+
+    let out = serde_json::to_value(&track).expect("serialize");
+    assert_eq!(out["kind"], "Audio");
 }
