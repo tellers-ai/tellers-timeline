@@ -619,9 +619,9 @@ fn synced_insert_reuses_non_adjacent_free_audio_track_before_creating() {
 }
 
 #[test]
-fn synced_insert_reuses_audio_track_with_free_range_before_creating() {
-    // A1 carries unrelated music at 0..10 but is free at 20..24, so the sync
-    // audio lands there instead of on a brand-new track.
+fn synced_insert_never_adopts_audio_track_holding_standalone_clips() {
+    // A1 carries unrelated music at 0..10 and is free at 20..24, but it is the
+    // user's own lane: the sync audio gets a new track instead.
     let mut music = Track::new(TrackKind::Audio, Some("A1".to_string()));
     music
         .items
@@ -640,23 +640,27 @@ fn synced_insert_reuses_audio_track_with_free_range_before_creating() {
         vec![audio_clip(4.0, "file:///v1.wav", None)],
     )
     .unwrap();
-    assert!(result.created_track_indices.is_empty());
-    assert_eq!(stack.children.len(), 2);
-    assert_eq!(result.audio_clips[0].1, 0);
-    let (_, audio_index, _) = stack.get_item(&result.audio_clips[0].0).unwrap();
-    assert_eq!(stack.children[0].start_time_of_item(audio_index), 20.0);
-    assert_eq!(stack.children[0].items[0].duration(), 10.0);
+    assert_eq!(result.created_track_indices.len(), 1);
+    assert_eq!(stack.children.len(), 3);
+    let music_index = stack
+        .children
+        .iter()
+        .position(|track| track.get_id().as_deref() == Some("A1"))
+        .unwrap();
+    assert_ne!(result.audio_clips[0].1, music_index);
+    assert_eq!(stack.children[music_index].items.len(), 1);
 
-    // Over the music the range is not free: only then is a track created.
-    let over_music = insert_with_audio(
+    // The next column reuses the partner track it now has.
+    let next = insert_with_audio(
         &mut stack,
-        1,
+        2,
         5.0,
         clip(4.0, Some("v2")),
         vec![audio_clip(4.0, "file:///v2.wav", None)],
     )
     .unwrap();
-    assert_eq!(over_music.created_track_indices.len(), 1);
+    assert!(next.created_track_indices.is_empty());
     assert_eq!(stack.children.len(), 3);
-    assert_sync_clips_track_aligned(&stack, "free-range audio reuse");
+    assert_eq!(next.audio_clips[0].1, result.audio_clips[0].1);
+    assert_sync_clips_track_aligned(&stack, "standalone-clip track not adopted");
 }
