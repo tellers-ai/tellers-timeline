@@ -8,10 +8,11 @@
 //!    track (a horizontal move keeps its channel mapping) or the destination
 //!    lists that track;
 //! 2. the first associated track of the right kind that is usable;
-//! 3. the nearest existing track of that kind that is free over the column
-//!    and in no group at all: neither listed by a track nor listing any
-//!    (partners are reserved for their owner, and an audio group's owner
-//!    belongs to its stems);
+//! 3. the nearest existing track of that kind that holds no clip at all and
+//!    is in no group: neither listed by a track nor listing any (partners
+//!    are reserved for their owner, and an audio group's owner belongs to
+//!    its stems). A track holding standalone clips (a music bed, a voice
+//!    over) is the user's own lane and is never adopted;
 //! 4. for a move of a column with a single audio partner, that partner's
 //!    source track when it is usable, the destination has no partner of that
 //!    kind, and lifting the column left the track in no group (the column was
@@ -220,7 +221,9 @@ impl Stack {
                 &exclude,
             )
             .into_iter()
-            .find(|&index| self.track_is_free(index))
+            .find(|&index| {
+                self.track_is_free(index) && track_is_empty_boundary(&self.children[index])
+            })
         {
             return index;
         }

@@ -280,3 +280,29 @@ fn a_video_column_moved_to_a_bare_video_track_takes_all_its_audio() {
         assert_eq!(track_of("B audio"), "a2", "{mode}");
     }
 }
+
+#[test]
+fn a_video_column_moved_to_a_bare_video_track_never_adopts_a_standalone_audio_track() {
+    // The sample's Music lane: standalone clips, no sync clips, free past 2s.
+    // C's audio must get a new track, not land on the music.
+    let mut stack = stack();
+    stack.children.retain(|t| t.get_id().as_deref() != Some("vo"));
+    stack.children.insert(0, track(TrackKind::Audio, "music", vec![clip(2.0, "Music", None)]));
+    stack.children.push(track(TrackKind::Video, "v2", vec![]));
+    let tracks_before = stack.children.len();
+    assert!(stack.move_item_at_time(
+        "C",
+        "v2",
+        3.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override,
+    ));
+    let music = track_index(&stack, "music");
+    assert_eq!(stack.children[music].items.len(), 1);
+    for id in ["C audio 1", "C audio 2"] {
+        let (ti, _, _) = stack.get_item(id).unwrap();
+        assert_ne!(ti, music, "{id} landed on the music track");
+    }
+    assert!(stack.children.len() > tracks_before);
+}
