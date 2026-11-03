@@ -263,3 +263,80 @@ fn splitting_a_reversed_clip_gives_the_left_half_the_top_of_its_source() {
     assert_eq!(starts(left), vec![17.0]);
     assert_eq!(starts(right), vec![11.0]);
 }
+
+/// V: [gap 2][c 4s from source 0 at `speed`, 20 s of media][b 2]
+fn stack_with_speed_clip(speed: f64) -> Stack {
+    let mut c = clip_with_media_range(4.0, 0.0, 0.0, 20.0);
+    c.set_id(Some("c".to_string()));
+    c.set_speed(speed, None).unwrap();
+    let mut track = Track::new(TrackKind::Video, Some("v".to_string()));
+    track.items = vec![Item::Gap(Gap::new(2.0, None)), Item::Clip(c), Item::Clip(clip(2.0, Some("b")))];
+    Stack { children: vec![track], ..Stack::default() }
+}
+
+fn speed_clip(stack: &Stack) -> (f64, Clip) {
+    let (ti, ii, item) = stack.get_item("c").unwrap();
+    let Item::Clip(clip) = item else { panic!("clip") };
+    (stack.children[ti].start_time_of_item(ii), clip.clone())
+}
+
+#[test]
+fn a_head_trim_keeps_the_frames_where_they_were() {
+    for speed in [2.0, 0.5, -2.0, 0.0] {
+        let (_, before) = speed_clip(&stack_with_speed_clip(speed));
+        let frame_at_3 = before.source_time_at(1.0);
+        // Hosts pass the source start a timeline delta gives, or the one
+        // the speed gives: the new duration decides either way.
+        for source_start in [1.0, speed.abs()] {
+            for push in [false, true] {
+                let mut stack = stack_with_speed_clip(speed);
+                assert!(stack.modify_item("c", source_start, 3.0, true, true, push));
+                let (start, clip) = speed_clip(&stack);
+                assert_eq!(start, if push { 2.0 } else { 3.0 }, "speed {speed}");
+                assert_eq!(clip.source_range.duration.to_seconds(), 3.0);
+                assert!((clip.source_time_at(0.0) - frame_at_3).abs() < 1e-9, "speed {speed}");
+                assert_eq!(start_of(&stack, "b"), if push { 5.0 } else { 6.0 });
+            }
+        }
+    }
+}
+
+#[test]
+fn extending_the_head_stops_at_the_start_of_the_media() {
+    // 2x from source 4: 2 s of timeline before reaching source 0.
+    let mut stack = stack_with_speed_clip(2.0);
+    if let Some(Item::Clip(c)) = stack.get_nested_item_mut("c") {
+        c.source_range.start_time.value = 4.0;
+    }
+    assert!(stack.modify_item("c", 0.0, 7.0, true, true, true));
+    let (_, clip) = speed_clip(&stack);
+    assert_eq!(clip.source_range.duration.to_seconds(), 6.0);
+    assert_eq!(clip.source_range.start_time.to_seconds(), 0.0);
+}
+
+#[test]
+fn a_tail_trim_keeps_a_reversed_clips_first_frame() {
+    // -2x over 4 s from 0 plays 8 s down to 0.
+    let mut stack = stack_with_speed_clip(-2.0);
+    assert!(stack.resize_item("c", 2.0, 3.0, OverlapPolicy::Push, true));
+    let (_, clip) = speed_clip(&stack);
+    assert_eq!(clip.source_time_at(0.0), 8.0);
+    assert_eq!(clip.source_range.start_time.to_seconds(), 2.0);
+
+    let mut stack = stack_with_speed_clip(-2.0);
+    assert!(stack.modify_item("c", 0.0, 3.0, true, false, false));
+    let (_, clip) = speed_clip(&stack);
+    assert_eq!(clip.source_time_at(0.0), 8.0);
+    assert_eq!(start_of(&stack, "b"), 6.0);
+
+    // Back out, it runs down to the start of the media and no further.
+    assert!(stack.resize_item("c", 2.0, 6.0, OverlapPolicy::Push, true));
+    let (_, clip) = speed_clip(&stack);
+    assert_eq!(clip.source_time_at(0.0), 8.0);
+    assert_eq!(clip.source_range.duration.to_seconds(), 4.0);
+}
+
+fn start_of(stack: &Stack, id: &str) -> f64 {
+    let (ti, ii, _) = stack.get_item(id).unwrap();
+    stack.children[ti].start_time_of_item(ii)
+}

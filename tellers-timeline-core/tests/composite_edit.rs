@@ -248,3 +248,68 @@ fn emptying_an_auto_length_composite_removes_it() {
     assert_eq!(item_ids(&stack.children[0]), ["a", "b"]);
     assert_eq!(start_of(&stack, "b"), 2.0);
 }
+
+/// top V1: [a 2][outer (auto): t1 [inner (auto): t2 [x 3][w 1]][z 1]][b 2]
+fn stack_with_nested_composites() -> Stack {
+    let inner = CompositeStack::new(
+        vec![track_with("t2", vec![Item::Clip(clip(3.0, Some("x"))), Item::Clip(clip(1.0, Some("w")))])],
+        None,
+        Some("inner".into()),
+    );
+    let outer = CompositeStack::new(
+        vec![track_with("t1", vec![Item::Composite(inner), Item::Clip(clip(1.0, Some("z")))])],
+        None,
+        Some("outer".into()),
+    );
+    let v1 = track_with(
+        "v1",
+        vec![Item::Clip(clip(2.0, Some("a"))), Item::Composite(outer), Item::Clip(clip(2.0, Some("b")))],
+    );
+    Stack { children: vec![v1], ..Stack::default() }
+}
+
+#[test]
+fn ripple_deletes_inside_nested_composites_pull_every_level() {
+    let mut stack = stack_with_nested_composites();
+    stack.with_composite_mut("inner", |s| s.delete_item("x", false));
+    assert_eq!(duration_of(&stack, "inner"), 1.0);
+    assert_eq!(duration_of(&stack, "outer"), 2.0);
+    assert_eq!(start_of(&stack, "b"), 4.0);
+
+    let mut stack = stack_with_nested_composites();
+    stack.with_composite_mut("outer", |s| s.delete_item("inner", false));
+    assert_eq!(duration_of(&stack, "outer"), 1.0);
+    assert_eq!(start_of(&stack, "b"), 3.0);
+}
+
+#[test]
+fn gap_deletes_inside_composites_move_nothing_outside() {
+    // Deleting the last clip leaves a trailing gap, which is part of an
+    // auto-length composite's length, at every level.
+    for (composite, id) in [("inner", "x"), ("inner", "w"), ("outer", "z"), ("outer", "inner")] {
+        let mut stack = stack_with_nested_composites();
+        stack.with_composite_mut(composite, |s| s.delete_item(id, true));
+        assert_eq!(duration_of(&stack, "outer"), 5.0, "{id} in {composite}");
+        assert_eq!(start_of(&stack, "b"), 7.0, "{id} in {composite}");
+        assert!(stack.get_nested_item(id).is_none());
+    }
+
+    // Emptying one leaves a composite of gaps, its length kept.
+    let mut stack = stack_with_nested_composites();
+    stack.with_composite_mut("inner", |s| s.delete_item("x", true));
+    stack.with_composite_mut("inner", |s| s.delete_item("w", true));
+    assert_eq!(duration_of(&stack, "inner"), 4.0);
+    assert_eq!(start_of(&stack, "b"), 7.0);
+}
+
+#[test]
+fn deleting_a_composite_from_the_top_level() {
+    let mut stack = stack_with_nested_composites();
+    assert!(stack.delete_item("x", false).is_empty(), "delete_item stays top-level");
+    let mut lifted = stack.clone();
+    assert_eq!(lifted.delete_item("outer", true).len(), 1);
+    assert_eq!(start_of(&lifted, "b"), 7.0);
+    assert_eq!(stack.delete_item("outer", false).len(), 1);
+    assert_eq!(item_ids(&stack.children[0]), ["a", "b"]);
+    assert_eq!(start_of(&stack, "b"), 2.0);
+}

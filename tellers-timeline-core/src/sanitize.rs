@@ -33,6 +33,17 @@ impl Track {
         }
     }
 
+    /// [`Track::sanitize`] for a composite's track: its trailing gap stays,
+    /// being part of the composite's length.
+    pub(crate) fn sanitize_composite_track(&mut self) {
+        self.sanitize_composites();
+        self.clamp_clips_to_available_ranges();
+        self.clamp_negative_durations();
+        self.remove_zero_length_items();
+        self.remove_invalid_transitions();
+        self.merge_adjacent_gaps();
+    }
+
     /// Sanitize the tracks of every composite on this track. Their trailing
     /// gaps stay: without a source range they are part of the composite's
     /// length.
@@ -122,7 +133,11 @@ impl Track {
 impl Stack {
     pub fn sanitize(&mut self) {
         for t in &mut self.children {
-            t.sanitize();
+            if self.composite_content {
+                t.sanitize_composite_track();
+            } else {
+                t.sanitize();
+            }
         }
         self.strip_moved_detection_settings();
         self.ensure_unique_timeline_ids();
@@ -131,7 +146,11 @@ impl Stack {
 
     pub(crate) fn sanitize_preserving_all_gap_tracks(&mut self) {
         for t in &mut self.children {
-            t.sanitize_preserving_all_gap_track();
+            if self.composite_content {
+                t.sanitize_composite_track();
+            } else {
+                t.sanitize_preserving_all_gap_track();
+            }
         }
         self.strip_moved_detection_settings();
         self.ensure_unique_timeline_ids();

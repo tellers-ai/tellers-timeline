@@ -1,5 +1,6 @@
 //! Trimming keeps a clip's transitions on its cuts.
 
+use super::{reversed_tail_trim, EPS};
 use crate::{IdMetadataExt, Item, OverlapPolicy, Seconds, Stack};
 
 /// A transition on a track a trim touches, and the two items it joined.
@@ -20,6 +21,43 @@ impl Stack {
     /// Resize an item to `new_start_time` / `new_duration`. A transition on
     /// a trimmed edge follows the cut; see [`Stack::modify_item`].
     pub fn resize_item(
+        &mut self,
+        item_id: &str,
+        new_start_time: Seconds,
+        new_duration: Seconds,
+        overlap_policy: OverlapPolicy,
+        clamp_to_media: bool,
+    ) -> bool {
+        // A reversed clip resized from its tail keeps its first frame, the
+        // top of its source range.
+        if let Some((start, Item::Clip(clip))) = self
+            .get_item(item_id)
+            .map(|(ti, ii, item)| (self.children[ti].start_time_of_item(ii), item))
+        {
+            if clip.is_reversed() && (new_start_time - start).abs() <= EPS {
+                let (source_start, duration) =
+                    reversed_tail_trim(clip, new_duration, clamp_to_media);
+                return self.resize_item_with_source_start(
+                    item_id,
+                    new_start_time,
+                    source_start,
+                    duration,
+                    overlap_policy,
+                    clamp_to_media,
+                );
+            }
+        }
+        self.resize_item_keeping_source_start(
+            item_id,
+            new_start_time,
+            new_duration,
+            overlap_policy,
+            clamp_to_media,
+        )
+    }
+
+    /// [`Self::resize_item`] that leaves every source start as it is.
+    pub(super) fn resize_item_keeping_source_start(
         &mut self,
         item_id: &str,
         new_start_time: Seconds,

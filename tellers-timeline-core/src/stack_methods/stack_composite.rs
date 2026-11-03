@@ -193,6 +193,7 @@ impl Stack {
         let mut inner = Stack {
             name: composite.name.clone(),
             children: std::mem::take(&mut composite.children),
+            composite_content: true,
             ..Stack::default()
         };
         edit(&mut inner);

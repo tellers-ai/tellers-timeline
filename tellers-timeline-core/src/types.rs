@@ -314,6 +314,12 @@ pub struct Stack {
     pub effects: Vec<Effect>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub markers: Vec<crate::Marker>,
+    /// Set on the working stack [`Stack::with_composite_mut`] lends out: its
+    /// tracks are a composite's, whose trailing gaps are part of its length,
+    /// so sanitize keeps them.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub composite_content: bool,
 }
 
 impl Default for Stack {
@@ -325,6 +331,7 @@ impl Default for Stack {
             metadata: serde_json::Value::Object(serde_json::Map::new()),
             effects: Vec::new(),
             markers: Vec::new(),
+            composite_content: false,
         }
     }
 }
