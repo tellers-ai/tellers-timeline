@@ -248,6 +248,11 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     ("CompositeStack", "markers", "Markers, kept for OTIO round trips."),
     ("CompositeStack", "metadata", "Free JSON. `tellers.ai.timeline_id` is the item id."),
     ("Transition", "OTIO_SCHEMA", "`Transition.1`."),
+    (
+        "Transition",
+        "enabled",
+        "`false` turns the transition off (a hard cut) without removing it; absent means enabled.",
+    ),
     ("Transition", "name", "Display name."),
     (
         "Transition",

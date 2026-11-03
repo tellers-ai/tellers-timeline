@@ -448,16 +448,18 @@ impl Item {
             Item::Clip(c) => c.enabled,
             Item::Gap(_g) => true,
             Item::Composite(s) => s.enabled.unwrap_or(true),
-            Item::Transition(_) => true,
+            Item::Transition(t) => t.enabled.unwrap_or(true),
         }
     }
     pub fn set_enabled(&mut self, enabled: bool) {
         match self {
             Item::Clip(c) => c.enabled = enabled,
-            Item::Gap(_) | Item::Transition(_) => {}
+            Item::Gap(_) => {}
             // Leave an absent key absent when it already means "enabled".
             Item::Composite(s) if s.enabled.is_none() && enabled => {}
             Item::Composite(s) => s.enabled = Some(enabled),
+            Item::Transition(t) if t.enabled.is_none() && enabled => {}
+            Item::Transition(t) => t.enabled = Some(enabled),
         }
     }
     /// The item's source range. Transitions have none in OTIO; they report an
@@ -1175,6 +1177,10 @@ impl Gap {
 pub struct Transition {
     #[serde(rename = "OTIO_SCHEMA", default = "default_transition_schema")]
     pub otio_schema: String,
+    /// OTIO `enabled`; absent means enabled. The player skips a transition
+    /// whose `enabled` is `false` and plays a hard cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default = "default_transition_type")]
@@ -1196,6 +1202,7 @@ impl Transition {
     ) -> Self {
         let mut t = Transition {
             otio_schema: default_transition_schema(),
+            enabled: None,
             name: None,
             transition_type: transition_type.unwrap_or_else(default_transition_type),
             in_offset: RationalTime::from_seconds(in_offset),
