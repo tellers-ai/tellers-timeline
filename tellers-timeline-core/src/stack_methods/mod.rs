@@ -1463,6 +1463,7 @@ impl Stack {
                         self.resize_synced_clips_with_leading_gap(
                             vec![(track_index, item_index)],
                             change.start_delta,
+                            change.start_delta,
                             change.new_duration,
                         );
                         // The leading gap moved the clip one slot to the right.
@@ -2208,6 +2209,13 @@ impl Stack {
             return false;
         };
 
+        // A clip with a speed effect: the timeline change comes from the
+        // new duration and the source shift from its speed.
+        let speed_trim = self.speed_trim(item_id, duration, clamp_to_media, resize_from_start);
+        let (source_start_time, duration) = speed_trim
+            .as_ref()
+            .map_or((source_start_time, duration), |trim| (trim.source_start, trim.duration));
+
         let mut effective_source_start = source_start_time;
         let mut effective_duration = duration;
         if effective_source_start < 0.0 {
@@ -2230,17 +2238,23 @@ impl Stack {
             Item::Gap(_) | Item::Transition(_) => 0.0,
         };
         let old_duration = self.children[track_index].items[item_index].duration();
-        let new_timeline_start =
-            (old_timeline_start + effective_source_start - old_source_start).max(0.0);
+        let mut source_delta = effective_source_start - old_source_start;
+        let mut timeline_delta = speed_trim.as_ref().map_or(source_delta, |trim| trim.timeline_delta);
+        let new_timeline_start = (old_timeline_start + timeline_delta).max(0.0);
         let is_gap = matches!(self.children[track_index].items[item_index], Item::Gap(_));
         let is_clip = matches!(self.children[track_index].items[item_index], Item::Clip(_));
-        let mut source_delta = effective_source_start - old_source_start;
         if is_clip && resize_from_start && !push_following {
-            let unclamped_timeline_start = old_timeline_start + source_delta;
+            let unclamped_timeline_start = old_timeline_start + timeline_delta;
             if unclamped_timeline_start < 0.0 {
-                source_delta = -old_timeline_start;
+                timeline_delta = -old_timeline_start;
+                source_delta = match &self.children[track_index].items[item_index] {
+                    Item::Clip(clip) if speed_trim.is_some() => {
+                        head_trim_source_delta(clip, timeline_delta)
+                    }
+                    _ => timeline_delta,
+                };
                 effective_source_start = old_source_start + source_delta;
-                effective_duration = old_duration - source_delta;
+                effective_duration = old_duration - timeline_delta;
             }
         }
         let effective_push_following =
@@ -2309,9 +2323,9 @@ impl Stack {
             // head was, the shorter clip, and a gap for whatever is left of
             // the old span, so nothing after it moves. A clip that would now
             // run past its old end takes the general path below.
-            let trimmed_end = source_delta + effective_duration;
+            let trimmed_end = timeline_delta + effective_duration;
             if resize_from_start
-                && source_delta > 0.0
+                && timeline_delta > 0.0
                 && effective_duration < old_duration
                 && trimmed_end <= old_duration + EPS
             {
@@ -2319,6 +2333,7 @@ impl Stack {
                 self.resize_synced_clips_with_leading_gap(
                     targets.clone(),
                     source_delta,
+                    timeline_delta,
                     effective_duration,
                 );
                 let tail = old_duration - trimmed_end;
@@ -2340,6 +2355,11 @@ impl Stack {
 
             let duration_delta = old_duration - effective_duration;
             if !resize_from_start && duration_delta > 0.0 {
+                if source_delta.abs() > EPS {
+                    // A reversed clip keeps its first frame, the top of its
+                    // source range.
+                    self.offset_synced_clip_source_starts(item_id, source_delta);
+                }
                 let targets = self.synced_clip_targets_for_item(item_id);
                 self.resize_synced_clips_with_trailing_gap(targets, effective_duration);
                 self.sanitize_preserving_all_gap_tracks();
@@ -2389,7 +2409,7 @@ impl Stack {
         if source_delta.abs() > EPS {
             self.offset_synced_clip_source_starts(item_id, source_delta);
         }
-        self.resize_item(
+        self.resize_item_keeping_source_start(
             item_id,
             new_start_time,
             new_duration,
@@ -2402,6 +2422,7 @@ impl Stack {
         &mut self,
         mut targets: Vec<(usize, usize)>,
         source_delta: Seconds,
+        gap_duration: Seconds,
         duration: Seconds,
     ) {
         targets.sort_unstable_by(|a, b| b.cmp(a));
@@ -2417,7 +2438,7 @@ impl Stack {
             track.items[item_index].set_duration(duration);
             track
                 .items
-                .insert(item_index, Item::Gap(Gap::make_gap(source_delta)));
+                .insert(item_index, Item::Gap(Gap::make_gap(gap_duration)));
         }
     }
 
@@ -2463,6 +2484,58 @@ impl Stack {
         } else {
             vec![(selected_track_index, selected_item_index)]
         }
+    }
+
+    /// How [`Self::modify_item`] trims the clip `item_id` when it has a speed
+    /// effect, `None` otherwise. Its source start cannot say how much timeline
+    /// a trim takes (a freeze plays no source, a reversed clip's head is the
+    /// top of its source), so the new duration does: a head trim moves the
+    /// start by the time it removes and advances the source start by what
+    /// that time played; a tail trim keeps the source start, or for a
+    /// reversed clip its first frame.
+    fn speed_trim(
+        &self,
+        item_id: &str,
+        duration: Seconds,
+        clamp_to_media: bool,
+        resize_from_start: bool,
+    ) -> Option<SpeedTrim> {
+        let (_, _, Item::Clip(clip)) = self.get_item(item_id)? else {
+            return None;
+        };
+        clip.get_speed()?;
+        let source_start = clip.source_range.start_time.to_seconds();
+        if !resize_from_start {
+            let (source_start, duration) = if clip.is_reversed() {
+                reversed_tail_trim(clip, duration, clamp_to_media)
+            } else {
+                (source_start, duration)
+            };
+            return Some(SpeedTrim { source_start, duration, timeline_delta: 0.0 });
+        }
+
+        let old_duration = clip.source_range.duration.to_seconds();
+        let mut timeline_delta = old_duration - duration;
+        if timeline_delta < 0.0 {
+            // Room before the head: the source before the start, or for a
+            // reversed clip the media above the top of its range.
+            let bounds = clip.source_start_bounds().filter(|_| clamp_to_media);
+            let room = if clip.is_reversed() {
+                bounds.map(|(_, latest)| (latest - source_start).max(0.0))
+            } else {
+                Some(source_start - bounds.map_or(0.0, |(media_start, _)| media_start))
+            };
+            if let Some(max_extension) =
+                room.and_then(|room| clip.timeline_duration_for_source(room.max(0.0)))
+            {
+                timeline_delta = timeline_delta.max(-max_extension);
+            }
+        }
+        Some(SpeedTrim {
+            source_start: (source_start + head_trim_source_delta(clip, timeline_delta)).max(0.0),
+            duration: old_duration - timeline_delta,
+            timeline_delta,
+        })
     }
 
     fn offset_synced_clip_source_starts(&mut self, item_id: &str, source_delta: Seconds) {
@@ -4087,6 +4160,50 @@ fn resize_effective_duration(
         }
     }
     item.duration().max(0.0)
+}
+
+/// A [`Stack::modify_item`] of a clip with a speed effect, worked out by
+/// [`Stack::speed_trim`].
+struct SpeedTrim {
+    source_start: Seconds,
+    duration: Seconds,
+    /// How far the clip's timeline start moves.
+    timeline_delta: Seconds,
+}
+
+/// How far a head trim of `timeline_delta` (negative to extend) moves the
+/// clip's source start: by the source that time plays, nothing for a freeze,
+/// and nothing for a reversed clip, whose head is the top of its range.
+fn head_trim_source_delta(clip: &Clip, timeline_delta: Seconds) -> Seconds {
+    if clip.is_reversed() {
+        0.0
+    } else if timeline_delta >= 0.0 {
+        clip.source_offset(timeline_delta)
+    } else {
+        -clip.source_offset(-timeline_delta)
+    }
+}
+
+/// The source start and duration of a reversed clip whose tail is trimmed
+/// to `duration`: it keeps its first frame, the top of its source range, and
+/// is shortened when it would run below the media.
+fn reversed_tail_trim(
+    clip: &Clip,
+    duration: Seconds,
+    clamp_to_media: bool,
+) -> (Seconds, Seconds) {
+    let top = clip.source_range.start_time.to_seconds() + clip.source_duration();
+    let mut duration = duration.max(0.0);
+    let floor = clip
+        .source_start_bounds()
+        .filter(|_| clamp_to_media)
+        .map_or(0.0, |(media_start, _)| media_start);
+    if top - clip.source_offset(duration) < floor {
+        if let Some(fits) = clip.timeline_duration_for_source((top - floor).max(0.0)) {
+            duration = duration.min(fits);
+        }
+    }
+    ((top - clip.source_offset(duration)).max(0.0), duration)
 }
 
 fn item_source_start(item: &Item) -> Seconds {
