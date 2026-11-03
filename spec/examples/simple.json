@@ -6,7 +6,7 @@
     "children": [
       {
         "OTIO_SCHEMA": "Track.1",
-        "kind": "video",
+        "kind": "Video",
         "children": [
           {
             "OTIO_SCHEMA": "Gap.1",

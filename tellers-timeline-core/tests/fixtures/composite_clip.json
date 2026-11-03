@@ -8,7 +8,7 @@
       {
         "OTIO_SCHEMA": "Track.1",
         "enabled": true,
-        "kind": "video",
+        "kind": "Video",
         "name": "V1",
         "children": [
           {
@@ -80,7 +80,7 @@
               {
                 "OTIO_SCHEMA": "Track.1",
                 "enabled": true,
-                "kind": "video",
+                "kind": "Video",
                 "name": "bar",
                 "children": [
                   {
@@ -151,7 +151,7 @@
               {
                 "OTIO_SCHEMA": "Track.1",
                 "enabled": true,
-                "kind": "video",
+                "kind": "Video",
                 "name": "accent",
                 "children": [
                   {
@@ -298,7 +298,7 @@
               {
                 "OTIO_SCHEMA": "Track.1",
                 "enabled": true,
-                "kind": "video",
+                "kind": "Video",
                 "name": "video",
                 "children": [
                   {
@@ -383,7 +383,7 @@
               {
                 "OTIO_SCHEMA": "Track.1",
                 "enabled": true,
-                "kind": "video",
+                "kind": "Video",
                 "name": "nested",
                 "children": [
                   {
@@ -416,7 +416,7 @@
                       {
                         "OTIO_SCHEMA": "Track.1",
                         "enabled": true,
-                        "kind": "video",
+                        "kind": "Video",
                         "name": "inner",
                         "children": [
                           {
