@@ -52,7 +52,7 @@ A row of items played one after the other: each item starts where the previous o
 
 What a track carries. Read case-insensitively (`Video` and `video` both parse); written lowercase.
 
-Values: `"video"` \| `"audio"` \| `"other"`.
+Values: `"Video"` \| `"Audio"` \| `"Other"`.
 
 ### Item
 

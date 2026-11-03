@@ -336,8 +336,9 @@ impl Default for Stack {
     }
 }
 
+/// Serialized as OTIO spells it (`"Video"`, `"Audio"`); read case-insensitively.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "PascalCase")]
 pub enum TrackKind {
     Video,
     Audio,

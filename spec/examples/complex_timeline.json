@@ -53,7 +53,7 @@
       {
         "OTIO_SCHEMA": "Track.1",
         "name": "Video",
-        "kind": "video",
+        "kind": "Video",
         "children": [
           {
             "name": "be7838fe-cbeb-4b86-82c6-c8a85c24da95.mp4",

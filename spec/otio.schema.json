@@ -914,11 +914,12 @@
       }
     },
     "TrackKind": {
+      "description": "Serialized as OTIO spells it (`\"Video\"`, `\"Audio\"`); read case-insensitively.",
       "type": "string",
       "enum": [
-        "video",
-        "audio",
-        "other"
+        "Video",
+        "Audio",
+        "Other"
       ]
     },
     "Transition": {

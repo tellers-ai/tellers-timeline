@@ -14,7 +14,7 @@ Timeline.1
 └── tracks: Stack.1                 every track, composited together
     ├── effects: [...]              LUTs over the whole picture
     └── children:
-        ├── Track.1  kind: video    bottom layer
+        ├── Track.1  kind: Video    bottom layer
         │   ├── effects: [...]      applied to each clip of the track
         │   └── children:
         │       ├── Gap.1           empty time
@@ -22,8 +22,8 @@ Timeline.1
         │       │   ├── media_references: { DEFAULT_MEDIA: ExternalReference.1 | GeneratorReference.1 }
         │       │   └── effects: [...]   applied to this clip only
         │       └── Clip.2 ...
-        ├── Track.1  kind: video    drawn above the previous track
-        └── Track.1  kind: audio    sound
+        ├── Track.1  kind: Video    drawn above the previous track
+        └── Track.1  kind: Audio    sound
 ```
 
 Every object says what it is in `OTIO_SCHEMA`, e.g. `Clip.2`.
@@ -267,7 +267,7 @@ metadata is kept as it is.
     "OTIO_SCHEMA": "Stack.1",
     "children": [
       {
-        "OTIO_SCHEMA": "Track.1", "kind": "video", "name": "V1",
+        "OTIO_SCHEMA": "Track.1", "kind": "Video", "name": "V1",
         "children": [
           {
             "OTIO_SCHEMA": "Clip.2", "name": "beach",
@@ -284,7 +284,7 @@ metadata is kept as it is.
         ]
       },
       {
-        "OTIO_SCHEMA": "Track.1", "kind": "video", "name": "V2",
+        "OTIO_SCHEMA": "Track.1", "kind": "Video", "name": "V2",
         "children": [
           { "OTIO_SCHEMA": "Gap.1",
             "source_range": { "OTIO_SCHEMA": "TimeRange.1",
