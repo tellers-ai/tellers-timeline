@@ -2,6 +2,7 @@
 
 mod common;
 use common::*;
+use tellers_timeline_core::Transition;
 
 fn enabled(stack: &Stack, id: &str) -> bool {
     stack.get_item(id).unwrap().2.get_enabled()
@@ -102,4 +103,31 @@ fn a_disabled_clip_round_trips_through_otio() {
     assert!(!enabled(&back.tracks, "vid"));
     assert!(!enabled(&back.tracks, "aud2"));
     assert!(enabled(&back.tracks, "free"));
+}
+
+#[test]
+fn a_transition_is_turned_off_alone_and_round_trips() {
+    let mut stack = column();
+    let transition = Transition::new(0.5, 0.5, None, Some("dissolve".into()));
+    // An enabled transition writes no `enabled` key.
+    assert!(!serde_json::to_string(&transition).unwrap().contains("enabled"));
+    stack.children[2].items.insert(1, Item::Transition(transition));
+
+    assert_eq!(stack.set_item_enabled("dissolve", false, true), 1);
+    assert!(!enabled(&stack, "dissolve"));
+    assert!(enabled(&stack, "free") && enabled(&stack, "vid"));
+
+    let timeline = Timeline {
+        tracks: stack,
+        ..Timeline::default()
+    };
+    let json = tellers_timeline_core::to_json_with_precision(&timeline, None, false).unwrap();
+    let mut back: Timeline = serde_json::from_str(&json).unwrap();
+    assert!(!enabled(&back.tracks, "dissolve"));
+
+    assert_eq!(back.tracks.set_item_enabled("dissolve", true, true), 1);
+    let Item::Transition(transition) = &back.tracks.children[2].items[1] else {
+        panic!("expected the transition");
+    };
+    assert_eq!(transition.enabled, Some(true));
 }

@@ -929,6 +929,13 @@
           "default": "Transition.1",
           "type": "string"
         },
+        "enabled": {
+          "description": "OTIO `enabled`; absent means enabled. The player skips a transition whose `enabled` is `false` and plays a hard cut.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "in_offset": {
           "default": {
             "OTIO_SCHEMA": "RationalTime.1",

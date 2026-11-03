@@ -1815,10 +1815,11 @@ impl PyStack {
     fn split_item_at_time(&mut self, item_id: &str, split_time: f64) -> bool {
         self.inner.split_item_at_time(item_id, split_time)
     }
-    /// Turn the clip or compound clip `item_id` on or off (a disabled audio
-    /// clip is muted, a disabled video clip is not shown) and, with
-    /// `with_sync_clips`, its sync partners too. Nothing moves. Returns how
-    /// many items were set (0 when there is no clip or compound with this id).
+    /// Turn the clip, compound clip or transition `item_id` on or off (a
+    /// disabled audio clip is muted, a disabled video clip is not shown, a
+    /// disabled transition plays as a hard cut) and, with `with_sync_clips`, a
+    /// clip's sync partners too. Nothing moves. Returns how many items were
+    /// set (0 for a gap or when no item has this id).
     #[pyo3(signature = (item_id, enabled, with_sync_clips=true))]
     fn set_item_enabled(&mut self, item_id: &str, enabled: bool, with_sync_clips: bool) -> usize {
         self.inner.set_item_enabled(item_id, enabled, with_sync_clips)

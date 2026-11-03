@@ -737,9 +737,11 @@ class Stack:
     ) -> bool: ...
     def split_item_at_time(self, item_id: str, split_time: float) -> bool: ...
     def set_item_enabled(self, item_id: str, enabled: bool, with_sync_clips: bool = True) -> int:
-        """Turn a clip or compound clip on or off: a disabled audio clip is
-        muted, a disabled video clip is not shown. With ``with_sync_clips`` its
-        sync partners follow. Nothing moves. Returns how many items were set."""
+        """Turn a clip, compound clip or transition on or off: a disabled audio
+        clip is muted, a disabled video clip is not shown, a disabled
+        transition plays as a hard cut. With ``with_sync_clips`` a clip's sync
+        partners follow. Nothing moves. Returns how many items were set (0 for
+        a gap or an unknown id)."""
         ...
     def set_item_speed(
         self,

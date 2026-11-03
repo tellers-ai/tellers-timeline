@@ -111,6 +111,7 @@ A transition between the two items around it on a track. It takes no time of its
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Transition.1"` | `Transition.1`. |
+| `enabled` | boolean \| null |  |  | `false` turns the transition off (a hard cut) without removing it; absent means enabled. |
 | `in_offset` | [RationalTime](#rationaltime) |  |  | How far it reaches back into the item before it. |
 | `metadata` | any JSON |  |  | Free JSON. `tellers.ai.parameters` holds the player's `color` (dips, `#000000` by default; `DipToBlack` / `DipToWhite` override it) and `direction` (`left`, `right`, `up`, `down`; `left` by default), read and written by `Transition::color` and `Transition::direction`. |
 | `name` | string \| null |  |  | Display name. |

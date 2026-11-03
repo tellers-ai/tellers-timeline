@@ -161,3 +161,20 @@ def test_audio_kinds_go_on_audio_tracks_only():
     assert not t.is_audio() and not t.allowed_on("audio")
     with pytest.raises(ValueError):
         t.allowed_on("subtitles")
+
+
+def test_a_transition_can_be_turned_off():
+    stack = Stack()
+    track = Track(
+        children=[
+            Item.from_clip(_clip(2.0, "a")),
+            Item.from_transition(Transition(0.5, 0.5, id="t1")),
+            Item.from_clip(_clip(2.0, "b")),
+        ]
+    )
+    stack.add_track(track)
+    assert stack.set_item_enabled("t1", False) == 1
+    assert stack.get_item("t1")[2].get_enabled() is False
+    assert stack.get_item("a")[2].get_enabled() is True
+    assert stack.set_item_enabled("t1", True) == 1
+    assert stack.get_item("t1")[2].get_enabled() is True
