@@ -102,7 +102,9 @@ def _rich_timeline() -> Timeline:
 
     audio = Track(kind="audio", id="a1", children=[Item.from_clip(_clip(5.0, "music", "file:///media/music.wav"))])
 
-    for track in (audio, video, overlay, composite):
+    other = Track(kind="other", id="o1")
+
+    for track in (audio, video, overlay, composite, other):
         tl.add_track(track)
 
     tl.add_font("Brand Sans", "https://cdn.example.test/brand-sans.woff2")
@@ -116,10 +118,9 @@ def test_rich_timeline_parses_in_official_otio():
     assert not tl.validate()
     official = _official(tl.to_json())
 
-    # We write "video"/"audio"; official OTIO's TrackKind constants are
-    # "Video"/"Audio" and the kind is a free string, so compare without case.
-    kinds = sorted(t.kind.lower() for t in official.tracks)
-    assert kinds == ["audio", "video", "video", "video"]
+    # Kinds are written as OTIO spells them, so they match its TrackKind constants.
+    kinds = sorted(t.kind for t in official.tracks)
+    assert kinds == sorted([otio.schema.TrackKind.Audio, *[otio.schema.TrackKind.Video] * 3, "Other"])
 
     clips = list(official.find_clips())
     assert any(isinstance(c.media_reference, otio.schema.GeneratorReference) for c in clips)

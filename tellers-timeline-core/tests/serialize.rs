@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use tellers_timeline_core::{to_json_with_precision, Timeline};
+use tellers_timeline_core::{to_json_with_precision, Timeline, Track, TrackKind};
 
 fn read_example(name: &str) -> String {
     let crate_dir = env!("CARGO_MANIFEST_DIR");
@@ -66,4 +66,32 @@ fn to_json_with_precision_rounds_floats_to_requested_decimals() {
         !rounded.contains("1.23456"),
         "precision should have dropped trailing digits, got: {rounded}"
     );
+}
+
+#[test]
+fn track_kinds_are_written_as_otio_spells_them() {
+    let mut timeline = Timeline::default();
+    timeline.add_track(Track::new(TrackKind::Video, Some("v".to_string())));
+    timeline.add_track(Track::new(TrackKind::Audio, Some("a".to_string())));
+    timeline.add_track(Track::new(TrackKind::Other, Some("o".to_string())));
+
+    let out: serde_json::Value =
+        serde_json::from_str(&timeline.to_json().expect("to_json")).expect("json");
+    let kinds: Vec<&str> = out["tracks"]["children"]
+        .as_array()
+        .expect("tracks")
+        .iter()
+        .map(|t| t["kind"].as_str().expect("kind is a string"))
+        .collect();
+    assert_eq!(kinds, ["Video", "Audio", "Other"]);
+}
+
+#[test]
+fn lowercase_track_kinds_read_and_write_back_capitalized() {
+    let json = r#"{"OTIO_SCHEMA":"Track.1","kind":"audio","children":[]}"#;
+    let track: Track = serde_json::from_str(json).expect("parse lowercase kind");
+    assert_eq!(track.kind, TrackKind::Audio);
+
+    let out = serde_json::to_value(&track).expect("serialize");
+    assert_eq!(out["kind"], "Audio");
 }
