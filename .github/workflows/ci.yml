@@ -48,7 +48,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           pip install --upgrade pip
-          pip install maturin pytest
+          pip install maturin pytest opentimelineio==0.18.1
       - name: Build and develop Python extension
         run: |
           source .venv/bin/activate
@@ -56,4 +56,10 @@ jobs:
       - name: Run Python tests
         run: |
           source .venv/bin/activate
-          pytest -q bindings/python/tests
+          pytest -q bindings/python/tests --ignore=bindings/python/tests/test_official_otio.py
+      - name: Check written .otio parses in official OpenTimelineIO
+        env:
+          REQUIRE_OFFICIAL_OTIO: '1'
+        run: |
+          source .venv/bin/activate
+          pytest -q bindings/python/tests/test_official_otio.py

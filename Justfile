@@ -27,10 +27,10 @@ test-all:
     maturin develop -q && \
     cd ../.. && \
     if [ -d bindings/python/.venv ]; then \
-      bindings/python/.venv/bin/python -m pip install -q pytest && \
+      bindings/python/.venv/bin/python -m pip install -q pytest opentimelineio && \
       bindings/python/.venv/bin/python -m pytest -q bindings/python/tests; \
     else \
-      python -m pip install -q pytest && \
+      python -m pip install -q pytest opentimelineio && \
       python -m pytest -q bindings/python/tests; \
     fi; \
   else \
