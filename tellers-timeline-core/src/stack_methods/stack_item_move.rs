@@ -34,7 +34,7 @@ impl Stack {
         })
     }
 
-    fn move_item_at_time_unchecked(
+    pub(super) fn move_item_at_time_unchecked(
         &mut self,
         item_id: &str,
         dest_track_id: &str,
@@ -43,6 +43,16 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) -> bool {
+        if let Some(moved) = self.move_split_edit_column(
+            item_id,
+            dest_track_id,
+            dest_time,
+            replace_with_gap,
+            insert_policy,
+            overlap_policy,
+        ) {
+            return moved;
+        }
         let carried = self.attached_transitions(item_id, dest_track_id, dest_time);
         let moved = self.move_item_at_time_inner(
             item_id,

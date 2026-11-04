@@ -179,3 +179,80 @@ fn a_split_edit_on_an_unsynced_clip_is_an_ordinary_trim() {
     assert!(stack.modify_item("free", 0.0, 3.0, false, false, false, false));
     assert_eq!(state(&stack, "free"), (0.0, 3.0, 0.0, None, 0.0));
 }
+
+/// [`two_columns`] with track ids "a" and "v", and room after column 2.
+fn two_columns_with_ids() -> Stack {
+    let mut stack = two_columns();
+    stack.children[0].set_id(Some("a".into()));
+    stack.children[1].set_id(Some("v".into()));
+    stack
+}
+
+/// Where each clip of column `sync_id` starts, by name of its partner role.
+fn column(stack: &Stack, audio: &str, video: &str) -> (f64, f64, Option<i64>, Option<i64>) {
+    let (a, v) = (state(stack, audio), state(stack, video));
+    (a.0, v.0, a.3, v.3)
+}
+
+#[test]
+fn moving_the_video_of_a_j_cut_column_brings_its_audio() {
+    // The audio clip used to be left out of the column and dropped.
+    let mut stack = two_columns_with_ids();
+    assert!(j_cut(&mut stack));
+
+    for policy in [
+        InsertPolicy::SplitAndInsert,
+        InsertPolicy::InsertBeforeOrAfter,
+    ] {
+        let mut moved = stack.clone();
+        assert!(moved.move_item_at_time("v2", "v", 12.0, true, policy, OverlapPolicy::Override));
+        let (audio_start, video_start, audio_id, video_id) = column(&moved, "a2", "v2");
+        assert_eq!(video_start, 12.0);
+        assert_eq!(audio_start, 11.0, "the 1 s lead-in is kept");
+        assert!(audio_id.is_some());
+        assert_eq!(audio_id, video_id);
+        assert_eq!(state(&moved, "a2").4, -1.0);
+    }
+}
+
+#[test]
+fn moving_the_audio_of_a_j_cut_column_brings_its_video() {
+    let mut stack = two_columns_with_ids();
+    assert!(j_cut(&mut stack));
+
+    assert!(stack.move_item_at_time(
+        "a2",
+        "a",
+        11.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+
+    let (audio_start, video_start, audio_id, video_id) = column(&stack, "a2", "v2");
+    assert_eq!((audio_start, video_start), (11.0, 12.0));
+    assert!(audio_id.is_some());
+    assert_eq!(audio_id, video_id);
+}
+
+#[test]
+fn moving_an_l_cut_column_keeps_the_longer_audio() {
+    let mut stack = two_columns_with_ids();
+    // a2's tail runs 1 s past v2 (into free space).
+    assert!(stack.modify_item("a2", 2.0, 6.0, false, false, false, false));
+
+    assert!(stack.move_item_at_time(
+        "v2",
+        "v",
+        12.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+
+    let (audio_start, video_start, audio_id, video_id) = column(&stack, "a2", "v2");
+    assert_eq!((audio_start, video_start), (12.0, 12.0));
+    assert_eq!(state(&stack, "a2").1, 6.0);
+    assert!(audio_id.is_some());
+    assert_eq!(audio_id, video_id);
+}
