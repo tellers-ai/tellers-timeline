@@ -3,7 +3,8 @@
 //! The clips of one sync column (same Link Group ID) start together on every
 //! track they sit on: a video and its audio channels play from the same
 //! instant. (A channel may be shorter than the video, so only starts are
-//! compared.) The edit entry points run through [`Stack::keeping_sync_columns`],
+//! compared.) A clip trimmed on its own for a J or L cut starts its Sync
+//! Offset away from the column, and is compared at `start - offset`. The edit entry points run through [`Stack::keeping_sync_columns`],
 //! which undoes an edit that leaves an aligned column out of step, so a missed case
 //! in the move/resize/insert logic is refused instead of saved.
 
@@ -26,12 +27,15 @@ impl Stack {
                 let duration = item.duration().max(0.0);
                 if let Item::Clip(clip) = item {
                     if let Some(sync_clips_id) = resolve_sync_clips_id(&clip.metadata) {
+                        // A clip trimmed on its own (J/L cut) is in step
+                        // `offset` away from its column.
+                        let offset = crate::metadata::resolve_sync_offset(&clip.metadata);
                         starts
                             .entry(sync_clips_id)
                             .or_default()
                             .entry(track_index)
                             .or_default()
-                            .push(start);
+                            .push(start - offset);
                     }
                 }
                 start += duration;

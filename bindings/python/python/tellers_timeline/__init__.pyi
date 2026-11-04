@@ -770,6 +770,7 @@ class Stack:
         clamp_to_media: bool,
         resize_from_start: bool,
         push_following: bool,
+        trim_sync_partners: bool = True,
     ) -> bool: ...
     def replace_item(
         self,

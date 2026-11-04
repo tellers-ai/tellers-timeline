@@ -312,6 +312,48 @@ pub fn set_tellers_group_id(metadata: &mut serde_json::Value, group_id: i64) {
     );
 }
 
+/// How far a synced clip starts from its sync column, in seconds:
+/// `metadata["tellers.ai"]["Sync Offset"]`, 0 when absent.
+///
+/// The clips of a sync column start together unless one was trimmed on its
+/// own (a J or L cut, see [`crate::Stack::modify_item`]): an audio clip whose
+/// head was pulled 1s before its video carries -1.0. The sync guard compares
+/// `start - offset` across the column, so the cut stays in sync.
+pub fn resolve_sync_offset(metadata: &serde_json::Value) -> f64 {
+    metadata
+        .get("tellers.ai")
+        .and_then(|v| v.get("Sync Offset"))
+        .and_then(serde_json::Value::as_f64)
+        .filter(|offset| offset.is_finite())
+        .unwrap_or(0.0)
+}
+
+/// Write the Sync Offset of a synced clip; an offset of (about) 0 removes it.
+pub fn set_sync_offset(metadata: &mut serde_json::Value, offset: f64) {
+    if !offset.is_finite() || offset.abs() <= 1e-6 {
+        if let Some(ai) = metadata
+            .get_mut("tellers.ai")
+            .and_then(|value| value.as_object_mut())
+        {
+            ai.remove("Sync Offset");
+        }
+        return;
+    }
+    if metadata.as_object().is_none() {
+        *metadata = serde_json::Value::Object(serde_json::Map::new());
+    }
+    let map = metadata.as_object_mut().unwrap();
+    let ai = map
+        .entry("tellers.ai".to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if ai.as_object().is_none() {
+        *ai = serde_json::Value::Object(serde_json::Map::new());
+    }
+    ai.as_object_mut()
+        .unwrap()
+        .insert("Sync Offset".to_string(), serde_json::json!(offset));
+}
+
 /// Remove the Tellers Group ID from `metadata`, returning whether one was
 /// present.
 pub fn remove_tellers_group_id(metadata: &mut serde_json::Value) -> bool {

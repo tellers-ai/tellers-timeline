@@ -630,10 +630,11 @@ def op_modify_item(state: State, p: dict):
     clamp = bool(p.get("clamp_to_media", True))
     from_start = bool(p.get("resize_from_start", False))
     push = bool(p.get("push_following", False))
-    ok = state.stack.modify_item(p["id"], source_start, duration, clamp, from_start, push)
+    partners = bool(p.get("trim_sync_partners", True))
+    ok = state.stack.modify_item(p["id"], source_start, duration, clamp, from_start, push, partners)
     return ok, (
         f"stack.modify_item({_fmt(p['id'])}, {source_start:g}, {duration:g}, clamp_to_media={clamp}, "
-        f"resize_from_start={from_start}, push_following={push})"
+        f"resize_from_start={from_start}, push_following={push}, trim_sync_partners={partners})"
     )
 
 

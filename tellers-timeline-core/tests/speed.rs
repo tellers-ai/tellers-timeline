@@ -290,7 +290,7 @@ fn a_head_trim_keeps_the_frames_where_they_were() {
         for source_start in [1.0, speed.abs()] {
             for push in [false, true] {
                 let mut stack = stack_with_speed_clip(speed);
-                assert!(stack.modify_item("c", source_start, 3.0, true, true, push));
+                assert!(stack.modify_item("c", source_start, 3.0, true, true, push, true));
                 let (start, clip) = speed_clip(&stack);
                 assert_eq!(start, if push { 2.0 } else { 3.0 }, "speed {speed}");
                 assert_eq!(clip.source_range.duration.to_seconds(), 3.0);
@@ -308,7 +308,7 @@ fn extending_the_head_stops_at_the_start_of_the_media() {
     if let Some(Item::Clip(c)) = stack.get_nested_item_mut("c") {
         c.source_range.start_time.value = 4.0;
     }
-    assert!(stack.modify_item("c", 0.0, 7.0, true, true, true));
+    assert!(stack.modify_item("c", 0.0, 7.0, true, true, true, true));
     let (_, clip) = speed_clip(&stack);
     assert_eq!(clip.source_range.duration.to_seconds(), 6.0);
     assert_eq!(clip.source_range.start_time.to_seconds(), 0.0);
@@ -324,7 +324,7 @@ fn a_tail_trim_keeps_a_reversed_clips_first_frame() {
     assert_eq!(clip.source_range.start_time.to_seconds(), 2.0);
 
     let mut stack = stack_with_speed_clip(-2.0);
-    assert!(stack.modify_item("c", 0.0, 3.0, true, false, false));
+    assert!(stack.modify_item("c", 0.0, 3.0, true, false, false, true));
     let (_, clip) = speed_clip(&stack);
     assert_eq!(clip.source_time_at(0.0), 8.0);
     assert_eq!(start_of(&stack, "b"), 6.0);

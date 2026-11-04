@@ -213,7 +213,7 @@ fn shortening_a_clip_with_push_pulls_each_later_column_back_once() {
         ],
     );
 
-    assert!(stack.modify_item("f2", 0.0, 1.0, true, true, true));
+    assert!(stack.modify_item("f2", 0.0, 1.0, true, true, true, true));
 
     assert_eq!(start_of(&stack, "v1"), 11.0);
     assert_eq!(start_of(&stack, "a1"), 11.0);
@@ -230,7 +230,7 @@ fn a_head_trim_that_shortens_more_than_it_slides_keeps_what_follows_in_place() {
         &[("", 5.0, None), ("a1", 5.0, Some(1))],
     );
 
-    assert!(stack.modify_item("free", 1.0, 2.0, true, true, false));
+    assert!(stack.modify_item("free", 1.0, 2.0, true, true, false, true));
 
     assert_eq!(start_of(&stack, "free"), 1.0);
     assert_eq!(start_of(&stack, "v1"), 5.0);

@@ -166,17 +166,20 @@ impl Stack {
         for track_index in target_tracks {
             self.children[track_index].split_at_time(split_time);
         }
-        if let Some(sync_clips_id) = right_sync_clips_id {
-            for (track_index, item_index) in &splittable {
-                let Some(Item::Clip(clip)) = self
-                    .children
-                    .get_mut(*track_index)
-                    .and_then(|track| track.items.get_mut(item_index + 1))
-                else {
-                    return false;
-                };
+        for (track_index, item_index) in &splittable {
+            let Some(Item::Clip(clip)) = self
+                .children
+                .get_mut(*track_index)
+                .and_then(|track| track.items.get_mut(item_index + 1))
+            else {
+                return false;
+            };
+            if let Some(sync_clips_id) = right_sync_clips_id {
                 super::set_resolve_sync_clips_id(&mut clip.metadata, sync_clips_id);
             }
+            // The right pieces all start at the cut: a J/L cut's offset
+            // stays with the left piece.
+            crate::metadata::set_sync_offset(&mut clip.metadata, 0.0);
         }
         true
     }

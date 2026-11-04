@@ -226,7 +226,7 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
         "Free JSON. `tellers.ai.timeline_id` is the item id, `tellers.ai.group_id` names the \
          player group whose transform applies (see the timeline's `tellers.ai.groups`), \
          `tellers.ai[\"Tellers Group ID\"]` is this library's edit group, and the Resolve \
-         `Link Group ID` ties a video to its audio (sync partners).",
+         `Link Group ID` ties a video to its audio (sync partners). `tellers.ai[\"Sync Offset\"]` (seconds) is how far a sync partner trimmed on its own (a J or L cut) starts from its column: -1 for audio pulled 1 s before its video.",
     ),
     ("Gap", "OTIO_SCHEMA", "`Gap.1`."),
     ("Gap", "name", "Display name."),

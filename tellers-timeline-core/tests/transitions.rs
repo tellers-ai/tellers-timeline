@@ -555,7 +555,7 @@ fn extending_a_clip_over_its_neighbour_moves_the_transition_to_the_new_cut() {
         transition("t1"),
         media_clip(2.0, 10.0, "b"),
     ]);
-    assert!(stack.modify_item("a", 0.0, 3.0, true, false, false));
+    assert!(stack.modify_item("a", 0.0, 3.0, true, false, false, true));
     assert_eq!(move_ids(&stack), vec!["a", "t1", "b"]);
     let track = &stack.children[0];
     assert!((track.start_time_of_item(2) - 3.0).abs() < 1e-9);
@@ -568,7 +568,7 @@ fn trimming_a_head_off_its_neighbour_keeps_the_transition_on_the_trimmed_edge() 
         transition("t1"),
         media_clip(2.0, 10.0, "b"),
     ]);
-    assert!(stack.modify_item("b", 0.5, 1.5, true, true, false));
+    assert!(stack.modify_item("b", 0.5, 1.5, true, true, false, true));
     assert_eq!(move_ids(&stack), vec!["a", "gap", "t1", "b"]);
 }
 
@@ -591,7 +591,7 @@ fn extending_over_a_gap_into_a_clip_moves_that_clips_transition_to_the_new_cut()
         transition("t1"),
         media_clip(2.0, 10.0, "b"),
     ]);
-    assert!(stack.modify_item("a", 0.0, 3.0, true, false, false));
+    assert!(stack.modify_item("a", 0.0, 3.0, true, false, false, true));
     assert_eq!(move_ids(&stack), vec!["a", "t1", "b"]);
 }
 
@@ -640,21 +640,21 @@ fn ui_session_trimming_around_a_transition_keeps_it_on_the_cut() {
     let gap = stack.children[0].items[3].get_id().unwrap();
 
     // T2's head dragged 1s left, over T1's tail: the cut moves to 1s.
-    assert!(stack.modify_item("t2c", 2.0, 3.0, true, true, false));
+    assert!(stack.modify_item("t2c", 2.0, 3.0, true, true, false, true));
     assert_eq!(cuts(&stack), vec!["t1c", "dissolve@1", "t2c", "gap", "x"]);
     // Then 2s right: a gap opens, the dissolve stays on T2's head.
-    assert!(stack.modify_item("t2c", 4.0, 1.0, true, true, false));
+    assert!(stack.modify_item("t2c", 4.0, 1.0, true, true, false, true));
     assert_eq!(cuts(&stack), vec!["t1c", "gap", "dissolve@3", "t2c", "gap", "x"]);
     // Then 1s back left.
-    assert!(stack.modify_item("t2c", 3.0, 2.0, true, true, false));
+    assert!(stack.modify_item("t2c", 3.0, 2.0, true, true, false, true));
     assert_eq!(cuts(&stack), vec!["t1c", "gap", "dissolve@2", "t2c", "gap", "x"]);
     // The gap after T2 trimmed, then grown with push: the dissolve is untouched.
-    assert!(stack.modify_item(&gap, 0.0, 0.5, true, false, false));
-    assert!(stack.modify_item(&gap, 0.0, 1.5, true, false, true));
+    assert!(stack.modify_item(&gap, 0.0, 0.5, true, false, false, true));
+    assert!(stack.modify_item(&gap, 0.0, 1.5, true, false, true, true));
     assert_eq!(cuts(&stack), vec!["t1c", "gap", "dissolve@2", "t2c", "gap", "x"]);
     // T1's tail dragged over the gap and into T2's head: the dissolve moves
     // to the new T1 | T2 cut instead of being deleted with T2's head.
-    assert!(stack.modify_item("t1c", 3.0, 3.0, true, false, false));
+    assert!(stack.modify_item("t1c", 3.0, 3.0, true, false, false, true));
     assert_eq!(cuts(&stack), vec!["t1c", "dissolve@3", "t2c", "gap", "x"]);
 }
 
