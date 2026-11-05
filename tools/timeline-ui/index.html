@@ -663,6 +663,8 @@
       ((it.effects || []).length ? '\neffects: ' + it.effects.map(f => f.effect_name + (f.enabled ? '' : ' (off)')).join(', ') : '');
     const badges = [];
     if (it.link_group_id != null) badges.push(`<span class="badge link" style="--h:${(it.link_group_id * 67) % 360}">🔗${it.link_group_id}</span>`);
+    if (it.out_of_sync != null) badges.push(`<span class="badge" style="background:#c62828;color:#fff" title="out of sync: starts ${fmt(it.out_of_sync)}s ${it.out_of_sync > 0 ? 'late' : 'early'} (right-click → Resync)">${it.out_of_sync > 0 ? '+' : ''}${fmt(it.out_of_sync)}</span>`);
+    else if (it.sync_offset) badges.push(`<span class="badge" title="split edit: starts ${fmt(Math.abs(it.sync_offset))}s ${it.sync_offset < 0 ? 'before' : 'after'} its column">${it.sync_offset < 0 ? 'J' : 'L'} ${fmt(it.sync_offset)}</span>`);
     if (it.group_id != null) badges.push(`<span class="badge grp" style="--h:${(it.group_id * 97 + 40) % 360}">⧉${it.group_id}</span>`);
     if (isText) badges.push('<span class="badge">T</span>');
     if (it.speed) badges.push(`<span class="badge speed" title="clip speed">${esc(speedLabel(it.speed))}</span>`);
@@ -1060,6 +1062,10 @@
       { label: 'Replace with new clip…', run: () => openReplacePopover(it, ev) },
       { label: `Add clip marker here (${fmt(clickT)}s)`, disabled: it.kind !== 'clip' && it.kind !== 'composite', run: () => openMarkerPopover(ev, { owner_id: it.id, owner_label: `clip ${it.name || it.id}`, time: clickT }) },
       { label: `${it.enabled ? 'Disable' : 'Enable'} with linked clips`, key: 'E', run: () => toggleEnabled(true) },
+      ...(it.link_group_id != null ? [
+        { label: 'Resync (move clips into sync)', run: () => api('resync_item', { id: it.id, keep_split_edits: true }) },
+        { label: 'Resync + trim J / L cuts back', run: () => api('resync_item', { id: it.id, keep_split_edits: false }) },
+      ] : []),
       ...(it.link_group_id != null ? [{ label: `${it.enabled ? 'Disable' : 'Enable'} this clip only`, key: '⇧E', run: () => toggleEnabled(false) }] : []),
       { sep: true },
       ...(it.kind === 'composite' ? [{ label: '⧉ Open compound (edit its tracks)', key: 'dbl-click', run: () => openCompound(it) }] : []),

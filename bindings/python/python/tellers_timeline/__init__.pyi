@@ -772,6 +772,15 @@ class Stack:
         push_following: bool,
         trim_sync_partners: bool = True,
     ) -> bool: ...
+    def out_of_sync_items(self) -> list[tuple[str, float]]:
+        """Every clip out of sync with its sync column, and by how many seconds
+        (positive: it starts later than it should). A J / L cut is in sync."""
+        ...
+    def resync_item(self, item_id: str, keep_split_edits: bool = True) -> bool:
+        """Move the clips of ``item_id``'s sync column that are out of sync back
+        into place; with ``keep_split_edits=False`` also trim J / L cuts back to
+        the column. False (stack unchanged) when it cannot."""
+        ...
     def replace_item(
         self,
         item_id: str,

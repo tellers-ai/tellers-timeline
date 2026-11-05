@@ -1891,6 +1891,19 @@ impl PyStack {
             trim_sync_partners,
         )
     }
+    /// Every clip out of sync with its sync column, with how far in
+    /// seconds (positive: it starts later than it should). A J / L cut is in
+    /// sync and not listed.
+    fn out_of_sync_items(&self) -> Vec<(String, f64)> {
+        self.inner.out_of_sync_items()
+    }
+    /// Put `item_id`'s sync column back in sync: clips out of sync move into
+    /// place; with `keep_split_edits` false, J / L cuts are also trimmed back
+    /// to the column.
+    #[pyo3(signature = (item_id, keep_split_edits=true))]
+    fn resync_item(&mut self, item_id: &str, keep_split_edits: bool) -> bool {
+        self.inner.resync_item(item_id, keep_split_edits)
+    }
     #[pyo3(signature = (item_id, item, linked_audio_clips=None))]
     fn replace_item(
         &mut self,

@@ -431,3 +431,92 @@ fn a_move_that_shifts_one_clip_of_a_column_is_still_refused() {
     ));
     assert_eq!(stack, before);
 }
+
+/// [`two_columns_with_ids`] with a2 slid 1 s late on its own (no offset):
+/// out of sync, as an older project may be.
+fn a2_drifted() -> Stack {
+    let mut stack = two_columns_with_ids();
+    stack.children[0]
+        .items
+        .insert(1, Item::Gap(Gap::make_gap(1.0)));
+    stack
+}
+
+#[test]
+fn a_clip_slid_off_its_column_is_out_of_sync() {
+    let stack = a2_drifted();
+
+    assert_eq!(stack.out_of_sync_items(), vec![("a2".to_string(), 1.0)]);
+}
+
+#[test]
+fn a_j_cut_is_not_out_of_sync() {
+    let mut stack = two_columns_with_ids();
+    assert!(j_cut(&mut stack));
+
+    assert!(stack.out_of_sync_items().is_empty());
+}
+
+#[test]
+fn resync_moves_a_clip_back_into_sync() {
+    let mut stack = a2_drifted();
+
+    assert!(stack.resync_item("v2", true));
+
+    assert_eq!(state(&stack, "a2"), (5.0, 5.0, 2.0, Some(2), 0.0));
+    assert_eq!(state(&stack, "v2"), (5.0, 5.0, 2.0, Some(2), 0.0));
+    assert!(stack.out_of_sync_items().is_empty());
+}
+
+#[test]
+fn resync_keeps_a_j_cut_unless_asked() {
+    let mut stack = two_columns_with_ids();
+    assert!(j_cut(&mut stack));
+    let before = stack.clone();
+
+    assert!(stack.resync_item("v2", true));
+    assert_eq!(stack, before);
+
+    assert!(stack.resync_item("a2", false));
+    assert_eq!(state(&stack, "a2"), (5.0, 5.0, 2.0, Some(2), 0.0));
+    assert_eq!(state(&stack, "v2"), (5.0, 5.0, 2.0, Some(2), 0.0));
+}
+
+#[test]
+fn resync_trims_an_l_cut_over_the_next_head_back() {
+    let mut stack = two_columns_with_ids();
+    // a1 runs 1 s under v2; a2 starts 1 s late (offset +1).
+    assert!(stack.modify_item("a1", 2.0, 6.0, false, false, false, false));
+
+    assert!(stack.resync_item("v2", false));
+
+    assert_eq!(state(&stack, "a2"), (5.0, 5.0, 2.0, Some(2), 0.0));
+    assert_eq!(state(&stack, "a1"), (0.0, 5.0, 2.0, Some(1), 0.0));
+}
+
+#[test]
+fn resyncing_a_g_column_at_2x_trims_by_its_speed() {
+    let mut stack = d_before_g();
+    assert!(stack.move_item_at_time(
+        "d",
+        "v",
+        7.5,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+
+    assert!(stack.resync_item("g", false));
+
+    assert_eq!(state(&stack, "g audio"), (9.5, 1.0, 6.0, Some(4), 0.0));
+}
+
+#[test]
+fn resync_of_an_unsynced_clip_is_refused() {
+    let mut stack = Stack::default();
+    let mut video = Track::new(TrackKind::Video, Some("v".into()));
+    video.items = vec![Item::Clip(clip(5.0, Some("free")))];
+    stack.children.push(video);
+
+    assert!(!stack.resync_item("free", false));
+}

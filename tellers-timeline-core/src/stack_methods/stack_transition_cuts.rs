@@ -154,7 +154,7 @@ impl Stack {
     /// into the next clip). A clip that only shifted keeps its offset, so a
     /// ripple that leaves later columns out of step is refused. `None` when
     /// `item_id` is not a clip with sync partners (an ordinary trim).
-    fn modify_synced_clip_alone(
+    pub(super) fn modify_synced_clip_alone(
         &mut self,
         item_id: &str,
         source_start_time: Seconds,
