@@ -1867,6 +1867,10 @@ impl PyStack {
     }
     /// Resize by source range, as the app editor's clip handles do: `resize_from_start`
     /// trims the head, `push_following` ripples the rest of the track (else a gap stays).
+    /// `trim_sync_partners=False` trims only this clip of a sync column and keeps it
+    /// synced: a split edit (J / L cut).
+    #[pyo3(signature = (item_id, source_start_time, duration, clamp_to_media, resize_from_start, push_following, trim_sync_partners=true))]
+    #[allow(clippy::too_many_arguments)]
     fn modify_item(
         &mut self,
         item_id: &str,
@@ -1875,6 +1879,7 @@ impl PyStack {
         clamp_to_media: bool,
         resize_from_start: bool,
         push_following: bool,
+        trim_sync_partners: bool,
     ) -> bool {
         self.inner.modify_item(
             item_id,
@@ -1883,7 +1888,21 @@ impl PyStack {
             clamp_to_media,
             resize_from_start,
             push_following,
+            trim_sync_partners,
         )
+    }
+    /// Every clip out of sync with its sync column, with how far in
+    /// seconds (positive: it starts later than it should). A J / L cut is in
+    /// sync and not listed.
+    fn out_of_sync_items(&self) -> Vec<(String, f64)> {
+        self.inner.out_of_sync_items()
+    }
+    /// Put `item_id`'s sync column back in sync: clips out of sync move into
+    /// place; with `keep_split_edits` false, J / L cuts are also trimmed back
+    /// to the column.
+    #[pyo3(signature = (item_id, keep_split_edits=true))]
+    fn resync_item(&mut self, item_id: &str, keep_split_edits: bool) -> bool {
+        self.inner.resync_item(item_id, keep_split_edits)
     }
     #[pyo3(signature = (item_id, item, linked_audio_clips=None))]
     fn replace_item(

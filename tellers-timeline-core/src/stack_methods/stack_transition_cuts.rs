@@ -1,6 +1,6 @@
 //! Trimming keeps a clip's transitions on its cuts.
 
-use super::{reversed_tail_trim, EPS};
+use super::{item_source_start, reversed_tail_trim, EPS};
 use crate::{IdMetadataExt, Item, OverlapPolicy, Seconds, Stack};
 
 /// A transition on a track a trim touches, and the two items it joined.
@@ -102,6 +102,16 @@ impl Stack {
     /// sits between the same two items when they still touch (the cut moved),
     /// else on the edge of the clip it was on that is left, the trimmed one
     /// first. One whose clips are both gone is dropped.
+    ///
+    /// `trim_sync_partners`: a synced clip's sync partners (same Link Group
+    /// ID) take the same trim when true. When false only this clip is
+    /// trimmed and it stays synced: that is a split edit. Pulling an audio
+    /// head before its video is a J cut, running its tail past the video an L
+    /// cut. The clip records how far its start now is from the column as its
+    /// Sync Offset ([`crate::metadata::resolve_sync_offset`]), so the column
+    /// still moves, splits and trims as one. A trim that would push other
+    /// sync columns out of step is refused.
+    #[allow(clippy::too_many_arguments)]
     pub fn modify_item(
         &mut self,
         item_id: &str,
@@ -110,8 +120,21 @@ impl Stack {
         clamp_to_media: bool,
         resize_from_start: bool,
         push_following: bool,
+        trim_sync_partners: bool,
     ) -> bool {
         self.keeping_sync_columns(false, |stack| {
+            if !trim_sync_partners {
+                if let Some(modified) = stack.modify_synced_clip_alone(
+                    item_id,
+                    source_start_time,
+                    duration,
+                    clamp_to_media,
+                    resize_from_start,
+                    push_following,
+                ) {
+                    return modified;
+                }
+            }
             stack.modify_item_unchecked(
                 item_id,
                 source_start_time,
@@ -121,6 +144,92 @@ impl Stack {
                 push_following,
             )
         })
+    }
+
+    /// The split edit of [`Self::modify_item`]: trim the synced clip
+    /// `item_id` as if no clip were synced, so neither it nor a clip it
+    /// overwrites on its track drags its partners along, then put every
+    /// Link Group ID back. The clip's start move is added to its Sync
+    /// Offset, and so is that of a clip whose head it overwrote (an L cut
+    /// into the next clip). A clip that only shifted keeps its offset, so a
+    /// ripple that leaves later columns out of step is refused. `None` when
+    /// `item_id` is not a clip with sync partners (an ordinary trim).
+    pub(super) fn modify_synced_clip_alone(
+        &mut self,
+        item_id: &str,
+        source_start_time: Seconds,
+        duration: Seconds,
+        clamp_to_media: bool,
+        resize_from_start: bool,
+        push_following: bool,
+    ) -> Option<bool> {
+        let (_, _, Item::Clip(clip)) = self.get_item(item_id)? else {
+            return None;
+        };
+        let sync_clips_id = super::resolve_sync_clips_id(&clip.metadata)?;
+        if self.synced_clips_targets(sync_clips_id).len() <= 1 {
+            return None;
+        }
+        let backup = self.clone();
+
+        // Every synced clip is set aside while the clip is trimmed (a column
+        // left with one clip loses its id on sanitize): its id, sync id,
+        // start and source start.
+        let mut synced = Vec::new();
+        for track in &mut self.children {
+            let mut start = 0.0;
+            for item in &mut track.items {
+                let item_start = start;
+                start += item.duration().max(0.0);
+                let Some(id) = item.get_id() else {
+                    continue;
+                };
+                let source = item_source_start(item);
+                let Item::Clip(clip) = item else {
+                    continue;
+                };
+                let Some(sync_id) = super::resolve_sync_clips_id(&clip.metadata) else {
+                    continue;
+                };
+                super::remove_resolve_sync_clips_id(&mut clip.metadata);
+                synced.push((id, sync_id, item_start, source));
+            }
+        }
+        let modified = self.modify_item_unchecked(
+            item_id,
+            source_start_time,
+            duration,
+            clamp_to_media,
+            resize_from_start,
+            push_following,
+        );
+        if !modified {
+            *self = backup;
+            return Some(false);
+        }
+        let mut sync_ids = Vec::new();
+        for (id, sync_id, old_start, old_source) in synced {
+            sync_ids.push(sync_id);
+            let Some((ti, ii, item)) = self.get_item(&id) else {
+                continue;
+            };
+            let start_delta = self.children[ti].start_time_of_item(ii) - old_start;
+            let head_trimmed = id == item_id
+                || (start_delta.abs() > EPS
+                    && (item_source_start(item) - old_source - start_delta).abs() <= EPS);
+            if let Item::Clip(clip) = &mut self.children[ti].items[ii] {
+                super::set_resolve_sync_clips_id(&mut clip.metadata, sync_id);
+                if head_trimmed {
+                    let offset = crate::metadata::resolve_sync_offset(&clip.metadata);
+                    crate::metadata::set_sync_offset(&mut clip.metadata, offset + start_delta);
+                }
+            }
+        }
+        // Trimmed away: a partner left on its own is no longer synced.
+        sync_ids.sort_unstable();
+        sync_ids.dedup();
+        self.cleanup_singleton_sync_clips(&sync_ids);
+        Some(true)
     }
 
     fn modify_item_unchecked(

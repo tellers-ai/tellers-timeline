@@ -72,7 +72,7 @@ A piece of media (or generated content) placed on a track for the duration of it
 | `enabled` | boolean |  | `true` | A disabled clip is neither drawn nor heard; it still takes its time. |
 | `markers` | array of [Marker](#marker) |  |  | Clip markers, in source (media) time. |
 | `media_references` | map of string → [MediaReference](#mediareference) |  |  | The clip's media, by key; usually a single `DEFAULT_MEDIA`. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id, `tellers.ai.group_id` names the player group whose transform applies (see the timeline's `tellers.ai.groups`), `tellers.ai["Tellers Group ID"]` is this library's edit group, and the Resolve `Link Group ID` ties a video to its audio (sync partners). |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id, `tellers.ai.group_id` names the player group whose transform applies (see the timeline's `tellers.ai.groups`), `tellers.ai["Tellers Group ID"]` is this library's edit group, and the Resolve `Link Group ID` ties a video to its audio (sync partners). `tellers.ai["Sync Offset"]` (seconds) is how far a sync partner trimmed on its own (a J or L cut) starts from its column: -1 for audio pulled 1 s before its video. |
 | `name` | string \| null |  |  | Display name. |
 | `source_range` | [TimeRange](#timerange) | yes |  | The part of the media played: `start_time` in the media's own time, and `duration`, which is also how long the clip lasts on the track. |
 

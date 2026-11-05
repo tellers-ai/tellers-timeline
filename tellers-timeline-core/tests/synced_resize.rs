@@ -36,7 +36,7 @@ fn modify_unsynced_insert_in_cluster_updates_padding_and_sync_assets() {
         )
         .expect("insert should succeed");
 
-    assert!(stack.modify_item("inserted-at-2", 0.0, 2.0, false, false, false));
+    assert!(stack.modify_item("inserted-at-2", 0.0, 2.0, false, false, false, true));
 
     let (_, _, inserted) = stack.get_item("inserted-at-2").unwrap();
     assert_eq!(inserted.duration(), 2.0);
@@ -97,7 +97,7 @@ fn modify_cluster_padding_gap_updates_primary_clip_and_sync_assets() {
     let gap_index = audio_track.get_item_at_time(2.0).unwrap();
     let gap_id = audio_track.items[gap_index].get_id().unwrap();
 
-    assert!(stack.modify_item(&gap_id, 0.0, 1.0, false, false, false));
+    assert!(stack.modify_item(&gap_id, 0.0, 1.0, false, false, false, true));
 
     let (_, _, inserted) = stack.get_item("inserted-at-2").unwrap();
     assert_eq!(inserted.duration(), 1.0);
@@ -151,14 +151,14 @@ fn modify_item_in_cluster_preserves_sync_track_info() {
     assert_eq!(groups_after_insert.len(), 1);
     assert_eq!(groups_after_insert[0].track_indices, vec![0, 1, 2, 3]);
 
-    assert!(stack.modify_item("inserted-at-2", 0.0, 2.0, false, false, false));
+    assert!(stack.modify_item("inserted-at-2", 0.0, 2.0, false, false, false, true));
     assert_sync_track_info_unchanged(&groups_after_insert, &stack.sync_track_info());
 
     let audio_track = &stack.children[0];
     let gap_index = audio_track.get_item_at_time(2.0).unwrap();
     let gap_id = audio_track.items[gap_index].get_id().unwrap();
 
-    assert!(stack.modify_item(&gap_id, 0.0, 1.0, false, false, false));
+    assert!(stack.modify_item(&gap_id, 0.0, 1.0, false, false, false, true));
     assert_sync_track_info_unchanged(&groups_after_insert, &stack.sync_track_info());
 }
 
@@ -606,7 +606,7 @@ fn modify_synced_item_left_extension_preserves_following_group() {
     stack.children.push(video);
     stack.children.push(audio);
 
-    assert!(stack.modify_item("first-video", 0.0, 8.0, false, true, false));
+    assert!(stack.modify_item("first-video", 0.0, 8.0, false, true, false, true));
 
     for item_id in ["first-video", "first-audio"] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -655,7 +655,7 @@ fn modify_synced_item_left_extension_with_push_keeps_start_and_pushes_following_
     stack.children.push(video);
     stack.children.push(audio);
 
-    assert!(stack.modify_item("first-video", 0.0, 8.0, false, true, true));
+    assert!(stack.modify_item("first-video", 0.0, 8.0, false, true, true, true));
 
     for item_id in ["first-video", "first-audio"] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -749,7 +749,7 @@ fn modify_item_right_shrink_removes_trailing_gap_on_synced_clips() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    assert!(stack.modify_item("video", 0.0, 3.0, false, false, false));
+    assert!(stack.modify_item("video", 0.0, 3.0, false, false, false, true));
 
     for item_id in ["video", &audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -778,7 +778,7 @@ fn modify_item_left_shrink_leaves_gap_on_synced_clips() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    assert!(stack.modify_item("video", 2.0, 3.0, false, true, false));
+    assert!(stack.modify_item("video", 2.0, 3.0, false, true, false, true));
 
     for item_id in ["video", &audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -812,7 +812,7 @@ fn modify_gap_shrink_updates_following_synced_assets() {
     stack.children.push(audio);
     stack.children.push(video);
 
-    assert!(stack.modify_item("audio-gap", 0.0, 3.0, false, false, false));
+    assert!(stack.modify_item("audio-gap", 0.0, 3.0, false, false, false, true));
 
     for item_id in ["audio", "video"] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -840,7 +840,7 @@ fn modify_item_left_shrink_with_push_updates_synced_source_starts() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    assert!(stack.modify_item("video", 2.0, 3.0, false, true, true));
+    assert!(stack.modify_item("video", 2.0, 3.0, false, true, true, true));
 
     for item_id in ["video", &audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -870,7 +870,7 @@ fn modify_item_from_audio_updates_synced_video() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    assert!(stack.modify_item(&audio_id, 1.0, 3.0, false, true, false));
+    assert!(stack.modify_item(&audio_id, 1.0, 3.0, false, true, false, true));
 
     for item_id in ["video", &audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -902,7 +902,7 @@ fn modify_item_negative_source_start_clamps_synced_clips() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    assert!(stack.modify_item("video", -1.0, 5.0, false, true, true));
+    assert!(stack.modify_item("video", -1.0, 5.0, false, true, true, true));
 
     for item_id in ["video", &audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -931,7 +931,7 @@ fn modify_item_extend_updates_synced_clips_duration() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    assert!(stack.modify_item("video", 0.0, 5.0, false, false, true));
+    assert!(stack.modify_item("video", 0.0, 5.0, false, false, true, true));
 
     for item_id in ["video", &audio_id] {
         let (track_index, item_index, item) = stack.get_item(item_id).unwrap();
@@ -960,7 +960,7 @@ fn modify_item_negative_duration_deletes_synced_clips() {
     .unwrap();
     let audio_id = result.audio_clips[0].0.clone();
 
-    assert!(stack.modify_item("video", 0.0, -1.0, false, false, false));
+    assert!(stack.modify_item("video", 0.0, -1.0, false, false, false, true));
 
     assert!(stack.get_item("video").is_none());
     assert!(stack.get_item(&audio_id).is_none());

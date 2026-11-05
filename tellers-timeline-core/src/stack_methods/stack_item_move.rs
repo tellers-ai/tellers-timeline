@@ -34,7 +34,7 @@ impl Stack {
         })
     }
 
-    fn move_item_at_time_unchecked(
+    pub(super) fn move_item_at_time_unchecked(
         &mut self,
         item_id: &str,
         dest_track_id: &str,
@@ -43,6 +43,16 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) -> bool {
+        if let Some(moved) = self.move_split_edit_column(
+            item_id,
+            dest_track_id,
+            dest_time,
+            replace_with_gap,
+            insert_policy,
+            overlap_policy,
+        ) {
+            return moved;
+        }
         let carried = self.attached_transitions(item_id, dest_track_id, dest_time);
         let moved = self.move_item_at_time_inner(
             item_id,
@@ -95,7 +105,7 @@ impl Stack {
         })
     }
 
-    fn move_items_at_time_unchecked(
+    pub(super) fn move_items_at_time_unchecked(
         &mut self,
         item_id: &str,
         other_ids: &[String],
@@ -105,6 +115,17 @@ impl Stack {
         insert_policy: InsertPolicy,
         overlap_policy: OverlapPolicy,
     ) -> bool {
+        if let Some(moved) = self.move_split_edit_columns(
+            item_id,
+            other_ids,
+            dest_track_id,
+            dest_time,
+            replace_with_gap,
+            insert_policy,
+            overlap_policy,
+        ) {
+            return moved;
+        }
         let others: Vec<String> = other_ids
             .iter()
             .filter(|id| id.as_str() != item_id)
@@ -482,6 +503,15 @@ impl Stack {
         replace_with_gap: bool,
         overlap_policy: OverlapPolicy,
     ) -> bool {
+        if let Some(moved) = self.move_split_edit_column_at_index(
+            item_id,
+            dest_track_id,
+            dest_index,
+            replace_with_gap,
+            overlap_policy,
+        ) {
+            return moved;
+        }
         let dest_time = self
             .get_track_by_id(dest_track_id)
             .map(|(_, track)| track.start_time_of_item(dest_index))

@@ -247,7 +247,7 @@ fn modify_gap_to_negative_duration_removes_gap() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("gap", 0.0, -0.001, true, false, false));
+    assert!(stack.modify_item("gap", 0.0, -0.001, true, false, false, true));
 
     let track = &stack.children[0];
     assert_eq!(track.items.len(), 1);
@@ -301,7 +301,7 @@ fn modify_clip_right_extension_overrides_following_clip() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("first", 0.0, 4.0, false, false, false));
+    assert!(stack.modify_item("first", 0.0, 4.0, false, false, false, true));
 
     let track = &stack.children[0];
     assert_eq!(track.items.len(), 2);
@@ -332,7 +332,7 @@ fn modify_clip_right_extension_overrides_multiple_following_clips() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("first", 0.0, 7.0, false, false, false));
+    assert!(stack.modify_item("first", 0.0, 7.0, false, false, false, true));
 
     let track = &stack.children[0];
     assert_eq!(track.items.len(), 2);
@@ -366,7 +366,7 @@ fn modify_clip_left_extension_at_timeline_start_preserves_right_side() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("second", 0.0, 7.0, false, true, false));
+    assert!(stack.modify_item("second", 0.0, 7.0, false, true, false, true));
 
     let track = &stack.children[0];
     assert_eq!(track.items.len(), 3, "{:?}", track.items);
@@ -412,7 +412,7 @@ fn modify_clip_left_extension_into_gap_preserves_right_side() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("second", 0.0, 8.0, false, true, false));
+    assert!(stack.modify_item("second", 0.0, 8.0, false, true, false, true));
 
     let track = &stack.children[0];
     assert_eq!(track.items.len(), 4, "{:?}", track.items);
@@ -457,7 +457,7 @@ fn modify_clip_left_extension_with_push_keeps_start_and_pushes_right_side() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("second", 0.0, 8.0, false, true, true));
+    assert!(stack.modify_item("second", 0.0, 8.0, false, true, true, true));
 
     let track = &stack.children[0];
     assert_eq!(track.items.len(), 3, "{:?}", track.items);
@@ -613,7 +613,7 @@ fn modify_overlong_clip_down_without_push_preserves_following_duration() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("clip", 0.0, 2.0, true, false, false));
+    assert!(stack.modify_item("clip", 0.0, 2.0, true, false, false, true));
 
     let (track_index, item_index, item) = stack.get_item("clip").unwrap();
     assert_eq!(
@@ -656,7 +656,7 @@ fn modify_item_uses_seconds_for_rational_time_source_and_duration() {
         ..Stack::default()
     };
 
-    assert!(stack.modify_item("clip", 2.0, 2.0, false, true, false));
+    assert!(stack.modify_item("clip", 2.0, 2.0, false, true, false, true));
 
     let (track_index, item_index, item) = stack.get_item("clip").unwrap();
     assert_eq!(

@@ -20,8 +20,10 @@ mod stack_item_split;
 mod stack_partner_tracks;
 #[cfg(test)]
 mod stack_partner_move_tests;
+mod stack_resync;
 mod stack_ripple;
 mod stack_snap;
+mod stack_split_edit_move;
 mod stack_sync_guard;
 mod stack_track;
 mod stack_transition_cuts;
@@ -2630,20 +2632,18 @@ impl Stack {
             return None;
         }
 
-        // Resolve exports often misalign video/audio columns. Defer to the
-        // linked-move path so each partner keeps its own duration.
-        let has_misaligned_video = self
+        // Resolve exports often misalign video/audio columns, and a split edit
+        // (J / L cut) gives a partner its own start or length. Defer to the
+        // linked-move path so each partner keeps its own offset and duration.
+        let has_misaligned_partner = self
             .synced_clips_targets(sync_clips_id)
             .into_iter()
             .any(|(track_index, item_index)| {
-                self.children
-                    .get(track_index)
-                    .is_some_and(|track| track.kind == TrackKind::Video)
-                    && !targets
-                        .iter()
-                        .any(|(ti, ii)| ti == &track_index && ii == &item_index)
+                !targets
+                    .iter()
+                    .any(|(ti, ii)| ti == &track_index && ii == &item_index)
             });
-        if has_misaligned_video {
+        if has_misaligned_partner {
             return None;
         }
 

@@ -317,3 +317,27 @@ def test_move_items_at_time_shifts_the_selection_together():
         return stack.tracks()[track_index].start_time_of_item(item_index)
 
     assert (start("A"), start("B")) == (3.0, 7.0)
+
+
+def _synced_clip(clip_id, sync_id):
+    clip = Clip(5.0, {"DEFAULT_MEDIA": MediaReference(f"file:///{clip_id}.mov")}, id=clip_id)
+    metadata = json.loads(clip.get_metadata_json() or "{}")
+    metadata["Resolve_OTIO"] = {"Link Group ID": sync_id}
+    clip.set_metadata_json(json.dumps(metadata))
+    return Item.from_clip(clip)
+
+
+def test_out_of_sync_items_and_resync_item_translate():
+    # The audio slid 1 s late on its own: out of sync by +1.
+    stack = Stack(
+        [
+            Track(kind="audio", id="a", children=[Item.from_gap(Gap(1.0)), _synced_clip("aud", 7)]),
+            Track(kind="video", id="v", children=[_synced_clip("vid", 7)]),
+        ]
+    )
+
+    assert stack.out_of_sync_items() == [("aud", 1.0)]
+    assert stack.resync_item("vid") is True
+    assert stack.out_of_sync_items() == []
+    assert stack.resync_item("vid", keep_split_edits=False) is True
+    assert stack.resync_item("missing") is False
