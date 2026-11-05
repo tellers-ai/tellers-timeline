@@ -256,3 +256,107 @@ fn moving_an_l_cut_column_keeps_the_longer_audio() {
     assert!(audio_id.is_some());
     assert_eq!(audio_id, video_id);
 }
+
+/// [`two_columns_with_ids`] with a third column (a3 / v3, sync id 3) at
+/// 10-15 s, so a ripple has something to close up.
+fn three_columns() -> Stack {
+    let mut stack = two_columns_with_ids();
+    stack.children[0]
+        .items
+        .push(synced_clip_item_with_source_start(5.0, 2.0, "a3", 3));
+    stack.children[1]
+        .items
+        .push(synced_clip_item_with_source_start(5.0, 2.0, "v3", 3));
+    stack
+}
+
+/// Every column in step: each clip at its partner's start, less its offset.
+fn assert_columns_in_step(stack: &Stack, pairs: &[(&str, &str)]) {
+    for (audio, video) in pairs {
+        let (a, v) = (state(stack, audio), state(stack, video));
+        assert!(a.3.is_some(), "{audio} lost its sync: {a:?}");
+        assert_eq!(a.3, v.3, "{audio} / {video} not in one column");
+        assert!(
+            (a.0 - a.4 - v.0).abs() < 1e-9,
+            "{audio} out of step with {video}: {a:?} vs {v:?}"
+        );
+    }
+}
+
+#[test]
+fn moving_a_j_cut_column_in_a_multi_selection_brings_its_audio() {
+    let mut stack = three_columns();
+    assert!(j_cut(&mut stack));
+
+    // v2 dragged with v3 selected too, both 10 s right.
+    assert!(stack.move_items_at_time(
+        "v2",
+        &["v3".to_string()],
+        "v",
+        15.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+
+    assert_eq!(state(&stack, "v2").0, 15.0);
+    assert_eq!(state(&stack, "a2").0, 14.0);
+    assert_eq!(state(&stack, "v3").0, 20.0);
+    assert_columns_in_step(&stack, &[("a1", "v1"), ("a2", "v2"), ("a3", "v3")]);
+}
+
+#[test]
+fn moving_the_j_cut_audio_in_a_multi_selection_brings_its_video() {
+    let mut stack = three_columns();
+    assert!(j_cut(&mut stack));
+
+    assert!(stack.move_items_at_time(
+        "a2",
+        &["a3".to_string()],
+        "a",
+        14.0,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+
+    assert_eq!(state(&stack, "a2").0, 14.0);
+    assert_eq!(state(&stack, "v2").0, 15.0);
+    assert_eq!(state(&stack, "v3").0, 20.0);
+    assert_columns_in_step(&stack, &[("a1", "v1"), ("a2", "v2"), ("a3", "v3")]);
+}
+
+#[test]
+fn moving_a_j_cut_column_by_index_brings_its_audio() {
+    let mut stack = three_columns();
+    assert!(j_cut(&mut stack));
+
+    // v2 to the end of the video track (after v3).
+    assert!(stack.move_item_at_index("v2", "v", 3, true, OverlapPolicy::Override));
+
+    let (_, _, a2_id, v2_id) = column(&stack, "a2", "v2");
+    assert!(v2_id.is_some());
+    assert_eq!(a2_id, v2_id);
+    assert_eq!(state(&stack, "v2").0, 15.0);
+    assert_eq!(state(&stack, "a2").0, 14.0);
+    assert_columns_in_step(&stack, &[("a1", "v1"), ("a2", "v2"), ("a3", "v3")]);
+}
+
+#[test]
+fn ripple_moving_a_j_cut_column_keeps_every_column_in_step() {
+    let mut stack = three_columns();
+    assert!(j_cut(&mut stack));
+
+    // Without a gap left behind: column 3 closes up.
+    assert!(stack.move_item_at_time(
+        "v2",
+        "v",
+        20.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+
+    assert_columns_in_step(&stack, &[("a1", "v1"), ("a2", "v2"), ("a3", "v3")]);
+    assert_eq!(state(&stack, "a2").4, -1.0);
+}
