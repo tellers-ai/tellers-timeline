@@ -360,3 +360,74 @@ fn ripple_moving_a_j_cut_column_keeps_every_column_in_step() {
     assert_columns_in_step(&stack, &[("a1", "v1"), ("a2", "v2"), ("a3", "v3")]);
     assert_eq!(state(&stack, "a2").4, -1.0);
 }
+
+/// The test UI's sample: column D (video 2 s, its audio cut to 1.5 s) at
+/// 6 s, column G at 8.5 s played at 2×, on tracks "v" and "a".
+fn d_before_g() -> Stack {
+    let fast = |id: &str, sync_id: i64| {
+        let mut item = synced_clip_item_with_source_start(2.0, 4.0, id, sync_id);
+        if let Item::Clip(clip) = &mut item {
+            clip.set_speed(2.0, None).unwrap();
+        }
+        item
+    };
+    let mut audio = Track::new(TrackKind::Audio, Some("a".into()));
+    audio.items = vec![
+        Item::Gap(Gap::make_gap(6.0)),
+        synced_clip_item_with_source_start(1.5, 0.0, "d audio", 6),
+        Item::Gap(Gap::make_gap(1.0)),
+        fast("g audio", 4),
+    ];
+    let mut video = Track::new(TrackKind::Video, Some("v".into()));
+    video.items = vec![
+        Item::Gap(Gap::make_gap(6.0)),
+        synced_clip_item_with_source_start(2.0, 0.0, "d", 6),
+        Item::Gap(Gap::make_gap(0.5)),
+        fast("g", 4),
+    ];
+    let mut stack = Stack::default();
+    stack.children.push(audio);
+    stack.children.push(video);
+    stack
+}
+
+#[test]
+fn a_move_overwriting_a_column_head_unevenly_leaves_it_a_split_edit() {
+    // D dropped at 7.5 s covers 1 s of G's video but 0.5 s of its audio:
+    // G still plays in step with its media, its audio now leading by 0.5 s.
+    let mut stack = d_before_g();
+
+    assert!(stack.move_item_at_time(
+        "d",
+        "v",
+        7.5,
+        true,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+
+    assert_eq!(column(&stack, "d audio", "d").0, 7.5);
+    assert_eq!(column(&stack, "d audio", "d").1, 7.5);
+    // 1 s at 2× is 2 s of source.
+    assert_eq!(state(&stack, "g"), (9.5, 1.0, 6.0, Some(4), 0.0));
+    assert_eq!(state(&stack, "g audio"), (9.0, 1.5, 5.0, Some(4), -0.5));
+    assert_columns_in_step(&stack, &[("d audio", "d"), ("g audio", "g")]);
+}
+
+#[test]
+fn a_move_that_shifts_one_clip_of_a_column_is_still_refused() {
+    // Ripple-moving D's audio alone would slide G's audio, not trim it.
+    let mut stack = d_before_g();
+    stack.children[0].items[1] = Item::Clip(clip(1.5, Some("loose")));
+    let before = stack.clone();
+
+    assert!(!stack.move_item_at_time(
+        "loose",
+        "a",
+        0.0,
+        false,
+        InsertPolicy::SplitAndInsert,
+        OverlapPolicy::Override
+    ));
+    assert_eq!(stack, before);
+}
