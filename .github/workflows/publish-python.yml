@@ -28,8 +28,8 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - uses: dtolnay/rust-toolchain@stable
@@ -46,7 +46,7 @@ jobs:
           # Copy tests so conftest.py cannot import the checkout's extension.
           cp -R bindings/python/tests "$RUNNER_TEMP/python-package-tests"
           python -m pytest -q "$RUNNER_TEMP/python-package-tests"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.target }}
           path: dist/*.whl
@@ -55,8 +55,8 @@ jobs:
   sdist:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - uses: dtolnay/rust-toolchain@stable
@@ -67,7 +67,7 @@ jobs:
           args: --release --locked --sdist -m bindings/python/Cargo.toml --out dist -i python3.11
       - name: Rebuild from the source archive
         run: python -m pip wheel --no-deps dist/*.tar.gz --wheel-dir rebuilt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist/*.tar.gz
@@ -77,10 +77,10 @@ jobs:
     needs: [wheels, sdist]
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -97,7 +97,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
