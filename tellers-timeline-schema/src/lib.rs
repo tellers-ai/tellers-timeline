@@ -23,9 +23,22 @@ use tellers_timeline_core::{
 /// Path of the generated reference, relative to the repository root.
 pub const REFERENCE_PATH: &str = "docs/otio-reference.md";
 
+/// The JSON schema of a timeline, as a draft-07 root schema (definitions
+/// under `definitions`, single values as a one-item `enum` rather than `const`).
+pub fn timeline_schema_root() -> schemars::Schema {
+    schemars::generate::SchemaSettings::draft07()
+        .with_transform(schemars::transform::RecursiveTransform(|schema: &mut schemars::Schema| {
+            if let Some(value) = schema.remove("const") {
+                schema.insert("enum".into(), Value::Array(vec![value]));
+            }
+        }))
+        .into_generator()
+        .into_root_schema_for::<tellers_timeline_core::types::Timeline>()
+}
+
 /// The JSON schema of a timeline.
 pub fn timeline_schema() -> Value {
-    serde_json::to_value(schemars::schema_for!(tellers_timeline_core::types::Timeline))
+    serde_json::to_value(timeline_schema_root())
         .expect("the timeline schema serializes")
 }
 
@@ -144,11 +157,11 @@ pub const TYPE_DOCS: &[(&str, &str)] = &[
         "A `UInt` Resolve parameter.",
     ),
     (
-        "ResolveOTIOParameterSimple_for_Boolean",
+        "ResolveOTIOParameterSimple_for_boolean",
         "A `Bool` Resolve parameter.",
     ),
     (
-        "ResolveOTIOParameterSimple_for_String",
+        "ResolveOTIOParameterSimple_for_string",
         "A `String` or `Color` Resolve parameter.",
     ),
     (

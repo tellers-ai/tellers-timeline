@@ -4,61 +4,58 @@
   "type": "object",
   "properties": {
     "OTIO_SCHEMA": {
-      "default": "Timeline.1",
-      "type": "string"
+      "type": "string",
+      "default": "Timeline.1"
     },
     "metadata": {
       "default": null
     },
     "name": {
-      "default": null,
       "type": [
         "string",
         "null"
-      ]
+      ],
+      "default": null
     },
     "tracks": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Stack"
+        }
+      ],
       "default": {
         "OTIO_SCHEMA": "Stack.1",
         "children": [],
         "metadata": {},
         "name": null
-      },
-      "allOf": [
-        {
-          "$ref": "#/definitions/Stack"
-        }
-      ]
+      }
     }
   },
   "definitions": {
     "Clip": {
       "type": "object",
-      "required": [
-        "source_range"
-      ],
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Clip.2",
-          "type": "string"
+          "type": "string",
+          "default": "Clip.2"
         },
         "active_media_reference_key": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         },
         "effects": {
-          "default": [],
           "type": "array",
+          "default": [],
           "items": {
             "$ref": "#/definitions/Effect"
           }
         },
         "enabled": {
-          "default": true,
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "markers": {
           "type": "array",
@@ -67,38 +64,41 @@
           }
         },
         "media_references": {
-          "default": {},
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/MediaReference"
-          }
+          },
+          "default": {}
         },
         "metadata": {
           "default": null
         },
         "name": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         },
         "source_range": {
           "$ref": "#/definitions/TimeRange"
         }
-      }
+      },
+      "required": [
+        "source_range"
+      ]
     },
     "CompositeStack": {
-      "description": "A `Stack` nested inside a track: a composite clip, drawn as one clip made of its own tracks (the player's `CompositeStack`).\n\nIts length is `source_range.duration` when a source range is set, otherwise the length of its longest child track. `source_range.start_time` is the offset into the child tracks where the composite starts playing.\n\nThe player draws one level of nesting: a `Stack` inside a composite's track is skipped. This library loads and edits composites at any depth.",
+      "description": "A `Stack` nested inside a track: a composite clip, drawn as one clip made\nof its own tracks (the player's `CompositeStack`).\n\nIts length is `source_range.duration` when a source range is set, otherwise\nthe length of its longest child track. `source_range.start_time` is the\noffset into the child tracks where the composite starts playing.\n\nThe player draws one level of nesting: a `Stack` inside a composite's\ntrack is skipped. This library loads and edits composites at any depth.",
       "type": "object",
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Stack.1",
-          "type": "string"
+          "type": "string",
+          "default": "Stack.1"
         },
         "children": {
-          "default": [],
           "type": "array",
+          "default": [],
           "items": {
             "$ref": "#/definitions/Track"
           }
@@ -125,11 +125,11 @@
           "default": null
         },
         "name": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         },
         "source_range": {
           "anyOf": [
@@ -147,31 +147,31 @@
       "type": "object",
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Effect.1",
-          "type": "string"
+          "type": "string",
+          "default": "Effect.1"
         },
         "effect_name": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "enabled": {
-          "description": "OTIO `enabled`; absent means enabled. The player skips an effect whose `enabled` is `false`.",
+          "description": "OTIO `enabled`; absent means enabled. The player skips an effect\nwhose `enabled` is `false`.",
           "type": [
             "boolean",
             "null"
           ]
         },
         "metadata": {
-          "default": {},
           "allOf": [
             {
               "$ref": "#/definitions/EffectMetadata"
             }
-          ]
+          ],
+          "default": {}
         },
         "name": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       },
       "additionalProperties": true
@@ -195,17 +195,14 @@
     },
     "Gap": {
       "type": "object",
-      "required": [
-        "source_range"
-      ],
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Gap.1",
-          "type": "string"
+          "type": "string",
+          "default": "Gap.1"
         },
         "effects": {
-          "default": [],
           "type": "array",
+          "default": [],
           "items": {
             "$ref": "#/definitions/Effect"
           }
@@ -220,16 +217,19 @@
           "default": null
         },
         "name": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         },
         "source_range": {
           "$ref": "#/definitions/TimeRange"
         }
-      }
+      },
+      "required": [
+        "source_range"
+      ]
     },
     "GeneratorParameters": {
       "description": "Generator parameters structure for GeneratorReference",
@@ -256,7 +256,7 @@
           "$ref": "#/definitions/Gap"
         },
         {
-          "description": "A nested `Stack.*` inside a track: a composite clip drawn as one clip made of its own tracks (see [`CompositeStack`]).",
+          "description": "A nested `Stack.*` inside a track: a composite clip drawn as one clip\nmade of its own tracks (see [`CompositeStack`]).",
           "allOf": [
             {
               "$ref": "#/definitions/CompositeStack"
@@ -272,18 +272,23 @@
       "type": "object",
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Marker.2",
-          "type": "string"
+          "type": "string",
+          "default": "Marker.2"
         },
         "color": {
-          "default": "RED",
-          "type": "string"
+          "type": "string",
+          "default": "RED"
         },
         "comment": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "marked_range": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/TimeRange"
+            }
+          ],
           "default": {
             "OTIO_SCHEMA": "TimeRange.1",
             "duration": {
@@ -296,34 +301,26 @@
               "rate": 1.0,
               "value": 0.0
             }
-          },
-          "allOf": [
-            {
-              "$ref": "#/definitions/TimeRange"
-            }
-          ]
+          }
         },
         "metadata": {
           "default": {
             "tellers.ai": {
-              "timeline_id": "54af12849e31"
+              "timeline_id": "e8fb4c923197"
             }
           }
         },
         "name": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         }
       }
     },
     "MediaReference": {
       "oneOf": [
         {
-          "description": "OTIO's `MissingReference` is accepted as an alias and read as an external reference with an empty `target_url`.\n\nProducers outside our control emit it: the OTIO AAF adapter answers every SourceMob that records no locator URL with a `MissingReference`, so importing an Avid sequence used to fail here — `unknown variant MissingReference.1` — and take down the whole project load, even for clips whose media we had resolved.\n\nIt is an alias rather than a third variant because \"no media yet\" is already what an empty `target_url` means throughout the pipeline (`clear_target_urls` empties the field on every project we serve), and because a distinct variant would force a meaning at each of the matches on this enum for no behavioural gain. It re-serializes as `ExternalReference.1`.",
+          "description": "OTIO's `MissingReference` is accepted as an alias and read as an\nexternal reference with an empty `target_url`.\n\nProducers outside our control emit it: the OTIO AAF adapter answers\nevery SourceMob that records no locator URL with a `MissingReference`,\nso importing an Avid sequence used to fail here — `unknown variant\nMissingReference.1` — and take down the whole project load, even for\nclips whose media we had resolved.\n\nIt is an alias rather than a third variant because \"no media yet\" is\nalready what an empty `target_url` means throughout the pipeline\n(`clear_target_urls` empties the field on every project we serve), and\nbecause a distinct variant would force a meaning at each of the\nmatches on this enum for no behavioural gain. It re-serializes as\n`ExternalReference.1`.",
           "type": "object",
-          "required": [
-            "OTIO_SCHEMA"
-          ],
           "properties": {
             "OTIO_SCHEMA": {
               "type": "string",
@@ -335,7 +332,6 @@
               "default": null
             },
             "available_range": {
-              "default": null,
               "anyOf": [
                 {
                   "$ref": "#/definitions/TimeRange"
@@ -343,30 +339,30 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "default": null
             },
             "metadata": {
               "default": null
             },
             "name": {
-              "default": null,
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "default": null
             },
             "target_url": {
-              "default": "",
-              "type": "string"
+              "type": "string",
+              "default": ""
             }
-          }
+          },
+          "required": [
+            "OTIO_SCHEMA"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "OTIO_SCHEMA",
-            "generator_kind"
-          ],
           "properties": {
             "OTIO_SCHEMA": {
               "type": "string",
@@ -378,7 +374,6 @@
               "default": null
             },
             "available_range": {
-              "default": null,
               "anyOf": [
                 {
                   "$ref": "#/definitions/TimeRange"
@@ -386,7 +381,8 @@
                 {
                   "type": "null"
                 }
-              ]
+              ],
+              "default": null
             },
             "generator_kind": {
               "type": "string"
@@ -395,34 +391,34 @@
               "default": null
             },
             "name": {
-              "default": null,
               "type": [
                 "string",
                 "null"
-              ]
+              ],
+              "default": null
             },
             "parameters": {
-              "default": {},
               "allOf": [
                 {
                   "$ref": "#/definitions/GeneratorParameters"
                 }
-              ]
+              ],
+              "default": {}
             }
-          }
+          },
+          "required": [
+            "OTIO_SCHEMA",
+            "generator_kind"
+          ]
         }
       ]
     },
     "RationalTime": {
       "type": "object",
-      "required": [
-        "rate",
-        "value"
-      ],
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "RationalTime.1",
-          "type": "string"
+          "type": "string",
+          "default": "RationalTime.1"
         },
         "rate": {
           "type": "number",
@@ -432,146 +428,147 @@
           "type": "number",
           "format": "double"
         }
-      }
+      },
+      "required": [
+        "rate",
+        "value"
+      ]
     },
     "ResolveOTIOEffect": {
       "description": "Resolve_OTIO effect structure (used in media reference parameters array)",
       "type": "object",
-      "required": [
-        "Effect Name"
-      ],
       "properties": {
         "Effect Name": {
           "type": "string"
         },
         "Enabled": {
-          "default": false,
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "Name": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameters": {
-          "default": [],
           "type": "array",
+          "default": [],
           "items": {
             "$ref": "#/definitions/ResolveOTIOParameter"
           }
         },
         "Type": {
-          "default": 0,
           "type": "integer",
           "format": "uint64",
-          "minimum": 0.0
+          "default": 0,
+          "minimum": 0
         }
-      }
+      },
+      "required": [
+        "Effect Name"
+      ]
     },
     "ResolveOTIOParameter": {
       "oneOf": [
         {
           "type": "object",
-          "required": [
-            "Int"
-          ],
           "properties": {
             "Int": {
               "$ref": "#/definitions/ResolveOTIOParameterNumber_for_int64"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "Int"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "UInt"
-          ],
           "properties": {
             "UInt": {
               "$ref": "#/definitions/ResolveOTIOParameterNumber_for_uint64"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "UInt"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "Double"
-          ],
           "properties": {
             "Double": {
               "$ref": "#/definitions/ResolveOTIOParameterNumber_for_double"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "Double"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "Bool"
-          ],
           "properties": {
             "Bool": {
-              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_Boolean"
+              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_boolean"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "Bool"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "String"
-          ],
           "properties": {
             "String": {
-              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_String"
+              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_string"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "String"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "PointF"
-          ],
           "properties": {
             "PointF": {
               "$ref": "#/definitions/ResolveOTIOParameterPointF"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "PointF"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "Color"
-          ],
           "properties": {
             "Color": {
-              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_String"
+              "$ref": "#/definitions/ResolveOTIOParameterSimple_for_string"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "Color"
+          ]
         },
         {
           "type": "object",
-          "required": [
-            "Unknown"
-          ],
           "properties": {
             "Unknown": {
               "$ref": "#/definitions/ResolveOTIOParameterUnknown"
             }
           },
-          "additionalProperties": false
+          "additionalProperties": false,
+          "required": [
+            "Unknown"
+          ]
         }
       ]
     },
     "ResolveOTIOParameterNumber_for_double": {
       "type": "object",
-      "required": [
-        "Variant Type"
-      ],
       "properties": {
         "Default Parameter Value": {
           "type": [
@@ -581,8 +578,8 @@
           "format": "double"
         },
         "Parameter ID": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameter Value": {
           "type": "number",
@@ -605,13 +602,13 @@
           ],
           "format": "double"
         }
-      }
+      },
+      "required": [
+        "Variant Type"
+      ]
     },
     "ResolveOTIOParameterNumber_for_int64": {
       "type": "object",
-      "required": [
-        "Variant Type"
-      ],
       "properties": {
         "Default Parameter Value": {
           "type": [
@@ -621,8 +618,8 @@
           "format": "int64"
         },
         "Parameter ID": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameter Value": {
           "type": "integer",
@@ -645,13 +642,13 @@
           ],
           "format": "int64"
         }
-      }
+      },
+      "required": [
+        "Variant Type"
+      ]
     },
     "ResolveOTIOParameterNumber_for_uint64": {
       "type": "object",
-      "required": [
-        "Variant Type"
-      ],
       "properties": {
         "Default Parameter Value": {
           "type": [
@@ -659,16 +656,16 @@
             "null"
           ],
           "format": "uint64",
-          "minimum": 0.0
+          "minimum": 0
         },
         "Parameter ID": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameter Value": {
           "type": "integer",
           "format": "uint64",
-          "minimum": 0.0
+          "minimum": 0
         },
         "Variant Type": {
           "type": "string"
@@ -679,7 +676,7 @@
             "null"
           ],
           "format": "uint64",
-          "minimum": 0.0
+          "minimum": 0
         },
         "minValue": {
           "type": [
@@ -687,22 +684,22 @@
             "null"
           ],
           "format": "uint64",
-          "minimum": 0.0
+          "minimum": 0
         }
-      }
+      },
+      "required": [
+        "Variant Type"
+      ]
     },
     "ResolveOTIOParameterPointF": {
       "type": "object",
-      "required": [
-        "Variant Type"
-      ],
       "properties": {
         "Default Parameter Value": {
-          "default": null,
           "type": [
             "array",
             "null"
           ],
+          "default": null,
           "items": {
             "type": "number",
             "format": "double"
@@ -714,15 +711,15 @@
           "default": null
         },
         "Parameter ID": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameter Value": {
-          "default": null,
           "type": [
             "array",
             "null"
           ],
+          "default": null,
           "items": {
             "type": "number",
             "format": "double"
@@ -733,13 +730,13 @@
         "Variant Type": {
           "type": "string"
         }
-      }
-    },
-    "ResolveOTIOParameterSimple_for_Boolean": {
-      "type": "object",
+      },
       "required": [
         "Variant Type"
-      ],
+      ]
+    },
+    "ResolveOTIOParameterSimple_for_boolean": {
+      "type": "object",
       "properties": {
         "Default Parameter Value": {
           "type": [
@@ -748,8 +745,8 @@
           ]
         },
         "Parameter ID": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameter Value": {
           "type": "boolean"
@@ -757,13 +754,13 @@
         "Variant Type": {
           "type": "string"
         }
-      }
-    },
-    "ResolveOTIOParameterSimple_for_String": {
-      "type": "object",
+      },
       "required": [
         "Variant Type"
-      ],
+      ]
+    },
+    "ResolveOTIOParameterSimple_for_string": {
+      "type": "object",
       "properties": {
         "Default Parameter Value": {
           "type": [
@@ -772,8 +769,8 @@
           ]
         },
         "Parameter ID": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameter Value": {
           "type": "string"
@@ -781,7 +778,10 @@
         "Variant Type": {
           "type": "string"
         }
-      }
+      },
+      "required": [
+        "Variant Type"
+      ]
     },
     "ResolveOTIOParameterUnknown": {
       "type": "object",
@@ -793,18 +793,18 @@
           "default": null
         },
         "Parameter ID": {
-          "default": "",
-          "type": "string"
+          "type": "string",
+          "default": ""
         },
         "Parameter Value": {
           "default": null
         },
         "Title HTML": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         }
       }
     },
@@ -812,12 +812,12 @@
       "type": "object",
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Stack.1",
-          "type": "string"
+          "type": "string",
+          "default": "Stack.1"
         },
         "children": {
-          "default": [],
           "type": "array",
+          "default": [],
           "items": {
             "$ref": "#/definitions/Track"
           }
@@ -838,24 +838,20 @@
           "default": null
         },
         "name": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         }
       }
     },
     "TimeRange": {
       "type": "object",
-      "required": [
-        "duration",
-        "start_time"
-      ],
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "TimeRange.1",
-          "type": "string"
+          "type": "string",
+          "default": "TimeRange.1"
         },
         "duration": {
           "$ref": "#/definitions/RationalTime"
@@ -863,21 +859,22 @@
         "start_time": {
           "$ref": "#/definitions/RationalTime"
         }
-      }
+      },
+      "required": [
+        "duration",
+        "start_time"
+      ]
     },
     "Track": {
       "type": "object",
-      "required": [
-        "kind"
-      ],
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Track.1",
-          "type": "string"
+          "type": "string",
+          "default": "Track.1"
         },
         "children": {
-          "default": [],
           "type": "array",
+          "default": [],
           "items": {
             "$ref": "#/definitions/Item"
           }
@@ -889,8 +886,8 @@
           }
         },
         "enabled": {
-          "default": true,
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "kind": {
           "$ref": "#/definitions/TrackKind"
@@ -905,13 +902,16 @@
           "default": null
         },
         "name": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         }
-      }
+      },
+      "required": [
+        "kind"
+      ]
     },
     "TrackKind": {
       "description": "Serialized as OTIO spells it (`\"Video\"`, `\"Audio\"`); read case-insensitively.",
@@ -923,57 +923,57 @@
       ]
     },
     "Transition": {
-      "description": "An OTIO `Transition.1` sitting between two neighbouring track items.\n\nA transition takes no track time: `in_offset` says how far it reaches back into the item before it and `out_offset` how far it reaches into the item after it. The neighbours' `source_range`s do not include that overlap, so a renderer has to read extra media handles past each cut. `transition_type` is `SMPTE_Dissolve` for a standard dissolve; NLE-specific effects (e.g. DaVinci Resolve Fusion transitions) export as `Custom_Transition` with the details under `metadata`.",
+      "description": "An OTIO `Transition.1` sitting between two neighbouring track items.\n\nA transition takes no track time: `in_offset` says how far it reaches back\ninto the item before it and `out_offset` how far it reaches into the item\nafter it. The neighbours' `source_range`s do not include that overlap, so a\nrenderer has to read extra media handles past each cut. `transition_type`\nis `SMPTE_Dissolve` for a standard dissolve; NLE-specific effects (e.g.\nDaVinci Resolve Fusion transitions) export as `Custom_Transition` with the\ndetails under `metadata`.",
       "type": "object",
       "properties": {
         "OTIO_SCHEMA": {
-          "default": "Transition.1",
-          "type": "string"
+          "type": "string",
+          "default": "Transition.1"
         },
         "enabled": {
-          "description": "OTIO `enabled`; absent means enabled. The player skips a transition whose `enabled` is `false` and plays a hard cut.",
+          "description": "OTIO `enabled`; absent means enabled. The player skips a transition\nwhose `enabled` is `false` and plays a hard cut.",
           "type": [
             "boolean",
             "null"
           ]
         },
         "in_offset": {
-          "default": {
-            "OTIO_SCHEMA": "RationalTime.1",
-            "rate": 1.0,
-            "value": 0.0
-          },
           "allOf": [
             {
               "$ref": "#/definitions/RationalTime"
             }
-          ]
+          ],
+          "default": {
+            "OTIO_SCHEMA": "RationalTime.1",
+            "rate": 1.0,
+            "value": 0.0
+          }
         },
         "metadata": {
           "default": null
         },
         "name": {
-          "default": null,
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null
         },
         "out_offset": {
-          "default": {
-            "OTIO_SCHEMA": "RationalTime.1",
-            "rate": 1.0,
-            "value": 0.0
-          },
           "allOf": [
             {
               "$ref": "#/definitions/RationalTime"
             }
-          ]
+          ],
+          "default": {
+            "OTIO_SCHEMA": "RationalTime.1",
+            "rate": 1.0,
+            "value": 0.0
+          }
         },
         "transition_type": {
-          "default": "SMPTE_Dissolve",
-          "type": "string"
+          "type": "string",
+          "default": "SMPTE_Dissolve"
         }
       }
     }
