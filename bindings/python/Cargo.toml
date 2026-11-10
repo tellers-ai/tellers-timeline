@@ -14,4 +14,4 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [build-dependencies]
-pyo3-build-config = "0.21"
+pyo3-build-config = "0.30"
