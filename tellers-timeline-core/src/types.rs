@@ -859,7 +859,11 @@ impl Clip {
     }
 
     pub fn get_position(&self) -> MediaReferencePosition {
-        let active_media_reference = self.media_references.get(self.active_media_reference_key.as_ref().unwrap()).unwrap();
+        // A null `active_media_reference_key` means "DEFAULT_MEDIA", as in OTIO.
+        let Some(active_media_reference) = self.active_media_reference() else {
+            // No media to place: the identity transform.
+            return MediaReferencePosition { x: 0.0, y: 0.0, rotation: 0.0, zoom_x: 1.0, zoom_y: 1.0 };
+        };
         // MediaReferencePosition uses [-0.5, +0.5] with (0, 0) at the screen center,
         // matching Resolve's transformationPan/Tilt space where 0 is centered.
         if let MediaReference::GeneratorReference { .. } = active_media_reference {
@@ -935,9 +939,10 @@ impl Clip {
     /// them are replaced), `scale` is folded into `scaleX`/`scaleY`, and other
     /// parameters such as `opacity` are kept.
     pub fn set_position(&mut self, position: MediaReferencePosition) {
-        let active_media_reference = self.media_references.get(self.active_media_reference_key.as_ref().unwrap()).unwrap();
+        // A null `active_media_reference_key` means "DEFAULT_MEDIA", as in OTIO.
+        let active_media_reference = self.active_media_reference();
 
-        if let MediaReference::GeneratorReference { .. } = active_media_reference {
+        if let Some(active_media_reference @ MediaReference::GeneratorReference { .. }) = active_media_reference {
             let base = rich_text_placement(active_media_reference);
             let ratio = |value: f64, base: f64| if base != 0.0 { value / base } else { value };
             set_tellers_transform_parameters(
