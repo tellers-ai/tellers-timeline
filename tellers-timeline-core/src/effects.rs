@@ -755,6 +755,21 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("position"),
         ],
     ),
+    // Animates the style's dropShadow (a default one without it): `pulse`
+    // breathes it, `sweep` circles it around the text, `rise` lifts it in.
+    effect(
+        "TextShadow",
+        Text,
+        &[
+            choice("style", &["pulse", "sweep", "rise"]),
+            string("colors"),
+            anim("period"),
+            anim("alpha"),
+            anim("blur"),
+            anim("distance"),
+            anim("angle"),
+        ],
+    ),
     // Draws the outline along its path as a pen would, then brings the fill
     // in over the last 30% of `progress`.
     effect("ShapeHandwrite", Shape, &[anim("progress")]),
@@ -2015,6 +2030,9 @@ mod tests {
             timeline.tracks.get_nested_item("vc").unwrap()
         ));
         assert!(timeline.push_item_tellers_effect("tc", TellersEffect::new("TextHandwrite")));
+        assert!(!timeline.push_item_tellers_effect("vc", TellersEffect::new("TextShadow")));
+        assert!(timeline.push_item_tellers_effect("tc", TellersEffect::new("TextShadow")));
+        assert_eq!(effect_spec("tellers.ai.TextShadow").unwrap().target, EffectTarget::Text);
 
         // Shape effects on shape clips only.
         let parameters: crate::ShapeParameters =

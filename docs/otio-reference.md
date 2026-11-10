@@ -382,6 +382,7 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [TextKaraoke](#effect-textkaraoke) | `tellers.ai.TextKaraoke` | text clips | `progress`, `scale`, `color` |
 | [TextWave](#effect-textwave) | `tellers.ai.TextWave` | text clips | `amplitude`, `speed`, `wavelength` |
 | [TextColor](#effect-textcolor) | `tellers.ai.TextColor` | text clips | `colors`, `period`, `position` |
+| [TextShadow](#effect-textshadow) | `tellers.ai.TextShadow` | text clips | `style`, `colors`, `period`, `alpha`, `blur`, `distance`, `angle` |
 | [ShapeHandwrite](#effect-shapehandwrite) | `tellers.ai.ShapeHandwrite` | shape clips | `progress` |
 
 <a id="effect-blur"></a>
@@ -1147,6 +1148,21 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `colors` | string |
 | `period` | [animatable](#animatable-parameters) number |
 | `position` | [animatable](#animatable-parameters) number |
+
+<a id="effect-textshadow"></a>
+### TextShadow
+
+`tellers.ai.TextShadow`, applies to text clips.
+
+| Parameter | Value |
+|---|---|
+| `style` | `"pulse"` \| `"sweep"` \| `"rise"` |
+| `colors` | string |
+| `period` | [animatable](#animatable-parameters) number |
+| `alpha` | [animatable](#animatable-parameters) number |
+| `blur` | [animatable](#animatable-parameters) number |
+| `distance` | [animatable](#animatable-parameters) number |
+| `angle` | [animatable](#animatable-parameters) number |
 
 <a id="effect-shapehandwrite"></a>
 ### ShapeHandwrite
