@@ -423,3 +423,44 @@ fn text_and_shape_clips_are_positioned_by_the_transform_effect() {
         assert!((position.zoom_x - 1.5).abs() < 1e-9);
     }
 }
+
+#[test]
+fn text_clip_with_null_active_media_reference_key_can_be_positioned() {
+    // A Text clip saved with `"active_media_reference_key": null` (its only
+    // media is "DEFAULT_MEDIA") used to panic in get/set_position when it
+    // was dragged in the preview.
+    let mut value = clip_json(json!({
+        "OTIO_SCHEMA": "GeneratorReference.1",
+        "generator_kind": "Text",
+        "available_range": null,
+        "name": null,
+        "available_image_bounds": null,
+        "metadata": {"tellers.ai": {}},
+        "parameters": {"style": {"align": "center", "fill": "#ffffff", "fontSize": 64}, "text": "x"}
+    }));
+    value["active_media_reference_key"] = serde_json::Value::Null;
+    let mut clip: Clip = serde_json::from_value(value).unwrap();
+    assert_eq!(clip.active_media_reference_key, None);
+
+    let position = clip.get_position();
+    assert_eq!((position.x, position.y, position.zoom_x), (0.0, 0.0, 1.0));
+
+    clip.set_position(MediaReferencePosition { x: 0.1, y: -0.2, rotation: 0.0, zoom_x: 1.0, zoom_y: 1.0 });
+    let position = clip.get_position();
+    assert!((position.x - 0.1).abs() < 1e-9);
+    assert!((position.y + 0.2).abs() < 1e-9);
+    // Placed by the tellers Transform effect, as any Text clip.
+    assert_eq!(clip.effects.len(), 1);
+    assert!(clip.effects[0].metadata.resolve_otio.is_none());
+}
+
+#[test]
+fn clip_without_media_references_is_positioned_without_panicking() {
+    let mut value = clip_json(json!({}));
+    value["media_references"] = json!({});
+    value["active_media_reference_key"] = serde_json::Value::Null;
+    let mut clip: Clip = serde_json::from_value(value).unwrap();
+    let position = clip.get_position();
+    assert_eq!((position.x, position.zoom_x), (0.0, 1.0));
+    clip.set_position(MediaReferencePosition { x: 0.1, y: 0.0, rotation: 0.0, zoom_x: 1.0, zoom_y: 1.0 });
+}
