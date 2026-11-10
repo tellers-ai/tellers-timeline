@@ -276,6 +276,14 @@ class ShapeBezierPoint(TypedDict, total=False):
     out_x: float
     out_y: float
 
+# A freehand line of a Shape's `strokes`, drawn with round ends: `points` in
+# clip space ((0, 0) the box's center, ±0.5 its edges), a single point a dot;
+# `width` in pixels of a 1080-high frame (4); `color` a CSS color (#ffffff).
+class ShapeStroke(TypedDict, total=False):
+    color: str
+    width: float
+    points: Required[List[Tuple[float, float]]]
+
 # `parameters` of a `generator_kind: "Shape"` reference. Widths and radii are
 # pixels of a 1080-high frame; line ends are fractions of the clip's box.
 # `fill` and `stroke` are a CSS color, "none", or a CSS linear-gradient() /
@@ -296,6 +304,8 @@ class ShapeParameters(TypedDict, total=False):
     # Path: at least 2 points; closed (True) joins the last to the first.
     points: List[Union[Tuple[float, float], ShapeBezierPoint]]
     closed: bool
+    # Freehand lines drawn over the shape, in order.
+    strokes: List[ShapeStroke]
 
 class MediaReference:
     def __init__(

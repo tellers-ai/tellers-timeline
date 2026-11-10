@@ -311,6 +311,37 @@ fn polygon_star_and_path_shapes() {
 }
 
 #[test]
+fn freehand_strokes_on_a_shape() {
+    // A blank drawing, as the player's shape bar writes it: a line with its
+    // own color and width, then a dot with the defaults.
+    let drawing = json!({
+        "shape": "rectangle", "fill": "none",
+        "strokes": [
+            { "color": "#ff3b30", "width": 8.0, "points": [[-0.3, -0.2], [0.0, 0.1], [0.3, -0.2]] },
+            { "points": [[0.0, 0.4]] }
+        ]
+    });
+    let clip = Clip::new_shape(1.0, &serde_json::from_value(drawing.clone()).unwrap(), None, None).unwrap();
+    let shape = clip.shape_parameters().unwrap();
+    let strokes = shape.strokes.as_ref().unwrap();
+    assert_eq!(strokes[0].color.as_deref(), Some("#ff3b30"));
+    assert_eq!(strokes[0].width, Some(8.0));
+    assert_eq!(strokes[0].points[1], [0.0, 0.1]);
+    assert_eq!(strokes[1].color, None);
+    assert_eq!(strokes[1].points, vec![[0.0, 0.4]]);
+    assert_eq!(serde_json::to_value(&shape).unwrap(), drawing);
+
+    // A shape without strokes writes none.
+    let plain = serde_json::to_value(ShapeParameters::new(ShapeKind::Ellipse)).unwrap();
+    assert!(plain.get("strokes").is_none());
+
+    // A stroke needs its points, as pairs of numbers.
+    for strokes in [json!([{ "color": "#fff" }]), json!([{ "points": [[0.1, 0.2, 0.3]] }]), json!([{ "points": [{ "x": 0.0, "y": 0.0 }] }])] {
+        assert!(serde_json::from_value::<ShapeParameters>(json!({ "shape": "rectangle", "strokes": strokes })).is_err());
+    }
+}
+
+#[test]
 fn new_shape_clip_and_missing_shape() {
     let mut shape = ShapeParameters::new(ShapeKind::Ellipse);
     shape.fill = Some("#fff".to_string());

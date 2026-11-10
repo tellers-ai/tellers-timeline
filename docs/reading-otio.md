@@ -114,6 +114,10 @@ items:
     - `fill`, `stroke`, `stroke_width` and `corner_radius`, in pixels of a
       1080-high frame
     - line ends `x1`/`y1`/`x2`/`y2`, as fractions of the box
+    - `strokes`: freehand lines drawn over the shape, in order. Each has
+      `points` (`[x, y]` pairs, (0, 0) the box's center and ±0.5 its edges; a
+      single point is a dot), a `width` in pixels of a 1080-high frame and a
+      `color`
 
 ## Effects: how a clip looks and sounds
 

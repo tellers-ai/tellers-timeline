@@ -356,6 +356,27 @@ pub struct ShapeParameters {
     /// stroked only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed: Option<bool>,
+    /// Freehand lines drawn over the shape, in order. A rectangle with
+    /// `fill: "none"` and only `strokes` is a blank drawing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strokes: Option<Vec<ShapeStroke>>,
+    #[serde(flatten)]
+    pub other: Extra,
+}
+
+/// A freehand line of a Shape's `strokes`, drawn with round ends. A single
+/// point is a dot.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct ShapeStroke {
+    /// A CSS color (`#ffffff`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Pixels of a 1080-high frame, above 0 (4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f64>,
+    /// `[x, y]` in clip space ((0, 0) the box's center, ±0.5 its edges), at
+    /// least 1; numbers only, not keyframed.
+    pub points: Vec<[f64; 2]>,
     #[serde(flatten)]
     pub other: Extra,
 }
@@ -376,6 +397,7 @@ impl ShapeParameters {
             inner_radius: None,
             points: None,
             closed: None,
+            strokes: None,
             other: Extra::new(),
         }
     }
