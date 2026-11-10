@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
 // use pyo3::types::PyList;
 use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
@@ -8,7 +9,7 @@ use tellers_timeline_core::{
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
-#[pyclass(name = "MediaReference")]
+#[pyclass(name = "MediaReference", from_py_object)]
 #[derive(Clone)]
 struct PyMediaReference {
     inner: MediaReference,
@@ -137,7 +138,7 @@ impl PyMediaReference {
             .map_err(generator_error)?;
         Ok(Self { inner })
     }
-    fn get_text_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn get_text_parameters(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let parameters = self.inner.text_parameters().map_err(generator_error)?;
         generator_parameters_to_python(py, &parameters)
     }
@@ -145,7 +146,7 @@ impl PyMediaReference {
         let parameters: TextParameters = generator_parameters_from_python(parameters)?;
         self.inner.set_text_parameters(&parameters).map_err(generator_error)
     }
-    fn get_shape_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn get_shape_parameters(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let parameters = self.inner.shape_parameters().map_err(generator_error)?;
         generator_parameters_to_python(py, &parameters)
     }
@@ -165,7 +166,7 @@ impl PyMediaReference {
     }
 }
 
-#[pyclass(name = "Effect")]
+#[pyclass(name = "Effect", from_py_object)]
 #[derive(Clone)]
 struct PyEffect {
     inner: Effect,
@@ -252,7 +253,7 @@ impl PyEffect {
     }
 }
 
-#[pyclass(name = "MediaReferencePosition")]
+#[pyclass(name = "MediaReferencePosition", from_py_object)]
 #[derive(Clone)]
 struct PyMediaReferencePosition {
     inner: MediaReferencePosition,
@@ -305,7 +306,7 @@ impl PyMediaReferencePosition {
     }
 }
 
-#[pyclass(name = "MediaReferenceCrop")]
+#[pyclass(name = "MediaReferenceCrop", from_py_object)]
 #[derive(Clone)]
 struct PyMediaReferenceCrop {
     inner: MediaReferenceCrop,
@@ -351,7 +352,7 @@ impl PyMediaReferenceCrop {
     }
 }
 
-#[pyclass(name = "Clip")]
+#[pyclass(name = "Clip", from_py_object)]
 #[derive(Clone)]
 struct PyClip {
     inner: Clip,
@@ -360,7 +361,7 @@ struct PyClip {
 fn dict_to_media_references(
     dict_any: &Bound<PyAny>,
 ) -> PyResult<std::collections::HashMap<String, MediaReference>> {
-    let dict = dict_any.downcast::<PyDict>()?;
+    let dict = dict_any.cast::<PyDict>()?;
     let mut out = std::collections::HashMap::<String, MediaReference>::new();
     for (k, v) in dict {
         let key: String = k.extract().map_err(|_| {
@@ -436,7 +437,7 @@ impl PyClip {
             )
             .unwrap();
         }
-        d.into_py(py)
+        d.unbind()
     }
     fn set_media_references(&mut self, references: &Bound<PyAny>) -> PyResult<()> {
         self.inner.media_references = dict_to_media_references(references)?;
@@ -497,7 +498,7 @@ impl PyClip {
     /// The speed the player plays this clip at, as `{"speed", "preserve_pitch"}`
     /// (`speed` a number, 0 for a freeze frame and negative backwards, or
     /// `{"keyframes": [...]}`), or None at normal speed.
-    fn get_speed(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+    fn get_speed(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .get_speed()
             .map(|speed| {
@@ -581,7 +582,7 @@ impl PyClip {
     fn is_shape_clip(&self) -> bool {
         self.inner.is_shape_clip()
     }
-    fn get_text_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn get_text_parameters(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let parameters = self.inner.text_parameters().map_err(generator_error)?;
         generator_parameters_to_python(py, &parameters)
     }
@@ -589,7 +590,7 @@ impl PyClip {
         let parameters: TextParameters = generator_parameters_from_python(parameters)?;
         self.inner.set_text_parameters(&parameters).map_err(generator_error)
     }
-    fn get_shape_parameters(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn get_shape_parameters(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let parameters = self.inner.shape_parameters().map_err(generator_error)?;
         generator_parameters_to_python(py, &parameters)
     }
@@ -607,7 +608,7 @@ impl PyClip {
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of this clip,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
-    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         tellers_effects_to_python(py, self.inner.get_tellers_effects())
     }
     /// Replace every tellers effect of this clip with `effects` (dicts like
@@ -626,7 +627,7 @@ impl PyClip {
     }
     /// Replace the tellers effect of this clip at `index`, keeping its other keys;
     /// returns the previous one, or None when out of range.
-    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<Py<PyAny>>> {
         let effect = tellers_effect_from_python(effect)?;
         self.inner
             .replace_tellers_effect_at(index, effect)
@@ -634,7 +635,7 @@ impl PyClip {
             .transpose()
     }
     /// Remove and return the tellers effect of this clip at `index`.
-    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .remove_tellers_effect_at(index)
             .map(|e| tellers_effect_to_python(py, &e))
@@ -668,7 +669,7 @@ impl PyClip {
     }
 }
 
-#[pyclass(name = "Gap")]
+#[pyclass(name = "Gap", from_py_object)]
 #[derive(Clone)]
 struct PyGap {
     inner: Gap,
@@ -727,7 +728,7 @@ impl PyGap {
     }
 }
 
-#[pyclass(name = "Transition")]
+#[pyclass(name = "Transition", from_py_object)]
 #[derive(Clone)]
 struct PyTransition {
     inner: Transition,
@@ -869,13 +870,13 @@ impl PyTransition {
     }
 }
 
-#[pyclass(name = "Item")]
+#[pyclass(name = "Item", from_py_object)]
 #[derive(Clone)]
 struct PyItem {
     inner: Item,
 }
 
-#[pyclass(name = "TimeRange")]
+#[pyclass(name = "TimeRange", from_py_object)]
 #[derive(Clone)]
 struct PyTimeRange {
     inner: TimeRange,
@@ -1012,7 +1013,7 @@ impl PyItem {
             d.set_item(k, Py::new(py, PyMediaReference { inner: v }).unwrap())
                 .unwrap();
         }
-        d.into_py(py)
+        d.unbind()
     }
     fn set_media_references(&mut self, references: &Bound<PyAny>) -> PyResult<()> {
         let refs = dict_to_media_references(references)?;
@@ -1030,7 +1031,7 @@ impl PyItem {
     /// (none for a gap), in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
     /// Items returned by a timeline are copies: use the
     /// `Timeline.*_item_tellers_effect*` methods to change one in it.
-    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         tellers_effects_to_python(py, self.inner.get_tellers_effects())
     }
     /// Replace every tellers effect of this clip or composite clip with `effects` (dicts like
@@ -1049,7 +1050,7 @@ impl PyItem {
     }
     /// Replace the tellers effect of this clip or composite clip at `index`, keeping its other keys;
     /// returns the previous one, or None when out of range.
-    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<Py<PyAny>>> {
         let effect = tellers_effect_from_python(effect)?;
         self.inner
             .replace_tellers_effect_at(index, effect)
@@ -1057,7 +1058,7 @@ impl PyItem {
             .transpose()
     }
     /// Remove and return the tellers effect of this clip or composite clip at `index`.
-    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .remove_tellers_effect_at(index)
             .map(|e| tellers_effect_to_python(py, &e))
@@ -1105,7 +1106,7 @@ impl PyItem {
     }
 }
 
-#[pyclass(name = "Track")]
+#[pyclass(name = "Track", from_py_object)]
 #[derive(Clone)]
 struct PyTrack {
     inner: Track,
@@ -1163,7 +1164,7 @@ impl PyTrack {
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
-    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         tellers_effects_to_python(py, self.inner.get_tellers_effects())
     }
     /// Replace every tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it with `effects` (dicts like
@@ -1182,7 +1183,7 @@ impl PyTrack {
     }
     /// Replace the tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it at `index`, keeping its other keys;
     /// returns the previous one, or None when out of range.
-    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<Py<PyAny>>> {
         let effect = tellers_effect_from_python(effect)?;
         self.inner
             .replace_tellers_effect_at(index, effect)
@@ -1190,7 +1191,7 @@ impl PyTrack {
             .transpose()
     }
     /// Remove and return the tellers effect of this track object, applied to each of its clips. Tracks returned by a timeline are copies: use the `Timeline.*_track_tellers_effect*` methods to change one in it at `index`.
-    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .remove_tellers_effect_at(index)
             .map(|e| tellers_effect_to_python(py, &e))
@@ -1301,7 +1302,7 @@ impl PyTrack {
     }
 }
 
-#[pyclass(name = "Stack")]
+#[pyclass(name = "Stack", from_py_object)]
 #[derive(Clone)]
 struct PyStack {
     inner: Stack,
@@ -1358,7 +1359,7 @@ impl PyStack {
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
     }
-    fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         sync_track_info_to_python(py, self.inner.sync_track_info())
     }
     /// The associated track ids of the track with `track_id`, nearest first,
@@ -1390,7 +1391,7 @@ impl PyStack {
     /// its kind ("video" or "audio" group) and its partners in slot order,
     /// computed from the sync clips. Tracks in no group are groups of one, so
     /// every track appears exactly once.
-    fn track_groups(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn track_groups(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         track_groups_to_python(py, self.inner.track_groups())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
@@ -1404,11 +1405,11 @@ impl PyStack {
         self.inner.rename_track(id, name)
     }
     /// See `Timeline.track_references`.
-    fn track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn track_references(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         track_references_to_python(py, &self.inner, self.inner.track_references())
     }
     /// See `Timeline.dangling_track_references`.
-    fn dangling_track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn dangling_track_references(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         track_references_to_python(py, &self.inner, self.inner.dangling_track_references())
     }
     fn set_tracks(&mut self, tracks: Vec<PyTrack>) {
@@ -1501,7 +1502,7 @@ impl PyStack {
         py: Python<'_>,
         composite_id: &str,
         edit: &Bound<PyAny>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let outcome = self.inner.with_composite_mut(composite_id, |stack| {
             let original = stack.children.clone();
             let working = Py::new(py, PyStack { inner: std::mem::take(stack) }).unwrap();
@@ -1549,9 +1550,9 @@ impl PyStack {
         item: &Bound<PyAny>,
         overlap_policy: &str,
         insert_policy: &str,
-        linked_audio_clips: Option<Vec<PyObject>>,
-        linked_video_clip: Option<PyObject>,
-    ) -> PyResult<Option<PyObject>> {
+        linked_audio_clips: Option<Vec<Py<PyAny>>>,
+        linked_video_clip: Option<Py<PyAny>>,
+    ) -> PyResult<Option<Py<PyAny>>> {
         if let Some(inner_item) = extract_item(item) {
             let linked_video_clip = extract_optional_linked_clip(
                 py,
@@ -1590,7 +1591,7 @@ impl PyStack {
                 linked_audio_clips,
                 linked_video_clip,
             ) {
-                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
+                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py_any(py)?)),
                 Some(InsertItemAtTimeResult::Synced(result)) => {
                     let dict = PyDict::new(py);
                     dict.set_item("primary_clip_id", result.primary_clip_id)?;
@@ -1598,7 +1599,7 @@ impl PyStack {
                     dict.set_item("linked_video_clip_id", result.synced_video_clip_id)?;
                     dict.set_item("link_group_id", result.sync_clips_id)?;
                     dict.set_item("created_track_indices", result.created_track_indices)?;
-                    Ok(Some(dict.into_py(py)))
+                    Ok(Some(dict.into_any().unbind()))
                 }
                 None => Ok(None),
             }
@@ -1617,9 +1618,9 @@ impl PyStack {
         item: &Bound<PyAny>,
         overlap_policy: &str,
         insert_policy: &str,
-        linked_audio_clips: Option<Vec<PyObject>>,
-        linked_video_clip: Option<PyObject>,
-    ) -> PyResult<Option<PyObject>> {
+        linked_audio_clips: Option<Vec<Py<PyAny>>>,
+        linked_video_clip: Option<Py<PyAny>>,
+    ) -> PyResult<Option<Py<PyAny>>> {
         if let Some(inner_item) = extract_item(item) {
             let linked_video_clip = extract_optional_linked_clip(
                 py,
@@ -1658,7 +1659,7 @@ impl PyStack {
                 linked_audio_clips,
                 linked_video_clip,
             ) {
-                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
+                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py_any(py)?)),
                 Some(InsertItemAtTimeResult::Synced(result)) => {
                     let dict = PyDict::new(py);
                     dict.set_item("primary_clip_id", result.primary_clip_id)?;
@@ -1666,7 +1667,7 @@ impl PyStack {
                     dict.set_item("linked_video_clip_id", result.synced_video_clip_id)?;
                     dict.set_item("link_group_id", result.sync_clips_id)?;
                     dict.set_item("created_track_indices", result.created_track_indices)?;
-                    Ok(Some(dict.into_py(py)))
+                    Ok(Some(dict.into_any().unbind()))
                 }
                 None => Ok(None),
             }
@@ -1684,9 +1685,9 @@ impl PyStack {
         dest_index: usize,
         item: &Bound<PyAny>,
         overlap_policy: &str,
-        linked_audio_clips: Option<Vec<PyObject>>,
-        linked_video_clip: Option<PyObject>,
-    ) -> PyResult<Option<PyObject>> {
+        linked_audio_clips: Option<Vec<Py<PyAny>>>,
+        linked_video_clip: Option<Py<PyAny>>,
+    ) -> PyResult<Option<Py<PyAny>>> {
         if let Some(inner_item) = extract_item(item) {
             let linked_video_clip = extract_optional_linked_clip(
                 py,
@@ -1726,7 +1727,7 @@ impl PyStack {
                     linked_video_clip,
                 )
             {
-                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py(py))),
+                Some(InsertItemAtTimeResult::ItemId(id)) => Ok(Some(id.into_py_any(py)?)),
                 Some(InsertItemAtTimeResult::Synced(result)) => {
                     let dict = PyDict::new(py);
                     dict.set_item("primary_clip_id", result.primary_clip_id)?;
@@ -1734,7 +1735,7 @@ impl PyStack {
                     dict.set_item("linked_video_clip_id", result.synced_video_clip_id)?;
                     dict.set_item("link_group_id", result.sync_clips_id)?;
                     dict.set_item("created_track_indices", result.created_track_indices)?;
-                    Ok(Some(dict.into_py(py)))
+                    Ok(Some(dict.into_any().unbind()))
                 }
                 None => Ok(None),
             }
@@ -1910,7 +1911,7 @@ impl PyStack {
         py: Python<'_>,
         item_id: &str,
         item: &Bound<PyAny>,
-        linked_audio_clips: Option<Vec<PyObject>>,
+        linked_audio_clips: Option<Vec<Py<PyAny>>>,
     ) -> PyResult<bool> {
         if let Some(inner_item) = extract_item(item) {
             if linked_audio_clips.is_some() && !matches!(inner_item, Item::Clip(_)) {
@@ -1961,7 +1962,7 @@ fn extract_item(item: &Bound<PyAny>) -> Option<Item> {
 
 fn extract_optional_linked_clip(
     py: Python<'_>,
-    item: Option<PyObject>,
+    item: Option<Py<PyAny>>,
     param_name: &str,
 ) -> PyResult<Option<Item>> {
     item.map(|item| {
@@ -1980,7 +1981,7 @@ fn extract_optional_linked_clip(
     .transpose()
 }
 
-fn track_groups_to_python(py: Python<'_>, groups: Vec<TrackGroup>) -> PyResult<Vec<PyObject>> {
+fn track_groups_to_python(py: Python<'_>, groups: Vec<TrackGroup>) -> PyResult<Vec<Py<PyAny>>> {
     groups
         .into_iter()
         .map(|group| {
@@ -1997,7 +1998,7 @@ fn track_groups_to_python(py: Python<'_>, groups: Vec<TrackGroup>) -> PyResult<V
             )?;
             dict.set_item("partner_track_indices", group.partner_track_indices)?;
             dict.set_item("partner_track_ids", group.partner_track_ids)?;
-            Ok(dict.into_py(py))
+            Ok(dict.into_any().unbind())
         })
         .collect()
 }
@@ -2005,19 +2006,19 @@ fn track_groups_to_python(py: Python<'_>, groups: Vec<TrackGroup>) -> PyResult<V
 fn sync_track_info_to_python(
     py: Python<'_>,
     groups: Vec<tellers_timeline_core::SyncTrackInfo>,
-) -> PyResult<Vec<PyObject>> {
+) -> PyResult<Vec<Py<PyAny>>> {
     groups
         .into_iter()
         .map(|group| {
             let dict = PyDict::new(py);
             dict.set_item("track_indices", group.track_indices)?;
             dict.set_item("track_ids", group.track_ids)?;
-            Ok(dict.into_py(py))
+            Ok(dict.into_any().unbind())
         })
         .collect()
 }
 
-fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<PyObject>> {
+fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<Py<PyAny>>> {
     fonts
         .into_iter()
         .map(|font| {
@@ -2035,7 +2036,7 @@ fn font_faces_to_python(py: Python<'_>, fonts: Vec<FontFace>) -> PyResult<Vec<Py
             dict.set_item("target_url", target_url)?;
             dict.set_item("weight", font.weight)?;
             dict.set_item("style", font.style)?;
-            Ok(dict.into_py(py))
+            Ok(dict.into_any().unbind())
         })
         .collect()
 }
@@ -2044,7 +2045,7 @@ fn value_error(message: String) -> PyErr {
     PyErr::new::<pyo3::exceptions::PyValueError, _>(message)
 }
 
-fn clip_group_to_python(py: Python<'_>, group: &tellers_timeline_core::ClipGroup) -> PyResult<PyObject> {
+fn clip_group_to_python(py: Python<'_>, group: &tellers_timeline_core::ClipGroup) -> PyResult<Py<PyAny>> {
     generator_parameters_to_python(py, &serde_json::json!({"id": group.id, "parameters": group.parameters}))
 }
 
@@ -2060,17 +2061,17 @@ fn generator_error(error: GeneratorError) -> PyErr {
 }
 
 /// Generator parameters as the plain dict of their JSON (player key names).
-fn generator_parameters_to_python<T: serde::Serialize>(py: Python<'_>, parameters: &T) -> PyResult<PyObject> {
+fn generator_parameters_to_python<T: serde::Serialize>(py: Python<'_>, parameters: &T) -> PyResult<Py<PyAny>> {
     let text = serde_json::to_string(parameters)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
-    Ok(py.import_bound("json")?.call_method1("loads", (text,))?.unbind())
+    Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
 }
 
 /// A JSON-like dict as typed generator parameters.
 fn generator_parameters_from_python<T: serde::de::DeserializeOwned>(parameters: &Bound<PyAny>) -> PyResult<T> {
     let text: String = parameters
         .py()
-        .import_bound("json")?
+        .import("json")?
         .call_method1("dumps", (parameters,))?
         .extract()?;
     serde_json::from_str(&text).map_err(|e| {
@@ -2078,7 +2079,7 @@ fn generator_parameters_from_python<T: serde::de::DeserializeOwned>(parameters: 
     })
 }
 
-fn marker_info_to_python(py: Python<'_>, info: MarkerInfo) -> PyResult<PyObject> {
+fn marker_info_to_python(py: Python<'_>, info: MarkerInfo) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("id", info.marker.get_id())?;
     dict.set_item("name", &info.marker.name)?;
@@ -2100,10 +2101,10 @@ fn marker_info_to_python(py: Python<'_>, info: MarkerInfo) -> PyResult<PyObject>
     dict.set_item("timeline_start", info.timeline_start)?;
     dict.set_item("duration", info.duration)?;
     dict.set_item("visible", info.visible)?;
-    Ok(dict.into_py(py))
+    Ok(dict.into_any().unbind())
 }
 
-#[pyclass(name = "Timeline")]
+#[pyclass(name = "Timeline", from_py_object)]
 #[derive(Clone)]
 struct PyTimeline {
     inner: Timeline,
@@ -2270,7 +2271,7 @@ impl PyTimeline {
     fn reorder_track(&mut self, id: &str, insertion_index: isize) -> bool {
         self.inner.reorder_track(id, insertion_index)
     }
-    fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn sync_track_info(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         sync_track_info_to_python(py, self.inner.sync_track_info())
     }
     /// The associated track ids of the track with `track_id`, nearest first,
@@ -2302,7 +2303,7 @@ impl PyTimeline {
     /// its kind ("video" or "audio" group) and its partners in slot order,
     /// computed from the sync clips. Tracks in no group are groups of one, so
     /// every track appears exactly once.
-    fn track_groups(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn track_groups(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         track_groups_to_python(py, self.inner.tracks.track_groups())
     }
     fn delete_track(&mut self, py: Python<'_>, id: &str) -> Option<Py<PyTrack>> {
@@ -2322,11 +2323,11 @@ impl PyTimeline {
     /// filter's or Mask's `detect.track`) on the top-level tracks and their items, as `{"owner_id",
     /// "track_index", "item_index", "effect_index", "effect_name", "enabled", "kind", "track",
     /// "matches"}` dicts; `matches` are the ids of the video tracks it names.
-    fn track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn track_references(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         track_references_to_python(py, &self.inner.tracks, self.inner.tracks.track_references())
     }
     /// The enabled `track_references` no other video track matches: they do nothing in the player.
-    fn dangling_track_references(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn dangling_track_references(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         track_references_to_python(py, &self.inner.tracks, self.inner.tracks.dangling_track_references())
     }
     fn move_item(&mut self, item_id: &str, dest_track_id: &str, dest_time: f64) -> PyResult<bool> {
@@ -2343,7 +2344,7 @@ impl PyTimeline {
     /// `{"family", "url", "asset_id", "target_url", "weight", "style"}` dicts:
     /// a font linked by URL has `url`, an uploaded font has `asset_id` (and
     /// `target_url` once resolved). Fonts the player would ignore are skipped.
-    fn get_fonts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn get_fonts(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         font_faces_to_python(py, self.inner.get_fonts())
     }
     /// Declare a custom font, replacing an entry with the same family
@@ -2389,7 +2390,7 @@ impl PyTimeline {
     /// timeline times: `{"id", "name", "comment", "color", "created_by",
     /// "owner_kind", "owner_id", "track_id", "timeline_start", "duration",
     /// "visible"}`.
-    fn get_markers(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn get_markers(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         self.inner
             .get_markers()
             .into_iter()
@@ -2397,7 +2398,7 @@ impl PyTimeline {
             .collect()
     }
     /// The marker with id `marker_id`, as in `get_markers`, or None.
-    fn get_marker(&self, py: Python<'_>, marker_id: &str) -> PyResult<Option<PyObject>> {
+    fn get_marker(&self, py: Python<'_>, marker_id: &str) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .get_marker(marker_id)
             .map(|info| marker_info_to_python(py, info))
@@ -2446,7 +2447,7 @@ impl PyTimeline {
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the timeline, applied over the whole composited image,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
-    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn get_tellers_effects(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         tellers_effects_to_python(py, self.inner.get_tellers_effects())
     }
     /// Replace every tellers effect of the timeline, applied over the whole composited image with `effects` (dicts like
@@ -2465,7 +2466,7 @@ impl PyTimeline {
     }
     /// Replace the tellers effect of the timeline, applied over the whole composited image at `index`, keeping its other keys;
     /// returns the previous one, or None when out of range.
-    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+    fn replace_tellers_effect_at(&mut self, py: Python<'_>, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<Py<PyAny>>> {
         let effect = tellers_effect_from_python(effect)?;
         self.inner
             .replace_tellers_effect_at(index, effect)
@@ -2473,7 +2474,7 @@ impl PyTimeline {
             .transpose()
     }
     /// Remove and return the tellers effect of the timeline, applied over the whole composited image at `index`.
-    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<PyObject>> {
+    fn remove_tellers_effect_at(&mut self, py: Python<'_>, index: usize) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .remove_tellers_effect_at(index)
             .map(|e| tellers_effect_to_python(py, &e))
@@ -2497,10 +2498,10 @@ impl PyTimeline {
     }
     /// Every clip group (`metadata["tellers.ai"].groups`), by id, as
     /// `{"id", "parameters"}` dicts.
-    fn get_clip_groups(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn get_clip_groups(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         self.inner.get_clip_groups().iter().map(|g| clip_group_to_python(py, g)).collect()
     }
-    fn get_clip_group(&self, py: Python<'_>, id: &str) -> PyResult<Option<PyObject>> {
+    fn get_clip_group(&self, py: Python<'_>, id: &str) -> PyResult<Option<Py<PyAny>>> {
         self.inner.get_clip_group(id).map(|g| clip_group_to_python(py, &g)).transpose()
     }
     /// Add or replace a group's transform from a `{"id", "parameters"}` dict;
@@ -2540,7 +2541,7 @@ impl PyTimeline {
         self.inner.clip_group_start(id)
     }
     /// The group transform at `t` seconds from `clip_group_start`, as the player evaluates it.
-    fn clip_group_transform_at(&self, py: Python<'_>, id: &str, t: f64) -> PyResult<Option<PyObject>> {
+    fn clip_group_transform_at(&self, py: Python<'_>, id: &str, t: f64) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .get_clip_group(id)
             .map(|group| {
@@ -2556,7 +2557,7 @@ impl PyTimeline {
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the clip or composite clip `item_id`,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
-    fn get_item_tellers_effects(&self, py: Python<'_>, item_id: &str, ) -> PyResult<Option<Vec<PyObject>>> {
+    fn get_item_tellers_effects(&self, py: Python<'_>, item_id: &str, ) -> PyResult<Option<Vec<Py<PyAny>>>> {
         self.inner.get_item_tellers_effects(item_id).map(|e| tellers_effects_to_python(py, e)).transpose()
     }
     /// Replace every tellers effect of the clip or composite clip `item_id` with `effects` (dicts like
@@ -2575,7 +2576,7 @@ impl PyTimeline {
     }
     /// Replace the tellers effect of the clip or composite clip `item_id` at `index`, keeping its other keys;
     /// returns the previous one, or None when out of range.
-    fn replace_item_tellers_effect_at(&mut self, py: Python<'_>, item_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+    fn replace_item_tellers_effect_at(&mut self, py: Python<'_>, item_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<Py<PyAny>>> {
         let effect = tellers_effect_from_python(effect)?;
         self.inner
             .replace_item_tellers_effect_at(item_id, index, effect)
@@ -2583,7 +2584,7 @@ impl PyTimeline {
             .transpose()
     }
     /// Remove and return the tellers effect of the clip or composite clip `item_id` at `index`.
-    fn remove_item_tellers_effect_at(&mut self, py: Python<'_>, item_id: &str, index: usize) -> PyResult<Option<PyObject>> {
+    fn remove_item_tellers_effect_at(&mut self, py: Python<'_>, item_id: &str, index: usize) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .remove_item_tellers_effect_at(item_id, index)
             .map(|e| tellers_effect_to_python(py, &e))
@@ -2609,7 +2610,7 @@ impl PyTimeline {
     /// parameter of its first enabled Transform, as a `{"region"?, "target"?, "pick"?, "fill"?, ...}`
     /// dict with the player's option names; None when it has none. `region` is missing for a follow
     /// declared with `target` and `pick` that the player has not resolved yet.
-    fn get_item_follow(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<PyObject>> {
+    fn get_item_follow(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .get_item_follow(item_id)
             .map(|follow| match follow.to_value() {
@@ -2638,13 +2639,13 @@ impl PyTimeline {
         Ok(self.inner.set_item_follow(item_id, &follow, transform))
     }
     /// Every clip or composite clip with a follow (at any depth), as `(item_id, follow)` pairs.
-    fn item_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+    fn item_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, Py<PyAny>)>> {
         follows_to_python(py, self.inner.item_follows())
     }
     /// The follows the player still has to resolve, as `(item_id, follow)` pairs: on a clip (not a
     /// composite clip), with no `region` yet (declared with `target` and `pick`), or with a `region`
     /// but not all of `x`, `y` and `scale` baked.
-    fn unresolved_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+    fn unresolved_follows(&self, py: Python<'_>) -> PyResult<Vec<(String, Py<PyAny>)>> {
         follows_to_python(py, self.inner.unresolved_follows())
     }
     /// Save what the player resolved for `item_id`: the `parameters` of its `onFollowResolved`
@@ -2669,7 +2670,7 @@ impl PyTimeline {
     /// `attach` parameter of its first enabled Transform, as a `{"track", "target"?, "pick"?,
     /// "anchorX"?, "hide"?, "region"?, ...}` dict with the player's names; None when it has none.
     /// `region` is missing until the player resolves it.
-    fn get_item_attach(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<PyObject>> {
+    fn get_item_attach(&self, py: Python<'_>, item_id: &str) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .get_item_attach(item_id)
             .map(|attach| match attach.to_value() {
@@ -2697,12 +2698,12 @@ impl PyTimeline {
         Ok(self.inner.set_item_attach(item_id, &attach, transform))
     }
     /// Every clip or composite clip with an attach (at any depth), as `(item_id, attach)` pairs.
-    fn item_attaches(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+    fn item_attaches(&self, py: Python<'_>) -> PyResult<Vec<(String, Py<PyAny>)>> {
         attaches_to_python(py, self.inner.item_attaches())
     }
     /// The attaches the player still has to resolve, as `(item_id, attach)` pairs: on a clip (not a
     /// composite clip), with no `region` yet, or with a `region` but not both `x` and `y` baked.
-    fn unresolved_attaches(&self, py: Python<'_>) -> PyResult<Vec<(String, PyObject)>> {
+    fn unresolved_attaches(&self, py: Python<'_>) -> PyResult<Vec<(String, Py<PyAny>)>> {
         attaches_to_python(py, self.inner.unresolved_attaches())
     }
     /// Save what the player resolved for `item_id`: the `parameters` of its `onFollowResolved`
@@ -2725,16 +2726,16 @@ impl PyTimeline {
     /// The `detect`s of the clip `item_id`'s enabled filters and Masks, as `{"item_id",
     /// "effect_index", "effect_name", "detect", "resolved"}` dicts; `effect_index` counts every
     /// effect of the clip, like the player's `effectIndex`.
-    fn get_item_detects(&self, py: Python<'_>, item_id: &str) -> PyResult<Vec<PyObject>> {
+    fn get_item_detects(&self, py: Python<'_>, item_id: &str) -> PyResult<Vec<Py<PyAny>>> {
         detects_to_python(py, self.inner.get_item_detects(item_id))
     }
     /// Every clip effect with a `detect` (at any depth), as `get_item_detects` dicts.
-    fn item_detects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn item_detects(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         detects_to_python(py, self.inner.item_detects())
     }
     /// The `detect`s the player still has to resolve on load: a filter without `regions`, a Mask
     /// without `x`.
-    fn unresolved_detects(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+    fn unresolved_detects(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         detects_to_python(py, self.inner.unresolved_detects())
     }
     /// Save what the player detected: the `effectIndex`, `effectName` and `parameters` of its
@@ -2750,7 +2751,7 @@ impl PyTimeline {
     }
     /// The tellers effects (filters, Transform, Mask, Volume, Text effects, ...) of the track `track_id`,
     /// in order, as `{"effect_name", "name", "enabled", "parameters"}` dicts.
-    fn get_track_tellers_effects(&self, py: Python<'_>, track_id: &str, ) -> PyResult<Option<Vec<PyObject>>> {
+    fn get_track_tellers_effects(&self, py: Python<'_>, track_id: &str, ) -> PyResult<Option<Vec<Py<PyAny>>>> {
         self.inner.get_track_tellers_effects(track_id).map(|e| tellers_effects_to_python(py, e)).transpose()
     }
     /// Replace every tellers effect of the track `track_id` with `effects` (dicts like
@@ -2769,7 +2770,7 @@ impl PyTimeline {
     }
     /// Replace the tellers effect of the track `track_id` at `index`, keeping its other keys;
     /// returns the previous one, or None when out of range.
-    fn replace_track_tellers_effect_at(&mut self, py: Python<'_>, track_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<PyObject>> {
+    fn replace_track_tellers_effect_at(&mut self, py: Python<'_>, track_id: &str, index: usize, effect: &Bound<PyAny>) -> PyResult<Option<Py<PyAny>>> {
         let effect = tellers_effect_from_python(effect)?;
         self.inner
             .replace_track_tellers_effect_at(track_id, index, effect)
@@ -2777,7 +2778,7 @@ impl PyTimeline {
             .transpose()
     }
     /// Remove and return the tellers effect of the track `track_id` at `index`.
-    fn remove_track_tellers_effect_at(&mut self, py: Python<'_>, track_id: &str, index: usize) -> PyResult<Option<PyObject>> {
+    fn remove_track_tellers_effect_at(&mut self, py: Python<'_>, track_id: &str, index: usize) -> PyResult<Option<Py<PyAny>>> {
         self.inner
             .remove_track_tellers_effect_at(track_id, index)
             .map(|e| tellers_effect_to_python(py, &e))
@@ -2823,7 +2824,7 @@ impl PyTimeline {
 }
 
 fn json_module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
-    PyModule::import_bound(py, "json")
+    PyModule::import(py, "json")
 }
 
 /// A JSON-serializable Python value as JSON.
@@ -2833,7 +2834,7 @@ fn json_from_python(value: &Bound<PyAny>) -> PyResult<serde_json::Value> {
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))
 }
 
-fn json_to_python(py: Python<'_>, value: &serde_json::Map<String, serde_json::Value>) -> PyResult<PyObject> {
+fn json_to_python(py: Python<'_>, value: &serde_json::Map<String, serde_json::Value>) -> PyResult<Py<PyAny>> {
     let text = serde_json::to_string(value)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string()))?;
     Ok(json_module(py)?.call_method1("loads", (text,))?.unbind())
@@ -2842,7 +2843,7 @@ fn json_to_python(py: Python<'_>, value: &serde_json::Map<String, serde_json::Va
 fn follows_to_python(
     py: Python<'_>,
     follows: Vec<(String, tellers_timeline_core::Follow)>,
-) -> PyResult<Vec<(String, PyObject)>> {
+) -> PyResult<Vec<(String, Py<PyAny>)>> {
     follows
         .into_iter()
         .map(|(id, follow)| match follow.to_value() {
@@ -2856,7 +2857,7 @@ fn track_references_to_python(
     py: Python<'_>,
     stack: &Stack,
     references: Vec<tellers_timeline_core::TrackReference>,
-) -> PyResult<Vec<PyObject>> {
+) -> PyResult<Vec<Py<PyAny>>> {
     references
         .into_iter()
         .map(|r| {
@@ -2892,7 +2893,7 @@ fn track_references_to_python(
 fn attaches_to_python(
     py: Python<'_>,
     attaches: Vec<(String, tellers_timeline_core::Attach)>,
-) -> PyResult<Vec<(String, PyObject)>> {
+) -> PyResult<Vec<(String, Py<PyAny>)>> {
     attaches
         .into_iter()
         .map(|(id, attach)| match attach.to_value() {
@@ -2905,7 +2906,7 @@ fn attaches_to_python(
 fn detects_to_python(
     py: Python<'_>,
     detects: Vec<tellers_timeline_core::ItemDetect>,
-) -> PyResult<Vec<PyObject>> {
+) -> PyResult<Vec<Py<PyAny>>> {
     detects
         .into_iter()
         .map(|d| {
@@ -2924,22 +2925,22 @@ fn detects_to_python(
         .collect()
 }
 
-fn tellers_effect_to_python(py: Python<'_>, effect: &TellersEffect) -> PyResult<PyObject> {
-    let dict = PyDict::new_bound(py);
+fn tellers_effect_to_python(py: Python<'_>, effect: &TellersEffect) -> PyResult<Py<PyAny>> {
+    let dict = PyDict::new(py);
     dict.set_item("effect_name", &effect.effect_name)?;
     dict.set_item("name", &effect.name)?;
     dict.set_item("enabled", effect.enabled)?;
     dict.set_item("parameters", json_to_python(py, &effect.parameters)?)?;
-    Ok(dict.into_py(py))
+    Ok(dict.into_any().unbind())
 }
 
-fn tellers_effects_to_python(py: Python<'_>, effects: Vec<TellersEffect>) -> PyResult<Vec<PyObject>> {
+fn tellers_effects_to_python(py: Python<'_>, effects: Vec<TellersEffect>) -> PyResult<Vec<Py<PyAny>>> {
     effects.iter().map(|e| tellers_effect_to_python(py, e)).collect()
 }
 
 /// A `{"effect_name", "name"?, "enabled"?, "parameters"?}` dict as a tellers effect.
 fn tellers_effect_from_python(effect: &Bound<PyAny>) -> PyResult<TellersEffect> {
-    if effect.downcast::<PyDict>().is_err() {
+    if effect.cast::<PyDict>().is_err() {
         return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
             "tellers effects must be {\"effect_name\", \"name\", \"enabled\", \"parameters\"} dicts",
         ));
@@ -2955,7 +2956,7 @@ fn tellers_effect_from_python(effect: &Bound<PyAny>) -> PyResult<TellersEffect> 
 
 fn tellers_effects_from_python(effects: &Bound<PyAny>) -> PyResult<Vec<TellersEffect>> {
     effects
-        .iter()?
+        .try_iter()?
         .map(|effect| tellers_effect_from_python(&effect?))
         .collect()
 }
@@ -2963,12 +2964,12 @@ fn tellers_effects_from_python(effects: &Bound<PyAny>) -> PyResult<Vec<TellersEf
 /// The tellers effects the player renders, as `{"effect_name", "target",
 /// "parameters": [{"name", "kind", "options"?}]}` dicts.
 #[pyfunction]
-fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
+fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
     use tellers_timeline_core::{EffectTarget, ParameterKind, EFFECT_SPECS};
     EFFECT_SPECS
         .iter()
         .map(|spec| {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             dict.set_item("effect_name", spec.name)?;
             let target = match spec.target {
                 EffectTarget::Video => "video",
@@ -2982,7 +2983,7 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                 .parameters
                 .iter()
                 .map(|param| {
-                    let p = PyDict::new_bound(py);
+                    let p = PyDict::new(py);
                     p.set_item("name", param.name)?;
                     let kind = match param.kind {
                         ParameterKind::Animatable => "animatable",
@@ -3001,11 +3002,11 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                         ParameterKind::Bands => "bands",
                     };
                     p.set_item("kind", kind)?;
-                    Ok(p.into_py(py))
+                    Ok(p.into_any().unbind())
                 })
-                .collect::<PyResult<Vec<PyObject>>>()?;
+                .collect::<PyResult<Vec<Py<PyAny>>>>()?;
             dict.set_item("parameters", parameters)?;
-            Ok(dict.into_py(py))
+            Ok(dict.into_any().unbind())
         })
         .collect()
 }
