@@ -103,7 +103,7 @@ remaining work; it is not a claim of complete OTIO conformance.
 | Markers | ✅ Supported | Point/range markers, names, comments, colors, IDs, and source-to-timeline time conversion. |
 | Effect data | 🟡 Partial | Effect lists on clips, tracks, and stacks; typed tellers effects (`tellers.ai.<Effect>`: filters, transforms, masks, audio, text animations); Resolve parameter parsing; transform and crop helpers; `target_url` resolution from an effect's `asset_id`. Clip groups (`metadata["tellers.ai"].groups` and each member's `group_id`) are typed: read, created, edited and evaluated. Portable effect schemas remain a standardization target. |
 | Insert and overlap policies | ✅ Supported | Push or override overlaps; insert before, after, nearest boundary, or split a gap to insert. |
-| Timeline editing | ✅ Supported | Move, replace, split, resize, delete, reorder tracks, and find snap targets. |
+| Timeline editing | ✅ Supported | Move, replace, split, resize, delete, reorder tracks, find snap targets, and copy/paste clips (with their sync partners, under new ids and groups, without overwriting). |
 | Audio/video sync and groups | ✅ Supported | Linked editing, sync partner placement, associated tracks, group discovery, and optional track normalization. |
 | Sanitization | ✅ Supported | Clamp clips to available media, repair missing/duplicate track and item IDs, merge gaps, remove zero-length items/trailing gaps, and clean dangling sync links. |
 | Validation | 🟡 Partial | Negative item-duration checks. Comprehensive structural and schema validation remains. |
