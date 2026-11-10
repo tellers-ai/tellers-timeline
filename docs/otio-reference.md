@@ -377,10 +377,12 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | [Limiter](#effect-limiter) | `tellers.ai.Limiter` | audio (sound) | `ceiling`, `release` |
 | [TimeWarp](#effect-timewarp) | `tellers.ai.TimeWarp` | playback speed | `speed`, `preserve_pitch` |
 | [TextTypewriter](#effect-texttypewriter) | `tellers.ai.TextTypewriter` | text clips | `progress` |
+| [TextHandwrite](#effect-texthandwrite) | `tellers.ai.TextHandwrite` | text clips | `progress` |
 | [TextWordReveal](#effect-textwordreveal) | `tellers.ai.TextWordReveal` | text clips | `progress`, `style` |
 | [TextKaraoke](#effect-textkaraoke) | `tellers.ai.TextKaraoke` | text clips | `progress`, `scale`, `color` |
 | [TextWave](#effect-textwave) | `tellers.ai.TextWave` | text clips | `amplitude`, `speed`, `wavelength` |
 | [TextColor](#effect-textcolor) | `tellers.ai.TextColor` | text clips | `colors`, `period`, `position` |
+| [ShapeHandwrite](#effect-shapehandwrite) | `tellers.ai.ShapeHandwrite` | shape clips | `progress` |
 
 <a id="effect-blur"></a>
 ### Blur
@@ -1094,6 +1096,15 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 |---|---|
 | `progress` | [animatable](#animatable-parameters) number |
 
+<a id="effect-texthandwrite"></a>
+### TextHandwrite
+
+`tellers.ai.TextHandwrite`, applies to text clips.
+
+| Parameter | Value |
+|---|---|
+| `progress` | [animatable](#animatable-parameters) number |
+
 <a id="effect-textwordreveal"></a>
 ### TextWordReveal
 
@@ -1136,6 +1147,15 @@ The same effect can sit on a clip or a track (applied to each of its clips); cli
 | `colors` | string |
 | `period` | [animatable](#animatable-parameters) number |
 | `position` | [animatable](#animatable-parameters) number |
+
+<a id="effect-shapehandwrite"></a>
+### ShapeHandwrite
+
+`tellers.ai.ShapeHandwrite`, applies to shape clips.
+
+| Parameter | Value |
+|---|---|
+| `progress` | [animatable](#animatable-parameters) number |
 
 ### Asset references
 

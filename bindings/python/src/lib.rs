@@ -2974,6 +2974,7 @@ fn tellers_effect_specs(py: Python<'_>) -> PyResult<Vec<PyObject>> {
                 EffectTarget::Video => "video",
                 EffectTarget::Audio => "audio",
                 EffectTarget::Text => "text",
+                EffectTarget::Shape => "shape",
                 EffectTarget::Time => "time",
             };
             dict.set_item("target", target)?;
