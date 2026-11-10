@@ -188,7 +188,7 @@ class ClipGroupTransform(TypedDict):
 
 class TellersEffectSpec(TypedDict):
     effect_name: str
-    target: Literal["video", "audio", "text", "time"]
+    target: Literal["video", "audio", "text", "shape", "time"]
     parameters: list[EffectParameterSpec]
 
 def tellers_effect_specs() -> list[TellersEffectSpec]: ...

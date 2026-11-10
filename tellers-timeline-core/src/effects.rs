@@ -49,7 +49,8 @@
 //! Each effect has a target ([`EffectTarget`]) deciding where it may go:
 //! picture effects on video (and other) tracks and their clips, text clips
 //! included; text effects (`Text*`) on text clips only (and on non-audio
-//! tracks, which apply them to their text clips); sound effects (`Volume`,
+//! tracks, which apply them to their text clips); shape effects (`Shape*`)
+//! likewise on shape clips only; sound effects (`Volume`,
 //! `Pan`) on audio tracks and their clips only; a `TimeWarp` anywhere. The
 //! track accessors and the timeline's `*_track_*` and `*_item_*` accessors
 //! refuse an effect on the wrong kind of track or clip; the clip accessors
@@ -100,6 +101,8 @@ pub enum EffectTarget {
     Audio,
     /// The letters of a Text clip (a `Text` generator); no other clip.
     Text,
+    /// The drawing of a Shape clip (a `Shape` generator); no other clip.
+    Shape,
     /// The playback speed of a clip.
     Time,
 }
@@ -113,7 +116,9 @@ impl EffectTarget {
     /// clip; see [`Self::allowed_on_item`].
     pub fn allowed_on(self, kind: &TrackKind) -> bool {
         match self {
-            EffectTarget::Video | EffectTarget::Text => *kind != TrackKind::Audio,
+            EffectTarget::Video | EffectTarget::Text | EffectTarget::Shape => {
+                *kind != TrackKind::Audio
+            }
             EffectTarget::Audio => *kind == TrackKind::Audio,
             EffectTarget::Time => true,
         }
@@ -128,13 +133,14 @@ impl EffectTarget {
 
     /// Whether an effect of this target belongs on `item`, on a track of
     /// `kind`: as [`Self::allowed_on`], a text effect only on a text clip,
-    /// and speed only on a media clip (not a composite clip, nor a Text,
+    /// a shape effect only on a shape clip, and speed only on a media clip (not a composite clip, nor a Text,
     /// Shape or Rich Text clip, which the player shows at normal speed).
     /// Picture effects go on text clips too.
     pub fn allowed_on_item(self, kind: &TrackKind, item: &Item) -> bool {
         self.allowed_on(kind)
             && match self {
                 EffectTarget::Text => matches!(item, Item::Clip(clip) if clip.is_text_clip()),
+                EffectTarget::Shape => matches!(item, Item::Clip(clip) if clip.is_shape_clip()),
                 EffectTarget::Time => matches!(item, Item::Clip(clip) if !clip.is_generator_clip()),
                 EffectTarget::Video | EffectTarget::Audio => true,
             }
@@ -229,7 +235,7 @@ const fn effect(
     EffectSpec { name, target, parameters }
 }
 
-use EffectTarget::{Audio, Text, Time, Video};
+use EffectTarget::{Audio, Shape, Text, Time, Video};
 
 /// Every tellers effect the player renders, with its parameters (mirrors
 /// `schema/timeline.schema.json` in `video-player-js`).
@@ -723,6 +729,8 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
     effect("Limiter", Audio, &[anim("ceiling"), anim("release")]),
     effect("TimeWarp", Time, &[anim("speed"), boolean("preserve_pitch")]),
     effect("TextTypewriter", Text, &[anim("progress")]),
+    // Inks the characters in one by one, each left to right.
+    effect("TextHandwrite", Text, &[anim("progress")]),
     effect(
         "TextWordReveal",
         Text,
@@ -747,6 +755,9 @@ pub const EFFECT_SPECS: &[EffectSpec] = &[
             anim("position"),
         ],
     ),
+    // Draws the outline along its path as a pen would, then brings the fill
+    // in over the last 30% of `progress`.
+    effect("ShapeHandwrite", Shape, &[anim("progress")]),
 ];
 
 /// The spec of the tellers effect `effect_name` (prefixed or bare), if the
@@ -1518,7 +1529,8 @@ impl Timeline {
     /// Whether `effect` may go on the clip or composite clip `item_id`,
     /// given the kind of the track holding it (see
     /// [`EffectTarget::allowed_on_item`]): no Volume on a video clip, no
-    /// Blur on an audio clip, no TextWave on anything but a text clip. Inside
+    /// Blur on an audio clip, no TextWave on anything but a text clip, no
+    /// ShapeHandwrite on anything but a shape clip. Inside
     /// a composite clip, no speed and no `ColorLut`: the player draws
     /// neither there.
     fn item_accepts_effect(&self, item_id: &str, effect: &TellersEffect) -> bool {
@@ -2002,6 +2014,23 @@ mod tests {
             &TrackKind::Video,
             timeline.tracks.get_nested_item("vc").unwrap()
         ));
+        assert!(timeline.push_item_tellers_effect("tc", TellersEffect::new("TextHandwrite")));
+
+        // Shape effects on shape clips only.
+        let parameters: crate::ShapeParameters =
+            serde_json::from_value(json!({ "shape": "rectangle" })).unwrap();
+        let shape = Clip::new_shape(1.0, &parameters, None, Some("sc".to_string())).unwrap();
+        timeline.tracks.children[0].items.push(Item::Clip(shape));
+        assert!(!timeline.push_item_tellers_effect("vc", TellersEffect::new("ShapeHandwrite")));
+        assert!(!timeline.push_item_tellers_effect("tc", TellersEffect::new("ShapeHandwrite")));
+        assert!(!timeline.push_item_tellers_effect("ac", TellersEffect::new("ShapeHandwrite")));
+        assert!(!timeline.push_item_tellers_effect("sc", TellersEffect::new("TextHandwrite")));
+        assert!(timeline.push_item_tellers_effect("sc", TellersEffect::new("ShapeHandwrite")));
+        assert!(timeline.push_item_tellers_effect("sc", TellersEffect::new("DropShadow")));
+        // A track applies its shape effects to its shape clips.
+        assert!(timeline.push_track_tellers_effect("v", TellersEffect::new("ShapeHandwrite")));
+        assert!(!timeline.push_track_tellers_effect("a", TellersEffect::new("ShapeHandwrite")));
+        assert_eq!(effect_spec("tellers.ai.ShapeHandwrite").unwrap().target, EffectTarget::Shape);
     }
 
     #[test]

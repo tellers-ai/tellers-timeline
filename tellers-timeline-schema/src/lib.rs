@@ -528,6 +528,7 @@ fn target_name(target: EffectTarget) -> &'static str {
         EffectTarget::Video => "video (picture)",
         EffectTarget::Audio => "audio (sound)",
         EffectTarget::Text => "text clips",
+        EffectTarget::Shape => "shape clips",
         EffectTarget::Time => "playback speed",
     }
 }
