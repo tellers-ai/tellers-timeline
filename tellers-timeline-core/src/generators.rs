@@ -73,17 +73,15 @@ macro_rules! lenient_str_enum {
         }
 
         impl JsonSchema for $name {
-            fn schema_name() -> String {
-                stringify!($name).to_string()
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($name).into()
             }
 
-            fn json_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-                schemars::schema::SchemaObject {
-                    instance_type: Some(schemars::schema::InstanceType::String.into()),
-                    enum_values: Some(vec![$(serde_json::Value::from($value)),+]),
-                    ..Default::default()
-                }
-                .into()
+            fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                schemars::json_schema!({
+                    "type": "string",
+                    "enum": [$($value),+],
+                })
             }
         }
     };
