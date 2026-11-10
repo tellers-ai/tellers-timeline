@@ -222,7 +222,7 @@ A DaVinci Resolve effect, as Resolve's OTIO export writes it: in an `Effect`'s `
 
 A parameter of a Resolve effect, typed by its `Variant Type`.
 
-One of [ResolveOTIOParameterNumber_for_int64](#resolveotioparameternumber_for_int64), [ResolveOTIOParameterNumber_for_uint64](#resolveotioparameternumber_for_uint64), [ResolveOTIOParameterNumber_for_double](#resolveotioparameternumber_for_double), [ResolveOTIOParameterSimple_for_Boolean](#resolveotioparametersimple_for_boolean), [ResolveOTIOParameterSimple_for_String](#resolveotioparametersimple_for_string), [ResolveOTIOParameterPointF](#resolveotioparameterpointf), [ResolveOTIOParameterSimple_for_String](#resolveotioparametersimple_for_string), [ResolveOTIOParameterUnknown](#resolveotioparameterunknown).
+One of [ResolveOTIOParameterNumber_for_int64](#resolveotioparameternumber_for_int64), [ResolveOTIOParameterNumber_for_uint64](#resolveotioparameternumber_for_uint64), [ResolveOTIOParameterNumber_for_double](#resolveotioparameternumber_for_double), [ResolveOTIOParameterSimple_for_boolean](#resolveotioparametersimple_for_boolean), [ResolveOTIOParameterSimple_for_string](#resolveotioparametersimple_for_string), [ResolveOTIOParameterPointF](#resolveotioparameterpointf), [ResolveOTIOParameterSimple_for_string](#resolveotioparametersimple_for_string), [ResolveOTIOParameterUnknown](#resolveotioparameterunknown).
 
 ### ResolveOTIOParameterNumber_for_double
 
@@ -263,7 +263,7 @@ A `UInt` Resolve parameter.
 | `maxValue` | number \| null |  |  | Upper bound in Resolve's UI. |
 | `minValue` | number \| null |  |  | Lower bound in Resolve's UI. |
 
-### ResolveOTIOParameterSimple_for_Boolean
+### ResolveOTIOParameterSimple_for_boolean
 
 A `Bool` Resolve parameter.
 
@@ -274,7 +274,7 @@ A `Bool` Resolve parameter.
 | `Parameter Value` | boolean |  |  | Its value. |
 | `Variant Type` | string | yes |  | The parameter's type: `Double`, `Int`, `Bool`, `POINTF`, ... |
 
-### ResolveOTIOParameterSimple_for_String
+### ResolveOTIOParameterSimple_for_string
 
 A `String` or `Color` Resolve parameter.
 

@@ -1254,6 +1254,7 @@ pub enum VariantType {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[schemars(rename = "ResolveOTIOParameterNumber_for_{T}")]
 pub struct ResolveOTIOParameterNumber<T: Default> {
     #[serde(rename = "Variant Type")]
     pub variant_type: String,
@@ -1270,6 +1271,7 @@ pub struct ResolveOTIOParameterNumber<T: Default> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+#[schemars(rename = "ResolveOTIOParameterSimple_for_{T}")]
 pub struct ResolveOTIOParameterSimple<T: Default> {
     #[serde(rename = "Variant Type")]
     pub variant_type: String,
