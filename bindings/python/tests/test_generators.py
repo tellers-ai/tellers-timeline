@@ -107,6 +107,20 @@ def test_polygon_and_path_shapes():
     assert Clip.new_shape(1.0, path).get_shape_parameters() == path
 
 
+def test_shape_freehand_strokes():
+    drawing = {
+        "shape": "rectangle",
+        "fill": "none",
+        "strokes": [
+            {"color": "#ff3b30", "width": 8.0, "points": [[-0.3, -0.2], [0.0, 0.1]]},
+            {"points": [[0.0, 0.4]]},
+        ],
+    }
+    assert Clip.new_shape(1.0, drawing).get_shape_parameters() == drawing
+    with pytest.raises(ValueError):
+        Clip.new_shape(1.0, {"shape": "rectangle", "strokes": [{"color": "#fff"}]})
+
+
 def test_wrong_kind_raises():
     text = Clip.new_text(1.0, {"text": "x"})
     with pytest.raises(ValueError):
