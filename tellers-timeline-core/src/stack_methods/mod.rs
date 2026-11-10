@@ -175,7 +175,7 @@ impl Stack {
             + 1
     }
 
-    fn next_tellers_group_id(&self) -> i64 {
+    pub(crate) fn next_tellers_group_id(&self) -> i64 {
         self.children
             .iter()
             .flat_map(|track| track.items.iter())
@@ -963,7 +963,7 @@ impl Stack {
         }
     }
 
-    pub(super) fn new_numbered_track(&self, kind: TrackKind) -> Track {
+    pub(crate) fn new_numbered_track(&self, kind: TrackKind) -> Track {
         let prefix = match kind {
             TrackKind::Audio => "A",
             TrackKind::Video => "V",

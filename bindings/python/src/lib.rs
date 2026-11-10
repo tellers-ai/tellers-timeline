@@ -5,7 +5,7 @@ use pyo3::types::{PyAny, PyDict};
 use tellers_timeline_core::to_json_with_precision;
 use tellers_timeline_core::track_methods::track_item_insert::{InsertPolicy, OverlapPolicy};
 use tellers_timeline_core::{
-    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, FontSource, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection, AudioTransitionKind,
+    validate_timeline, Animatable, Clip, GeneratorError, ShapeParameters, TellersEffect, TextParameters, Marker, MarkerInfo, MarkerOwnerKind, MarkerUpdate, Effect, EffectMetadata, FontFace, FontSource, Gap, InsertItemAtTimeResult, Item, MediaReference, MediaReferenceCrop, MediaReferencePosition, RationalTime, Stack, TimeRange, Timeline, TimelineClipboard, TrackGroup, CompositeStack, Track, TrackKind, Transition, TransitionDirection, AudioTransitionKind,
 };
 use tellers_timeline_core::{IdMetadataExt, MetadataExt};
 
@@ -2535,6 +2535,19 @@ impl PyTimeline {
     }
     fn clip_group_member_ids(&self, id: &str) -> Vec<String> {
         self.inner.clip_group_member_ids(id)
+    }
+    /// Copy the clips and composite clips `item_ids` with their sync partners,
+    /// as clipboard JSON for `paste_items`; `None` when none can be copied.
+    fn copy_items(&self, item_ids: Vec<String>) -> Option<String> {
+        self.inner.copy_items(&item_ids).map(|clipboard| clipboard.to_json())
+    }
+    /// Paste `copy_items` JSON with its earliest clip at `time` seconds, on the
+    /// source tracks (a new track where one is occupied or missing), under new
+    /// ids, sync links and groups. Returns the ids of the items placed.
+    fn paste_items(&mut self, clipboard: &str, time: f64) -> PyResult<Vec<String>> {
+        let clipboard = TimelineClipboard::from_json(clipboard)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(self.inner.paste_items(&clipboard, time))
     }
     /// Timeline seconds of the group's keyframe time 0 (its earliest member's start).
     fn clip_group_start(&self, id: &str) -> Option<f64> {

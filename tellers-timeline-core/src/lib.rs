@@ -1,5 +1,6 @@
 pub mod associated_tracks;
 pub mod attach;
+pub mod clipboard;
 pub mod detect;
 pub mod effect_assets;
 pub mod effects;
@@ -22,6 +23,7 @@ pub mod validate;
 
 pub use associated_tracks::*;
 pub use attach::*;
+pub use clipboard::*;
 pub use detect::*;
 pub use effect_assets::*;
 pub use effects::*;
