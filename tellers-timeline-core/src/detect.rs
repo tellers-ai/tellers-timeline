@@ -36,6 +36,15 @@
 //! player's `detection` option, not the timeline's; `detect` keeps what to
 //! detect and how the regions look.
 //!
+//! With `"target": "people"` and `"shape": "matte"` (no `track`), the
+//! clip's people are cut out by an alpha matte the player segments from
+//! each frame as it draws it (video-player-js #831): a Mask removes the
+//! background, a filter shows on the people, or everywhere else with
+//! `"invert": true` in the `detect` (a blurred background). Nothing is
+//! detected ahead, resolved or saved, and `pick` is ignored, so such a
+//! `detect` is never unresolved. With `track` or another `target` the
+//! player falls back to the subject's box.
+//!
 //! The player resolves only clips' effects (not tracks' or composite
 //! clips'). Mirrors `EffectDetect` of `schema/timeline.schema.json` in
 //! `video-player-js` (#687, #690).
@@ -58,13 +67,16 @@ pub const DETECT_MASK_PARAMETERS: [&str; 7] =
 
 /// What a detected subject's region is: its box (`rectangle` or `ellipse`;
 /// faces default to ellipses, others to rounded rectangles) or `outline`,
-/// its exact shape, segmented every sample and keyframed as a `path`.
+/// its exact shape, segmented every sample and keyframed as a `path`, or
+/// `matte`, the people of each frame as a soft alpha matte drawn with the
+/// frame (see [`EffectDetect::is_matte`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DetectShape {
     Rectangle,
     Ellipse,
     Outline,
+    Matte,
 }
 
 /// The `detect` parameter of a filter or a `Mask`: the subject to detect,
@@ -83,6 +95,10 @@ pub struct EffectDetect {
     /// covers every subject and a Mask the one seen longest.
     pub pick: Vec<FollowPick>,
     pub shape: Option<DetectShape>,
+    /// With a matte on a filter: the filter shows everywhere but on the
+    /// people (a blurred background). Written only when true; a Mask has
+    /// its own `invert`.
+    pub invert: bool,
     /// `padX`, `padY`, beside `target` in the JSON.
     pub options: FollowDetect,
 }
@@ -95,6 +111,7 @@ impl EffectDetect {
             track: None,
             pick: Vec::new(),
             shape: None,
+            invert: false,
             options: FollowDetect::default(),
         }
     }
@@ -115,6 +132,19 @@ impl EffectDetect {
     pub fn with_shape(mut self, shape: DetectShape) -> Self {
         self.shape = Some(shape);
         self
+    }
+
+    /// Set `invert`: a filter with a matte shows everywhere but on the people.
+    pub fn inverted(mut self, invert: bool) -> Self {
+        self.invert = invert;
+        self
+    }
+
+    /// Whether the player draws this as a matte of the frame's people
+    /// (`shape: matte`, `target: people`, no `track`): nothing is resolved,
+    /// so the effect never waits on detection.
+    pub fn is_matte(&self) -> bool {
+        self.shape == Some(DetectShape::Matte) && self.target == "people" && self.track.is_none()
     }
 
     /// The `detect` parameter value, if `value` is a valid one: a known
@@ -143,8 +173,13 @@ impl EffectDetect {
             Some(shape) => Some(serde_json::from_value(shape).ok()?),
             None => None,
         };
+        let invert = match object.remove("invert") {
+            Some(Value::Bool(invert)) => invert,
+            Some(_) => return None,
+            None => false,
+        };
         let options = serde_json::from_value(Value::Object(object)).ok()?;
-        Some(EffectDetect { target, track, pick, shape, options })
+        Some(EffectDetect { target, track, pick, shape, invert, options })
     }
 
     pub fn to_value(&self) -> Value {
@@ -167,6 +202,9 @@ impl EffectDetect {
         if let Some(shape) = self.shape {
             object.insert("shape".to_string(), serde_json::to_value(shape).expect("a shape serializes"));
         }
+        if self.invert {
+            object.insert("invert".to_string(), true.into());
+        }
         Value::Object(object)
     }
 }
@@ -177,9 +215,12 @@ pub(crate) fn detect_value_is_valid(value: &Value) -> bool {
 }
 
 /// Whether `effect`, declared with `detect`, still has to be resolved: a
-/// filter without `regions`, a Mask without `x`.
-fn needs_detection(effect: &TellersEffect) -> bool {
-    if effect.effect_name == MASK {
+/// filter without `regions`, a Mask without `x`; never a matte, which the
+/// player draws from each frame.
+fn needs_detection(effect: &TellersEffect, detect: &EffectDetect) -> bool {
+    if detect.is_matte() {
+        false
+    } else if effect.effect_name == MASK {
         !effect.parameters.contains_key("x")
     } else {
         !effect.parameters.contains_key(REGIONS)
@@ -229,7 +270,7 @@ impl Timeline {
                 Some(ItemDetect {
                     item_id: item_id.to_string(),
                     effect_index,
-                    resolved: !needs_detection(&effect),
+                    resolved: !needs_detection(&effect, &detect),
                     effect_name: effect.effect_name,
                     detect,
                 })
@@ -262,7 +303,7 @@ impl Timeline {
     /// `parameters`.
     ///
     /// `false`, changing nothing, when no clip has this id, the effect
-    /// changed, `parameters` has none of the detected keys, or the result
+    /// changed, its `detect` is a matte (nothing to save), `parameters` has none of the detected keys, or the result
     /// is not a valid effect.
     pub fn apply_detect_resolution(
         &mut self,
@@ -283,6 +324,9 @@ impl Timeline {
         let current = effect.parameters.get(DETECT_PARAMETER).and_then(EffectDetect::from_value);
         let resolved = parameters.get(DETECT_PARAMETER).and_then(EffectDetect::from_value);
         if effect.effect_name != effect_name || current.is_none() || current != resolved {
+            return false;
+        }
+        if current.as_ref().is_some_and(EffectDetect::is_matte) {
             return false;
         }
         let keys: &[&str] = if effect.effect_name == MASK { &DETECT_MASK_PARAMETERS } else { &[REGIONS] };
@@ -437,6 +481,38 @@ mod tests {
         assert_eq!(effects[2].parameters["shape"], json!("path"));
         assert_eq!(effects[2].parameters["feather"], json!(4));
         assert_eq!(effects[2].parameters["invert"], json!(true));
+    }
+
+    #[test]
+    fn a_matte_is_drawn_from_each_frame_and_never_resolved() {
+        // video-player-js #831: the people as an alpha matte, `invert` on a filter.
+        let blur = json!({ "target": "people", "shape": "matte", "invert": true });
+        let detect = EffectDetect::from_value(&blur).unwrap();
+        assert!(detect.is_matte() && detect.invert);
+        assert_eq!(detect.to_value(), blur);
+        assert_eq!(
+            EffectDetect::new("people").with_shape(DetectShape::Matte).to_value(),
+            json!({ "target": "people", "shape": "matte" })
+        );
+        assert!(EffectDetect::from_value(&json!({ "target": "people", "invert": "yes" })).is_none());
+        // With `track` or another target the player falls back to the box.
+        assert!(!EffectDetect::from_value(&json!({ "target": "faces", "shape": "matte" })).unwrap().is_matte());
+        assert!(!EffectDetect::new("people").with_shape(DetectShape::Matte).on_track("v1").is_matte());
+
+        let mut timeline = timeline(json!([
+            tellers("Blur", json!({ "strength": 30, "detect": blur })),
+            tellers("Mask", json!({ "feather": 2, "detect": { "target": "people", "shape": "matte" } })),
+            tellers("Pixelate", json!({ "detect": { "target": "faces", "shape": "matte" } })),
+        ]));
+        assert!(TellersEffect::new("Blur").with_parameter(DETECT_PARAMETER, blur.clone()).validate().is_ok());
+        assert_eq!(timeline.item_detects().len(), 3);
+        assert_eq!(
+            timeline.unresolved_detects().iter().map(|d| d.effect_name.as_str()).collect::<Vec<_>>(),
+            vec!["Pixelate"]
+        );
+        let regions = json!({ "detect": blur, "regions": [] });
+        assert!(!timeline.apply_detect_resolution("vc", 0, "Blur", regions.as_object().unwrap()));
+        assert!(!timeline.get_item_tellers_effects("vc").unwrap()[0].parameters.contains_key(REGIONS));
     }
 
     #[test]

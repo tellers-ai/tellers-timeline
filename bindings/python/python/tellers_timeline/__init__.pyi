@@ -142,7 +142,10 @@ class EffectDetect(FollowDetect, total=False):
     """Detect in the clip of this video track (name, id or timeline id) playing alongside, instead of this clip's media."""
     pick: Union[FollowPick, list[FollowPick]]
     """One point, or several (a filter covers each subject found; a Mask the first)."""
-    shape: Literal["rectangle", "ellipse", "outline"]
+    shape: Literal["rectangle", "ellipse", "outline", "matte"]
+    """`matte` (target people, no track): the people of each frame as an alpha matte, never resolved."""
+    invert: bool
+    """With a matte on a filter: the filter shows everywhere but on the people."""
 
 # An effect naming another track; `matches` are the ids of the video tracks it
 # names (by name or timeline id, never its own track): empty, it does nothing.
