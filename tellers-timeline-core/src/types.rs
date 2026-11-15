@@ -887,6 +887,14 @@ impl Clip {
                 zoom_y: base.zoom_y * scale * value("scaleY", 1.0),
             };
         }
+        self.resolve_placement()
+    }
+
+    /// The clip's Resolve Transform (pan, tilt, zoom, rotation), the identity
+    /// without one. It places video and image clips; inside a composite clip
+    /// the player also reads it as a Shape item's box (see
+    /// [`crate::CompositeItemEdit`]).
+    pub fn resolve_placement(&self) -> MediaReferencePosition {
         let mut x = 0.0;
         let mut y = 0.0;
         let mut rotation = 0.0;
@@ -956,79 +964,86 @@ impl Clip {
                 ],
             );
         } else {
-            // Case 2: ExternalReference - uses "transformationPan" and "transformationTilt" (Double) for x/y coordinates
-            self.effects.retain(|effect| {
-                if effect.effect_name == "Resolve Effect" {
-                    if let Some(resolve_otio_effect) = &effect.metadata.resolve_otio {
-                        // Keep Volume effects, remove Transform effects
-                        if resolve_otio_effect.effect_name == "Transform" {
-                            return false;
-                        }
+            self.set_resolve_placement(position);
+        }
+    }
+
+    /// Write `position` as the clip's Resolve Transform, replacing any it
+    /// has, whatever its media; [`Self::set_position`] does this for video
+    /// and image clips.
+    pub fn set_resolve_placement(&mut self, position: MediaReferencePosition) {
+        // ExternalReference placement: "transformationPan" and "transformationTilt" (Double) for x/y coordinates
+        self.effects.retain(|effect| {
+            if effect.effect_name == "Resolve Effect" {
+                if let Some(resolve_otio_effect) = &effect.metadata.resolve_otio {
+                    // Keep Volume effects, remove Transform effects
+                    if resolve_otio_effect.effect_name == "Transform" {
+                        return false;
                     }
                 }
-                true
-            });
+            }
+            true
+        });
 
-            let transform_effect = ResolveOTIOEffect {
-                effect_name: "Transform".to_string(),
-                enabled: true,
-                name: "Transform".to_string(),
-                parameters: vec![
-                    ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                        variant_type: "Double".to_string(),
-                        parameter_id: "transformationPan".to_string(),
-                        parameter_value: position.x,
-                        default_parameter_value: Some(0.0),
-                        max_value: Some(4.0),
-                        min_value: Some(-4.0),
-                    }),
-                    ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                        variant_type: "Double".to_string(),
-                        parameter_id: "transformationTilt".to_string(),
-                        parameter_value: position.y,
-                        default_parameter_value: Some(0.0),
-                        max_value: Some(4.0),
-                        min_value: Some(-4.0),
-                    }),
-                    ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                        variant_type: "Double".to_string(),
-                        parameter_id: "transformationZoomX".to_string(),
-                        parameter_value: position.zoom_x,
-                        default_parameter_value: Some(1.0),
-                        max_value: Some(100.0),
-                        min_value: Some(0.0),
-                    }),
-                    ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                        variant_type: "Double".to_string(),
-                        parameter_id: "transformationZoomY".to_string(),
-                        parameter_value: position.zoom_y,
-                        default_parameter_value: Some(1.0),
-                        max_value: Some(100.0),
-                        min_value: Some(0.0),
-                    }),
-                    ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
-                        variant_type: "Double".to_string(),
-                        parameter_id: "transformationRotationAngle".to_string(),
-                        parameter_value: position.rotation,
-                        default_parameter_value: Some(0.0),
-                        max_value: Some(100000.0),
-                        min_value: Some(-100000.0),
-                    }),
-                ],
-                effect_type: 2,
-            };
+        let transform_effect = ResolveOTIOEffect {
+            effect_name: "Transform".to_string(),
+            enabled: true,
+            name: "Transform".to_string(),
+            parameters: vec![
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "transformationPan".to_string(),
+                    parameter_value: position.x,
+                    default_parameter_value: Some(0.0),
+                    max_value: Some(4.0),
+                    min_value: Some(-4.0),
+                }),
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "transformationTilt".to_string(),
+                    parameter_value: position.y,
+                    default_parameter_value: Some(0.0),
+                    max_value: Some(4.0),
+                    min_value: Some(-4.0),
+                }),
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "transformationZoomX".to_string(),
+                    parameter_value: position.zoom_x,
+                    default_parameter_value: Some(1.0),
+                    max_value: Some(100.0),
+                    min_value: Some(0.0),
+                }),
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "transformationZoomY".to_string(),
+                    parameter_value: position.zoom_y,
+                    default_parameter_value: Some(1.0),
+                    max_value: Some(100.0),
+                    min_value: Some(0.0),
+                }),
+                ResolveOTIOParameter::Double(ResolveOTIOParameterNumber {
+                    variant_type: "Double".to_string(),
+                    parameter_id: "transformationRotationAngle".to_string(),
+                    parameter_value: position.rotation,
+                    default_parameter_value: Some(0.0),
+                    max_value: Some(100000.0),
+                    min_value: Some(-100000.0),
+                }),
+            ],
+            effect_type: 2,
+        };
 
-            self.effects.push(Effect {
-                otio_schema: default_effect_schema(),
-                name: "".to_string(),
-                effect_name: "Resolve Effect".to_string(),
-                metadata: EffectMetadata {
-                    resolve_otio: Some(transform_effect),
-                    other: serde_json::Map::new(),
-                },
-                ..Effect::default()
-            });
-        }
+        self.effects.push(Effect {
+            otio_schema: default_effect_schema(),
+            name: "".to_string(),
+            effect_name: "Resolve Effect".to_string(),
+            metadata: EffectMetadata {
+                resolve_otio: Some(transform_effect),
+                other: serde_json::Map::new(),
+            },
+            ..Effect::default()
+        });
     }
 
     pub fn get_crop(&self) -> MediaReferenceCrop {

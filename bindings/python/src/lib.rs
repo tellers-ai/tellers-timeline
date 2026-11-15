@@ -1478,6 +1478,11 @@ impl PyStack {
     fn composite_path(&self, id: &str) -> Option<Vec<String>> {
         self.inner.composite_path(id)
     }
+    /// The id of the item at `child` of track `track` of the composite clip
+    /// `composite_id`: the player's `itemSource` for a composite item.
+    fn composite_item_id(&self, composite_id: &str, track: usize, child: usize) -> Option<String> {
+        self.inner.composite_item_id(composite_id, track, child)
+    }
     /// A copy of the tracks of the composite clip `composite_id` (at any
     /// depth) as a Stack named after it; None when there is no such composite.
     fn composite_stack(&self, py: Python<'_>, composite_id: &str) -> Option<Py<PyStack>> {
@@ -2548,6 +2553,16 @@ impl PyTimeline {
         let clipboard = TimelineClipboard::from_json(clipboard)
             .map_err(pyo3::exceptions::PyValueError::new_err)?;
         Ok(self.inner.paste_items(&clipboard, time))
+    }
+    /// Edit the item `item_id` of a composite clip as the player's `editCompositeItem` does:
+    /// `edit` is the player's edit dict (`box`, `transforms`, `effects`, `textPatch`,
+    /// `shapePatch`). All or nothing; raises ValueError when it does not apply.
+    fn edit_composite_item(&mut self, item_id: &str, edit: &Bound<PyAny>) -> PyResult<()> {
+        let edit: tellers_timeline_core::CompositeItemEdit = serde_json::from_value(json_from_python(edit)?)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        self.inner
+            .edit_composite_item(item_id, &edit)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     }
     /// Timeline seconds of the group's keyframe time 0 (its earliest member's start).
     fn clip_group_start(&self, id: &str) -> Option<f64> {
