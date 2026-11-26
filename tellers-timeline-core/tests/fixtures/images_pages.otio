@@ -1,0 +1,718 @@
+{
+  "OTIO_SCHEMA": "Timeline.1",
+  "name": "images_pages",
+  "metadata": {
+    "tellers_aspect_ratio": "16_9",
+    "tellers.ai": {
+      "edit_mode": "images"
+    }
+  },
+  "tracks": {
+    "OTIO_SCHEMA": "Stack.1",
+    "name": "tracks",
+    "source_range": null,
+    "effects": [],
+    "metadata": {},
+    "children": [
+      {
+        "OTIO_SCHEMA": "Track.1",
+        "name": "pages",
+        "kind": "Video",
+        "children": [
+          {
+            "OTIO_SCHEMA": "Stack.1",
+            "name": "Cover",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 2
+              }
+            },
+            "children": [
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "background",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Background",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Shape",
+                        "name": "Shape",
+                        "parameters": {
+                          "shape": "rectangle",
+                          "fill": "#0f172a"
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": []
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "photo",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "test.jpeg",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "ExternalReference.1",
+                        "target_url": "/images/test.jpeg",
+                        "name": "DEFAULT_MEDIA",
+                        "metadata": {}
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "scale": 0.55,
+                              "y": -0.08
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "title",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Title",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Text",
+                        "name": "Text",
+                        "parameters": {
+                          "text": "Summer collection",
+                          "style": {
+                            "fontSize": 72,
+                            "fontWeight": "700",
+                            "fill": "#ffffff"
+                          }
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "y": 0.36
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              }
+            ],
+            "effects": [],
+            "metadata": {
+              "tellers.ai": {
+                "frame_delay": 1.5
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Stack.1",
+            "name": "Offer",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 2
+              }
+            },
+            "children": [
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "background",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Background",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Shape",
+                        "name": "Shape",
+                        "parameters": {
+                          "shape": "rectangle",
+                          "fill": "#f59e0b"
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": []
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "card",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Card",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Shape",
+                        "name": "Shape",
+                        "parameters": {
+                          "shape": "rectangle",
+                          "fill": "#ffffff",
+                          "corner_radius": 32
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "scaleX": 0.62,
+                              "scaleY": 0.5,
+                              "y": -0.04
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "mascot",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "cat.svg",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "ExternalReference.1",
+                        "target_url": "/images/cat.svg",
+                        "name": "DEFAULT_MEDIA",
+                        "metadata": {}
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "scale": 0.32,
+                              "x": -0.17,
+                              "y": -0.04
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "price",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Price",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Text",
+                        "name": "Text",
+                        "parameters": {
+                          "text": "-30%",
+                          "style": {
+                            "fontSize": 120,
+                            "fontWeight": "800",
+                            "fill": "#b45309"
+                          }
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "x": 0.14,
+                              "y": -0.06
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "note",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Note",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Text",
+                        "name": "Text",
+                        "parameters": {
+                          "text": "on everything, this week only",
+                          "style": {
+                            "fontSize": 40,
+                            "fontWeight": "600",
+                            "fill": "#1f2937"
+                          }
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "y": 0.36
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              }
+            ],
+            "effects": [],
+            "metadata": {
+              "tellers.ai": {
+                "frame_delay": 1.5
+              }
+            }
+          },
+          {
+            "OTIO_SCHEMA": "Stack.1",
+            "name": "Call to action",
+            "source_range": {
+              "OTIO_SCHEMA": "TimeRange.1",
+              "start_time": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 0
+              },
+              "duration": {
+                "OTIO_SCHEMA": "RationalTime.1",
+                "rate": 1,
+                "value": 2
+              }
+            },
+            "children": [
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "background",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Background",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Shape",
+                        "name": "Shape",
+                        "parameters": {
+                          "shape": "rectangle",
+                          "fill": "#2563eb"
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": []
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "logo",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "logo.png",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "ExternalReference.1",
+                        "target_url": "/images/logo.png",
+                        "name": "DEFAULT_MEDIA",
+                        "metadata": {}
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "scale": 0.3,
+                              "y": -0.14
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "button",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Button",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Shape",
+                        "name": "Shape",
+                        "parameters": {
+                          "shape": "rectangle",
+                          "fill": "#ffffff",
+                          "corner_radius": 40
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "scaleX": 0.4,
+                              "scaleY": 0.14,
+                              "y": 0.24
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              },
+              {
+                "OTIO_SCHEMA": "Track.1",
+                "name": "label",
+                "kind": "Video",
+                "children": [
+                  {
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Label",
+                    "source_range": {
+                      "OTIO_SCHEMA": "TimeRange.1",
+                      "start_time": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 0
+                      },
+                      "duration": {
+                        "OTIO_SCHEMA": "RationalTime.1",
+                        "rate": 1,
+                        "value": 2
+                      }
+                    },
+                    "media_references": {
+                      "DEFAULT_MEDIA": {
+                        "OTIO_SCHEMA": "GeneratorReference.1",
+                        "generator_kind": "Text",
+                        "name": "Text",
+                        "parameters": {
+                          "text": "Shop now",
+                          "style": {
+                            "fontSize": 52,
+                            "fontWeight": "800",
+                            "fill": "#1d4ed8"
+                          }
+                        }
+                      }
+                    },
+                    "active_media_reference_key": "DEFAULT_MEDIA",
+                    "metadata": {},
+                    "effects": [
+                      {
+                        "OTIO_SCHEMA": "Effect.1",
+                        "name": "Transform",
+                        "effect_name": "tellers.ai.Transform",
+                        "metadata": {
+                          "tellers.ai": {
+                            "parameters": {
+                              "y": 0.24
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ],
+                "effects": [],
+                "metadata": {}
+              }
+            ],
+            "effects": [],
+            "metadata": {
+              "tellers.ai": {
+                "frame_delay": 2.5
+              }
+            }
+          }
+        ],
+        "effects": [],
+        "metadata": {}
+      }
+    ]
+  }
+}

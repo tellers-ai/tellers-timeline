@@ -2391,6 +2391,54 @@ impl PyTimeline {
     fn remove_font(&mut self, family: &str) -> bool {
         self.inner.remove_font(family)
     }
+    /// `"video"` (the default) or `"images"`: an images timeline is a set of
+    /// pages (compound clips) edited like images, with no audio or playback,
+    /// and exported as stills, a GIF or an animated WebP.
+    fn get_edit_mode(&self) -> &'static str {
+        self.inner.edit_mode().as_str()
+    }
+    /// Set the edit mode: `"video"` (removes the key) or `"images"`.
+    fn set_edit_mode(&mut self, mode: &str) -> PyResult<()> {
+        let mode = match mode {
+            "video" => tellers_timeline_core::EditMode::Video,
+            "images" => tellers_timeline_core::EditMode::Images,
+            other => return Err(value_error(format!("unknown edit mode {other:?}"))),
+        };
+        self.inner.set_edit_mode(mode);
+        Ok(())
+    }
+    /// The compound clips of the top-level video tracks, ordered by start, as
+    /// the player's getCompounds(): `{"id", "name", "start", "duration",
+    /// "track_index", "frame_delay"}` dicts. In an images timeline these are
+    /// its pages, and gaps on their tracks take no time.
+    fn compounds(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        self.inner
+            .compounds()
+            .into_iter()
+            .map(|page| {
+                let dict = PyDict::new(py);
+                dict.set_item("id", page.id)?;
+                dict.set_item("name", page.name)?;
+                dict.set_item("start", page.start)?;
+                dict.set_item("duration", page.duration)?;
+                dict.set_item("track_index", page.track_index)?;
+                dict.set_item("frame_delay", page.frame_delay)?;
+                Ok(dict.into_any().unbind())
+            })
+            .collect()
+    }
+    /// The `frame_delay` (seconds as a GIF / WebP frame) set on a top-level
+    /// compound, or None.
+    fn get_frame_delay(&self, compound_id: &str) -> Option<f64> {
+        self.inner.frame_delay(compound_id)
+    }
+    /// Set (or, with None, remove) a top-level compound's frame delay.
+    /// Returns False, changing nothing, when it is not a compound or the
+    /// delay is not positive.
+    #[pyo3(signature = (compound_id, delay=None))]
+    fn set_frame_delay(&mut self, compound_id: &str, delay: Option<f64>) -> bool {
+        self.inner.set_frame_delay(compound_id, delay)
+    }
     /// Every marker of the timeline (stack, tracks, clips) as dicts with
     /// timeline times: `{"id", "name", "comment", "color", "created_by",
     /// "owner_kind", "owner_id", "track_id", "timeline_start", "duration",

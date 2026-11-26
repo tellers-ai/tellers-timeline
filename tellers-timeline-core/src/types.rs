@@ -210,6 +210,18 @@ pub(crate) fn ensure_tellers_ai_with_id(mut meta: serde_json::Value) -> serde_js
     meta
 }
 
+/// Metadata of a media reference written without one: an empty object, as
+/// OTIO expects (serde's own default would be `null`, which OTIO rejects).
+fn default_media_metadata() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
+/// Metadata of an item written without one: an empty object rather than
+/// `null`, which OTIO rejects. No id is made up for it.
+fn default_metadata_with_id() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
 fn deserialize_media_metadata<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
 where
     D: Deserializer<'de>,
@@ -275,7 +287,7 @@ pub struct Timeline {
     pub name: Option<String>,
     #[serde(default)]
     pub tracks: Stack,
-    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    #[serde(default = "default_metadata_with_id", deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
 }
 
@@ -291,7 +303,7 @@ pub struct Track {
     pub name: Option<String>,
     #[serde(rename = "children", default)]
     pub items: Vec<Item>,
-    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    #[serde(default = "default_metadata_with_id", deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
@@ -307,7 +319,7 @@ pub struct Stack {
     pub name: Option<String>,
     #[serde(default)]
     pub children: Vec<Track>,
-    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    #[serde(default = "default_metadata_with_id", deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
@@ -604,7 +616,7 @@ pub struct CompositeStack {
     pub source_range: Option<TimeRange>,
     #[serde(default)]
     pub children: Vec<Track>,
-    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    #[serde(default = "default_metadata_with_id", deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
@@ -716,7 +728,7 @@ pub struct Clip {
     pub media_references: HashMap<String, MediaReference>,
     #[serde(default)]
     pub active_media_reference_key: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    #[serde(default = "default_metadata_with_id", deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
     #[serde(default)]
     pub effects: Vec<Effect>,
@@ -1153,7 +1165,7 @@ pub struct Gap {
     #[serde(default)]
     pub name: Option<String>,
     pub source_range: TimeRange,
-    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    #[serde(default = "default_metadata_with_id", deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
     #[serde(default)]
     pub effects: Vec<Effect>,
@@ -1216,7 +1228,7 @@ pub struct Transition {
     pub in_offset: RationalTime,
     #[serde(default)]
     pub out_offset: RationalTime,
-    #[serde(default, deserialize_with = "deserialize_metadata_with_id")]
+    #[serde(default = "default_metadata_with_id", deserialize_with = "deserialize_metadata_with_id")]
     pub metadata: serde_json::Value,
 }
 
@@ -1587,7 +1599,7 @@ pub enum MediaReference {
         name: Option<String>,
         #[serde(default)]
         available_image_bounds: Option<serde_json::Value>,
-        #[serde(default, deserialize_with = "deserialize_media_metadata")]
+        #[serde(default = "default_media_metadata", deserialize_with = "deserialize_media_metadata")]
         metadata: serde_json::Value,
     },
     #[serde(rename = "GeneratorReference.1")]
@@ -1600,7 +1612,7 @@ pub enum MediaReference {
         name: Option<String>,
         #[serde(default)]
         available_image_bounds: Option<serde_json::Value>,
-        #[serde(default, deserialize_with = "deserialize_media_metadata")]
+        #[serde(default = "default_media_metadata", deserialize_with = "deserialize_media_metadata")]
         metadata: serde_json::Value,
         #[serde(default)]
         parameters: GeneratorParameters,
