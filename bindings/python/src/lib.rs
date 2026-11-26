@@ -2391,6 +2391,57 @@ impl PyTimeline {
     fn remove_font(&mut self, family: &str) -> bool {
         self.inner.remove_font(family)
     }
+    /// `"video"` (the default) or `"images"`: an images timeline is a set of
+    /// pages (compound clips) edited like images, with no audio or playback,
+    /// and exported as stills, a GIF or an animated WebP.
+    fn get_edit_mode(&self) -> &'static str {
+        self.inner.edit_mode().as_str()
+    }
+    /// Set the edit mode: `"video"` (removes the key) or `"images"`.
+    fn set_edit_mode(&mut self, mode: &str) -> PyResult<()> {
+        let mode = match mode {
+            "video" => tellers_timeline_core::EditMode::Video,
+            "images" => tellers_timeline_core::EditMode::Images,
+            other => return Err(value_error(format!("unknown edit mode {other:?}"))),
+        };
+        self.inner.set_edit_mode(mode);
+        Ok(())
+    }
+    /// The compound clips of the top-level video tracks, ordered by start, as
+    /// the player's getCompounds(): `{"id", "name", "start", "duration",
+    /// "track_index"}` dicts. In an images timeline gaps on their tracks take
+    /// no time.
+    fn compounds(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        self.inner
+            .compounds()
+            .into_iter()
+            .map(|page| {
+                let dict = PyDict::new(py);
+                dict.set_item("id", page.id)?;
+                dict.set_item("name", page.name)?;
+                dict.set_item("start", page.start)?;
+                dict.set_item("duration", page.duration)?;
+                dict.set_item("track_index", page.track_index)?;
+                Ok(dict.into_any().unbind())
+            })
+            .collect()
+    }
+    /// An images timeline's pages, as the player's getPages(): `{"time",
+    /// "duration"}` dicts, one per compound start, each lasting until the
+    /// next starts (the last until its compounds end). A page's duration is
+    /// its compound's: set it with the compound's duration.
+    fn pages(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        self.inner
+            .pages()
+            .into_iter()
+            .map(|page| {
+                let dict = PyDict::new(py);
+                dict.set_item("time", page.time)?;
+                dict.set_item("duration", page.duration)?;
+                Ok(dict.into_any().unbind())
+            })
+            .collect()
+    }
     /// Every marker of the timeline (stack, tracks, clips) as dicts with
     /// timeline times: `{"id", "name", "comment", "color", "created_by",
     /// "owner_kind", "owner_id", "track_id", "timeline_start", "duration",

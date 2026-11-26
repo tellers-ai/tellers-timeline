@@ -190,7 +190,13 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
          reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip \
          group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) \
          and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library \
-         keeps as plain metadata, with no typed API.",
+         keeps as plain metadata, with no typed API. `tellers.ai.edit_mode` is `video` (the \
+         default) or `images`: an images timeline is a set of pages, one per composite clip on \
+         a video track, which the player draws without playback or audio, timeless (keyframes \
+         hold their longest value, reveal effects and transitions are off, gaps on a track of \
+         pages take no time, each layer's first clip fills its page) and plays and exports as \
+         stills, a GIF or an animated WebP. A page lasts as long as its composite does on the \
+         timeline, like a clip in a video (`Timeline::edit_mode`, `Timeline::pages`).",
     ),
     ("Stack", "OTIO_SCHEMA", "Always `Stack.1`."),
     ("Stack", "name", "Display name."),
@@ -259,7 +265,11 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     ("CompositeStack", "effects", "Effects applied to the composite as a whole, like a clip's."),
     ("CompositeStack", "enabled", "A disabled composite is neither drawn nor heard; it still takes its time."),
     ("CompositeStack", "markers", "Markers, kept for OTIO round trips."),
-    ("CompositeStack", "metadata", "Free JSON. `tellers.ai.timeline_id` is the item id."),
+    (
+        "CompositeStack",
+        "metadata",
+        "Free JSON. `tellers.ai.timeline_id` is the item id.",
+    ),
     ("Transition", "OTIO_SCHEMA", "`Transition.1`."),
     (
         "Transition",
