@@ -16,7 +16,7 @@ The document. Its `tracks` stack holds every track; timeline-wide settings (font
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `OTIO_SCHEMA` | string |  | `"Timeline.1"` | Always `Timeline.1`. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, each `{family, url}` (linked) or `{family, asset_id}` (uploaded; see [Asset references](#asset-references)), with optional `weight` and `style`. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library keeps as plain metadata, with no typed API. `tellers.ai.edit_mode` is `video` (the default) or `images`: an images timeline is a set of pages, one per composite clip on a video track, which the player draws without playback or audio, timeless (keyframes hold their longest value, reveal effects and transitions are off, gaps on a track of pages take no time, each layer's first clip fills its page) and exports as stills, a GIF or an animated WebP (`Timeline::edit_mode`, `Timeline::compounds`). |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.availableFonts` lists the fonts text clips may use, each `{family, url}` (linked) or `{family, asset_id}` (uploaded; see [Asset references](#asset-references)), with optional `weight` and `style`. The player also reads `tellers.ai.groups[<group_id>].parameters` (a keyframable transform of a clip group: `x`, `y`, `scale`, `rotation`, `opacity`, …, edited with the clip-group API) and the top-level `tellers_aspect_ratio` (`16_9`, `9_16`, …), which this library keeps as plain metadata, with no typed API. `tellers.ai.edit_mode` is `video` (the default) or `images`: an images timeline is a set of pages, one per composite clip on a video track, which the player draws without playback or audio, timeless (keyframes hold their longest value, reveal effects and transitions are off, gaps on a track of pages take no time, each layer's first clip fills its page) and plays and exports as stills, a GIF or an animated WebP. A page lasts as long as its composite does on the timeline, like a clip in a video (`Timeline::edit_mode`, `Timeline::pages`). |
 | `name` | string \| null |  |  | Display name. |
 | `tracks` | [Stack](#stack) |  |  | The stack of every track. |
 
@@ -100,7 +100,7 @@ A composite clip: a `Stack.1` nested inside a video track, drawn as one clip mad
 | `effects` | array of [Effect](#effect) |  |  | Effects applied to the composite as a whole, like a clip's. |
 | `enabled` | boolean \| null |  |  | A disabled composite is neither drawn nor heard; it still takes its time. |
 | `markers` | array of [Marker](#marker) |  |  | Markers, kept for OTIO round trips. |
-| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id. In an images timeline, `tellers.ai.frame_delay` (seconds, > 0; 1 when absent) is how long this page shows as a GIF or animated WebP frame (`Timeline::set_frame_delay`). |
+| `metadata` | any JSON |  |  | Free JSON. `tellers.ai.timeline_id` is the item id. |
 | `name` | string \| null |  |  | Display name. |
 | `source_range` | [TimeRange](#timerange) \| null |  |  | Optional. `start_time` is where in its child tracks it starts playing, and `duration` how long it lasts on the outer track. |
 

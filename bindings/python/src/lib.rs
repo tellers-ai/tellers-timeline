@@ -2409,8 +2409,8 @@ impl PyTimeline {
     }
     /// The compound clips of the top-level video tracks, ordered by start, as
     /// the player's getCompounds(): `{"id", "name", "start", "duration",
-    /// "track_index", "frame_delay"}` dicts. In an images timeline these are
-    /// its pages, and gaps on their tracks take no time.
+    /// "track_index"}` dicts. In an images timeline gaps on their tracks take
+    /// no time.
     fn compounds(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         self.inner
             .compounds()
@@ -2422,22 +2422,25 @@ impl PyTimeline {
                 dict.set_item("start", page.start)?;
                 dict.set_item("duration", page.duration)?;
                 dict.set_item("track_index", page.track_index)?;
-                dict.set_item("frame_delay", page.frame_delay)?;
                 Ok(dict.into_any().unbind())
             })
             .collect()
     }
-    /// The `frame_delay` (seconds as a GIF / WebP frame) set on a top-level
-    /// compound, or None.
-    fn get_frame_delay(&self, compound_id: &str) -> Option<f64> {
-        self.inner.frame_delay(compound_id)
-    }
-    /// Set (or, with None, remove) a top-level compound's frame delay.
-    /// Returns False, changing nothing, when it is not a compound or the
-    /// delay is not positive.
-    #[pyo3(signature = (compound_id, delay=None))]
-    fn set_frame_delay(&mut self, compound_id: &str, delay: Option<f64>) -> bool {
-        self.inner.set_frame_delay(compound_id, delay)
+    /// An images timeline's pages, as the player's getPages(): `{"time",
+    /// "duration"}` dicts, one per compound start, each lasting until the
+    /// next starts (the last until its compounds end). A page's duration is
+    /// its compound's: set it with the compound's duration.
+    fn pages(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        self.inner
+            .pages()
+            .into_iter()
+            .map(|page| {
+                let dict = PyDict::new(py);
+                dict.set_item("time", page.time)?;
+                dict.set_item("duration", page.duration)?;
+                Ok(dict.into_any().unbind())
+            })
+            .collect()
     }
     /// Every marker of the timeline (stack, tracks, clips) as dicts with
     /// timeline times: `{"id", "name", "comment", "color", "created_by",

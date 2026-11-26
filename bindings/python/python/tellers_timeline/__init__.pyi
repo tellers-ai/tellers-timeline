@@ -32,15 +32,19 @@ class TrackGroup(TypedDict):
     partner_track_ids: list[Optional[str]]
 
 class CompoundInfo(TypedDict):
-    """A compound clip on a top-level video track: an images timeline's page."""
+    """A compound clip on a top-level video track."""
     id: Optional[str]
     name: str
     start: float
     """Where it is drawn, in seconds (in an images timeline, gaps on its track take no time)."""
     duration: float
     track_index: int
-    frame_delay: float
-    """Seconds it shows for as a GIF / WebP frame; 1 when unset."""
+
+
+class PageInfo(TypedDict):
+    """An images timeline's page: shown from `time` until the next page starts."""
+    time: float
+    duration: float
 
 class FontFace(TypedDict):
     family: str
@@ -869,8 +873,7 @@ class Timeline:
     def get_edit_mode(self) -> Literal["video", "images"]: ...
     def set_edit_mode(self, mode: Literal["video", "images"]) -> None: ...
     def compounds(self) -> list[CompoundInfo]: ...
-    def get_frame_delay(self, compound_id: str) -> Optional[float]: ...
-    def set_frame_delay(self, compound_id: str, delay: Optional[float] = None) -> bool: ...
+    def pages(self) -> list[PageInfo]: ...
     def get_markers(self) -> list[MarkerInfo]: ...
     def get_marker(self, marker_id: str) -> Optional[MarkerInfo]: ...
     def add_marker(

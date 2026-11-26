@@ -11,10 +11,12 @@
 //! no time, and each layer's first clip fills its page. The OTIO itself is not
 //! changed, so this library edits an images timeline like any other.
 //!
-//! A page's `metadata["tellers.ai"].frame_delay` is how many seconds it shows
-//! for as a GIF / WebP frame, [`DEFAULT_FRAME_DELAY`] when absent.
-//! [`Timeline::compounds`] lists the pages where the player draws them, like
-//! its `getCompounds()`.
+//! A page lasts as long as its compound does on the timeline, like a clip in
+//! a video (video-player-js #854): its `source_range` duration sets how long
+//! it shows in the player's GIF playback, carousel and GIF / WebP export.
+//! [`Timeline::compounds`] lists the compounds where the player draws them,
+//! like its `getCompounds()`, and [`Timeline::pages`] the pages, like its
+//! `getPages()`.
 
 use serde_json::{Map, Value};
 
@@ -22,10 +24,6 @@ use crate::{IdMetadataExt, Item, Seconds, Timeline, TrackKind};
 
 /// Timeline metadata key, under `tellers.ai`, holding the edit mode.
 pub const EDIT_MODE_KEY: &str = "edit_mode";
-/// Compound metadata key, under `tellers.ai`, holding its frame delay.
-pub const FRAME_DELAY_KEY: &str = "frame_delay";
-/// Seconds a page shows for as a GIF / WebP frame when it sets no `frame_delay`.
-pub const DEFAULT_FRAME_DELAY: Seconds = 1.0;
 
 /// How the player edits and exports a timeline.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -67,8 +65,15 @@ pub struct CompoundInfo {
     pub duration: Seconds,
     /// Index of its track in the timeline stack.
     pub track_index: usize,
-    /// Seconds it shows for as a GIF / WebP frame.
-    pub frame_delay: Seconds,
+}
+
+/// A page of an images timeline, as the player's `getPages()` lists it: it
+/// shows from `time` until the next page starts, the last one until its
+/// compounds end.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageInfo {
+    pub time: Seconds,
+    pub duration: Seconds,
 }
 
 fn tellers_ai_mut(metadata: &mut Value) -> &mut Map<String, Value> {
@@ -84,14 +89,6 @@ fn tellers_ai_mut(metadata: &mut Value) -> &mut Map<String, Value> {
         *ai = Value::Object(Map::new());
     }
     ai.as_object_mut().expect("tellers.ai is an object")
-}
-
-fn read_frame_delay(metadata: &Value) -> Option<Seconds> {
-    metadata
-        .get("tellers.ai")?
-        .get(FRAME_DELAY_KEY)?
-        .as_f64()
-        .filter(|delay| *delay > 0.0 && delay.is_finite())
 }
 
 impl Timeline {
@@ -148,8 +145,6 @@ impl Timeline {
                             start: time,
                             duration,
                             track_index,
-                            frame_delay: read_frame_delay(&stack.metadata)
-                                .unwrap_or(DEFAULT_FRAME_DELAY),
                         });
                     }
                 }
@@ -164,38 +159,22 @@ impl Timeline {
         compounds
     }
 
-    /// The `frame_delay` set on the compound `compound_id` (top-level), or
-    /// `None` when it has none or is not a compound.
-    pub fn frame_delay(&self, compound_id: &str) -> Option<Seconds> {
-        match self.tracks.get_item(compound_id)?.2 {
-            Item::Composite(stack) => read_frame_delay(&stack.metadata),
-            _ => None,
-        }
-    }
-
-    /// Set (or, with `None`, remove) the frame delay of the top-level
-    /// compound `compound_id`. Returns `false`, changing nothing, when it is
-    /// not a compound or `delay` is not a positive number.
-    pub fn set_frame_delay(&mut self, compound_id: &str, delay: Option<Seconds>) -> bool {
-        if delay.is_some_and(|delay| !(delay > 0.0 && delay.is_finite())) {
-            return false;
-        }
-        let Some((track_index, item_index, _)) = self.tracks.get_item(compound_id) else {
-            return false;
-        };
-        let Item::Composite(stack) = &mut self.tracks.children[track_index].items[item_index]
-        else {
-            return false;
-        };
-        let ai = tellers_ai_mut(&mut stack.metadata);
-        match delay {
-            Some(delay) => {
-                ai.insert(FRAME_DELAY_KEY.to_string(), Value::from(delay));
-            }
-            None => {
-                ai.remove(FRAME_DELAY_KEY);
-            }
-        }
-        true
+    /// The pages the player shows, like its `getPages()`: one per distinct
+    /// compound start, each lasting until the next starts and the last until
+    /// its compounds end. Empty with no compounds.
+    pub fn pages(&self) -> Vec<PageInfo> {
+        let compounds = self.compounds();
+        let end = compounds
+            .iter()
+            .map(|compound| compound.start + compound.duration)
+            .fold(0.0, Seconds::max);
+        let mut starts: Vec<Seconds> = compounds.iter().map(|compound| compound.start).collect();
+        starts.dedup();
+        (0..starts.len())
+            .map(|i| PageInfo {
+                time: starts[i],
+                duration: starts.get(i + 1).copied().unwrap_or(end) - starts[i],
+            })
+            .collect()
     }
 }

@@ -194,8 +194,9 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
          default) or `images`: an images timeline is a set of pages, one per composite clip on \
          a video track, which the player draws without playback or audio, timeless (keyframes \
          hold their longest value, reveal effects and transitions are off, gaps on a track of \
-         pages take no time, each layer's first clip fills its page) and exports as stills, a \
-         GIF or an animated WebP (`Timeline::edit_mode`, `Timeline::compounds`).",
+         pages take no time, each layer's first clip fills its page) and plays and exports as \
+         stills, a GIF or an animated WebP. A page lasts as long as its composite does on the \
+         timeline, like a clip in a video (`Timeline::edit_mode`, `Timeline::pages`).",
     ),
     ("Stack", "OTIO_SCHEMA", "Always `Stack.1`."),
     ("Stack", "name", "Display name."),
@@ -267,9 +268,7 @@ pub const FIELD_DOCS: &[(&str, &str, &str)] = &[
     (
         "CompositeStack",
         "metadata",
-        "Free JSON. `tellers.ai.timeline_id` is the item id. In an images timeline, \
-         `tellers.ai.frame_delay` (seconds, > 0; 1 when absent) is how long this page shows as a \
-         GIF or animated WebP frame (`Timeline::set_frame_delay`).",
+        "Free JSON. `tellers.ai.timeline_id` is the item id.",
     ),
     ("Transition", "OTIO_SCHEMA", "`Transition.1`."),
     (

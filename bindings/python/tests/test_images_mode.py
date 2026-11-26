@@ -1,4 +1,4 @@
-"""Tests for images timelines: edit_mode, compounds() and frame_delay (video-player-js #835)."""
+"""Tests for images timelines: edit_mode, compounds() and pages() (video-player-js #835, #854)."""
 import pathlib
 
 import pytest
@@ -19,19 +19,16 @@ def test_edit_mode_defaults_to_video_and_round_trips():
         tl.set_edit_mode("static")
 
 
-def test_compounds_and_frame_delay_of_the_players_example():
+def test_compounds_and_pages_of_the_players_example():
     tl = Timeline.parse_json(FIXTURE.read_text())
     assert tl.get_edit_mode() == "images"
-    pages = tl.compounds()
-    assert [(p["name"], p["start"], p["frame_delay"]) for p in pages] == [
+    assert [(p["name"], p["start"], p["duration"]) for p in tl.compounds()] == [
         ("Cover", 0.0, 1.5),
-        ("Offer", 2.0, 1.5),
-        ("Call to action", 4.0, 2.5),
+        ("Offer", 1.5, 1.5),
+        ("Call to action", 3.0, 2.5),
     ]
-    cover = pages[0]["id"]
-    assert tl.set_frame_delay(cover, 0.5)
-    assert tl.get_frame_delay(cover) == 0.5
-    assert not tl.set_frame_delay(cover, 0)
-    assert tl.set_frame_delay(cover)
-    assert tl.get_frame_delay(cover) is None
-    assert tl.compounds()[0]["frame_delay"] == 1.0
+    assert tl.pages() == [
+        {"time": 0.0, "duration": 1.5},
+        {"time": 1.5, "duration": 1.5},
+        {"time": 3.0, "duration": 2.5},
+    ]

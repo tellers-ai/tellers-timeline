@@ -32,7 +32,7 @@
               "duration": {
                 "OTIO_SCHEMA": "RationalTime.1",
                 "rate": 1,
-                "value": 2
+                "value": 1.5
               }
             },
             "children": [
@@ -186,11 +186,7 @@
               }
             ],
             "effects": [],
-            "metadata": {
-              "tellers.ai": {
-                "frame_delay": 1.5
-              }
-            }
+            "metadata": {}
           },
           {
             "OTIO_SCHEMA": "Stack.1",
@@ -205,7 +201,7 @@
               "duration": {
                 "OTIO_SCHEMA": "RationalTime.1",
                 "rate": 1,
-                "value": 2
+                "value": 1.5
               }
             },
             "children": [
@@ -474,11 +470,7 @@
               }
             ],
             "effects": [],
-            "metadata": {
-              "tellers.ai": {
-                "frame_delay": 1.5
-              }
-            }
+            "metadata": {}
           },
           {
             "OTIO_SCHEMA": "Stack.1",
@@ -493,7 +485,7 @@
               "duration": {
                 "OTIO_SCHEMA": "RationalTime.1",
                 "rate": 1,
-                "value": 2
+                "value": 2.5
               }
             },
             "children": [
@@ -703,11 +695,7 @@
               }
             ],
             "effects": [],
-            "metadata": {
-              "tellers.ai": {
-                "frame_delay": 2.5
-              }
-            }
+            "metadata": {}
           }
         ],
         "effects": [],
