@@ -2397,7 +2397,8 @@ impl PyTimeline {
     fn get_edit_mode(&self) -> &'static str {
         self.inner.edit_mode().as_str()
     }
-    /// Set the edit mode: `"video"` (removes the key) or `"images"`.
+    /// Set the edit mode: `"video"` (removes the key) or `"images"`, which
+    /// also drops every audio track.
     fn set_edit_mode(&mut self, mode: &str) -> PyResult<()> {
         let mode = match mode {
             "video" => tellers_timeline_core::EditMode::Video,
@@ -2406,6 +2407,16 @@ impl PyTimeline {
         };
         self.inner.set_edit_mode(mode);
         Ok(())
+    }
+    /// Whether audio may be added: not to an images timeline, which has no
+    /// sound. `sanitize()` drops audio added to one anyway.
+    fn accepts_audio(&self) -> bool {
+        self.inner.accepts_audio()
+    }
+    /// Drop every audio track, top level and inside compounds; whether any
+    /// was there. Switching to images does this itself.
+    fn remove_audio(&mut self) -> bool {
+        self.inner.remove_audio()
     }
     /// The compound clips of the top-level video tracks, ordered by start, as
     /// the player's getCompounds(): `{"id", "name", "start", "duration",

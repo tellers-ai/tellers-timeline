@@ -5,7 +5,13 @@ use crate::{
 use std::collections::{HashMap, HashSet};
 
 impl Timeline {
+    /// Clean the timeline up after an edit. An images timeline also loses
+    /// any audio an edit brought in (see [`Timeline::accepts_audio`]), before
+    /// the dangling sync links that leaves are cleared.
     pub fn sanitize(&mut self) {
+        if !self.accepts_audio() {
+            self.remove_audio();
+        }
         self.tracks.sanitize();
     }
 }
