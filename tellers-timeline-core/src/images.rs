@@ -20,7 +20,7 @@
 
 use serde_json::{Map, Value};
 
-use crate::{IdMetadataExt, Item, Seconds, Timeline, TrackKind};
+use crate::{IdMetadataExt, Item, Seconds, Timeline, Track, TrackKind};
 
 /// Timeline metadata key, under `tellers.ai`, holding the edit mode.
 pub const EDIT_MODE_KEY: &str = "edit_mode";
@@ -101,7 +101,9 @@ impl Timeline {
             .map_or(EditMode::Video, EditMode::parse)
     }
 
-    /// Set the edit mode. Video, the default, removes the key.
+    /// Set the edit mode. Video, the default, removes the key. Images drops
+    /// every audio track (see [`Timeline::remove_audio`]): an images
+    /// timeline has no sound.
     pub fn set_edit_mode(&mut self, mode: EditMode) {
         let ai = tellers_ai_mut(&mut self.metadata);
         match mode {
@@ -110,8 +112,22 @@ impl Timeline {
             }
             EditMode::Images => {
                 ai.insert(EDIT_MODE_KEY.to_string(), Value::from(mode.as_str()));
+                self.remove_audio();
             }
         }
+    }
+
+    /// Whether audio may be added: not to an images timeline, which has no
+    /// sound. [`Timeline::sanitize`] drops what is added anyway.
+    pub fn accepts_audio(&self) -> bool {
+        self.edit_mode() != EditMode::Images
+    }
+
+    /// Drop every audio track, at the top level and inside every compound,
+    /// returning whether any was there. Video clips keep their sync ids; a
+    /// sanitize then unlinks the ones whose sound is gone.
+    pub fn remove_audio(&mut self) -> bool {
+        remove_audio_tracks(&mut self.tracks.children)
     }
 
     /// The enabled compound clips of the enabled top-level video tracks,
@@ -177,4 +193,20 @@ impl Timeline {
             })
             .collect()
     }
+}
+
+/// Drop the audio tracks of `tracks` and of the compounds on the rest;
+/// whether any was dropped.
+fn remove_audio_tracks(tracks: &mut Vec<Track>) -> bool {
+    let before = tracks.len();
+    tracks.retain(|track| track.kind != TrackKind::Audio);
+    let mut removed = tracks.len() != before;
+    for track in tracks.iter_mut() {
+        for item in &mut track.items {
+            if let Item::Composite(stack) = item {
+                removed |= remove_audio_tracks(&mut stack.children);
+            }
+        }
+    }
+    removed
 }

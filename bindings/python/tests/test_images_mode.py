@@ -3,7 +3,7 @@ import pathlib
 
 import pytest
 
-from tellers_timeline import Timeline
+from tellers_timeline import Timeline, Track
 
 FIXTURE = pathlib.Path(__file__).parents[3] / "tellers-timeline-core/tests/fixtures/images_pages.otio"
 
@@ -32,3 +32,15 @@ def test_compounds_and_pages_of_the_players_example():
         {"time": 1.5, "duration": 1.5},
         {"time": 3.0, "duration": 2.5},
     ]
+
+
+def test_an_images_timeline_refuses_audio():
+    tl = Timeline([Track(kind="video", id="v1"), Track(kind="audio", id="a1")])
+    assert tl.accepts_audio()
+    tl.set_edit_mode("images")
+    assert not tl.accepts_audio()
+    assert [t.kind for t in tl.get_stack().children()] == ["video"]
+    tl.add_track(Track(kind="audio", id="a2"))
+    tl.sanitize()
+    assert [t.kind for t in tl.get_stack().children()] == ["video"]
+    assert not tl.remove_audio()
